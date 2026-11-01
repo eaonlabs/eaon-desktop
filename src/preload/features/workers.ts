@@ -16,6 +16,10 @@ import type {
   PurchaseRoutineDraft,
   WorkerRoutine
 } from '@shared/workers'
+import type { WorkerAppLink } from '@shared/workerApps'
+import type { HouseholdList } from '@shared/workerLists'
+import type { ConnectorId, ConnectorStatus, ConnectorStatuses } from '@shared/workerConnectors'
+import type { VaultLogin, VaultLoginDraft, VaultState } from '@shared/workerVault'
 
 /**
  * Renderer bridge for Eaon Workers. Exposed as `window.api.workers`. Main owns
@@ -115,5 +119,52 @@ export const workersApi = {
   onRoomsChanged: (handler: (rooms: WorkerRoom[]) => void): (() => void) => subscribe('workers:rooms-changed', handler),
   onRoomPost: (handler: (event: RoomPostEvent) => void): (() => void) => subscribe('workers:room-post', handler),
   /** The chat agent started a team: show its group chat. */
-  onOpenRoom: (handler: (roomId: string) => void): (() => void) => subscribe('workers:open-room', handler)
+  onOpenRoom: (handler: (roomId: string) => void): (() => void) => subscribe('workers:open-room', handler),
+
+  /* Linked apps (labs builds only; see shared/workerApps.ts). */
+  linkApp: (id: string, appId: string, options: { url?: string } = {}): Promise<WorkerAppLink> => ipcRenderer.invoke('workers:link-app', id, appId, options),
+  unlinkApp: (id: string, appId: string): Promise<void> => ipcRenderer.invoke('workers:unlink-app', id, appId),
+  /** Types the user's login into the worker's browser on the app's sign-in page. The password goes no further than that page. */
+  appSignIn: (id: string, appId: string, login: { username: string; password: string; remember?: boolean }, threadId?: string): Promise<{ ok: boolean; message: string }> =>
+    ipcRenderer.invoke('workers:app-sign-in', id, appId, login, threadId),
+  /** Opens the app's sign-in page in the worker's browser, for the user to sign in there themselves. */
+  appBrowser: (id: string, appId: string): Promise<boolean> => ipcRenderer.invoke('workers:app-browser', id, appId),
+  /** The user finished signing in by hand: the worker is told. */
+  appSignedIn: (id: string, appId: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:app-signed-in', id, appId, threadId),
+  hueStatus: (): Promise<{ paired: { ip: string } | null }> => ipcRenderer.invoke('workers:hue-status'),
+  /** Pairs with the Hue bridge (its button pressed in the last 30 s); the first one found unless `ip` names one. */
+  huePair: (ip?: string): Promise<{ ip: string; lights: number }> => ipcRenderer.invoke('workers:hue-pair', ip),
+  hueForget: (): Promise<void> => ipcRenderer.invoke('workers:hue-forget'),
+  /** A device card's switch, straight to the light or plug (a Hue name, or a Home Assistant entity). */
+  deviceSwitch: (control: { hue: string } | { entity: string }, on: boolean): Promise<boolean> => ipcRenderer.invoke('workers:device-switch', control, on),
+  lists: (): Promise<HouseholdList[]> => ipcRenderer.invoke('workers:lists'),
+  listToggle: (listId: string, itemId: string, done: boolean): Promise<void> => ipcRenderer.invoke('workers:list-toggle', listId, itemId, done),
+  listAdd: (listId: string, text: string): Promise<HouseholdList> => ipcRenderer.invoke('workers:list-add', listId, text),
+  onListsChanged: (handler: (lists: HouseholdList[]) => void): (() => void) => subscribe('workers:lists-changed', handler),
+  /** Services connected for the apps (Home Assistant, Tessie, SimpleFIN, Instacart, Google Maps): whether each works. Never a key. */
+  connections: (): Promise<ConnectorStatuses> => ipcRenderer.invoke('workers:connections'),
+  /** Checks the key or token works, then keeps it. Rejects with what went wrong. */
+  connect: (id: ConnectorId, fields: Record<string, string>): Promise<ConnectorStatus> => ipcRenderer.invoke('workers:connect', id, fields),
+  disconnect: (id: ConnectorId): Promise<void> => ipcRenderer.invoke('workers:disconnect', id),
+  onConnectionsChanged: (handler: (statuses: ConnectorStatuses) => void): (() => void) => subscribe('workers:connections-changed', handler),
+  /* The workers' password vault: what is saved, never a password or a key. */
+  vault: (): Promise<VaultState> => ipcRenderer.invoke('workers:vault'),
+  /** Saves a login (the password goes to main once, and stays there). */
+  vaultSave: (draft: VaultLoginDraft): Promise<VaultLogin> => ipcRenderer.invoke('workers:vault-save', draft),
+  vaultRemove: (loginId: string): Promise<void> => ipcRenderer.invoke('workers:vault-remove', loginId),
+  vaultAccess: (loginId: string, access: { workers?: 'all' | string[]; ask?: boolean }): Promise<void> => ipcRenderer.invoke('workers:vault-access', loginId, access),
+  vaultRemovePasskey: (passkeyId: string): Promise<void> => ipcRenderer.invoke('workers:vault-remove-passkey', passkeyId),
+  /** Picks an export from Apple's Passwords app and imports it; null when cancelled. */
+  vaultImportApple: (workers: 'all' | string[]): Promise<{ added: number; updated: number; skipped: number; file: string } | null> => ipcRenderer.invoke('workers:vault-import-apple', workers),
+  /** Moves the imported export file (unencrypted) to the Trash. */
+  vaultTrashImport: (): Promise<boolean> => ipcRenderer.invoke('workers:vault-trash-import'),
+  /** Opens Passwords and waits for its export, which is imported and trashed the moment it's saved (onVaultImportFound). */
+  vaultImportWatch: (workers: 'all' | string[]): Promise<{ folders: string[] }> => ipcRenderer.invoke('workers:vault-import-watch', workers),
+  vaultImportStop: (): Promise<void> => ipcRenderer.invoke('workers:vault-import-stop'),
+  onVaultImportFound: (listener: (result: { added: number; updated: number; skipped: number; file: string; trashed: boolean } | { error: string }) => void): (() => void) => {
+    const handler = (_e: unknown, result: Parameters<typeof listener>[0]): void => listener(result)
+    ipcRenderer.on('workers:vault-import-found', handler)
+    return () => void ipcRenderer.removeListener('workers:vault-import-found', handler)
+  },
+  onVaultChanged: (handler: (state: VaultState) => void): (() => void) => subscribe('workers:vault-changed', handler)
 }

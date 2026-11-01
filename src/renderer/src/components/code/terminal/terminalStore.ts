@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useApp } from '../../../state/store'
 import { useCode } from '../codeStore'
 import { PANE_NAMES, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalRunning } from '@shared/terminals'
+import type { Settings } from '@shared/types'
 import { terminals } from './registry'
 import { swapped } from './gridLayout'
 import { previewFor, settingsFor } from './appLook'
@@ -262,6 +263,17 @@ async function loadLayout(): Promise<void> {
       // A CLI installed while Eaon was open (from a terminal, the browser) stops
       // saying "Not installed" once you come back to the window.
       window.addEventListener('focus', () => void get().refreshAgents().catch(() => undefined))
+      // Each agent's command carries the flags for what Settings → Agent
+      // providers lets it do without asking: a change there reaches the next
+      // terminal opened, not only the next one after the window is refocused.
+      const permissionsOf = (settings: Settings | null): string => JSON.stringify([settings?.agentProviders?.permissions, settings?.agentProviders?.agentPermissions])
+      let permissions = permissionsOf(useApp.getState().settings)
+      useApp.subscribe((state) => {
+        const next = permissionsOf(state.settings)
+        if (next === permissions) return
+        permissions = next
+        void get().refreshAgents().catch(() => undefined)
+      })
     }
     const [layout, agents, running] = await Promise.all([
       window.api.terminals.layout(),

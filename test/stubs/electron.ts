@@ -9,6 +9,8 @@ import { join } from 'node:path'
 
 const userData = process.env.EAON_TEST_USERDATA ?? mkdtempSync(join(tmpdir(), 'eaon-test-'))
 process.env.EAON_TEST_USERDATA = userData
+// Claude Code's usage reports (cliAccounts/usageReport.ts) live in the user's home; a test's stay in its own folder.
+process.env.EAON_CLAUDE_USAGE_DIR ??= join(userData, 'claude-usage')
 
 export const app = {
   getPath: (name: string) => (name === 'userData' ? userData : join(userData, name)),
@@ -43,6 +45,8 @@ export const shell = {
 }
 
 export const dialog = { showMessageBox: async () => ({ response: -1 }) }
+/** Custom schemes: a test serves none (workers/cameraView.ts checks before it registers one). */
+export const protocol: { handle?: unknown; isProtocolHandled?: unknown; unhandle?: unknown } = {}
 export const crashReporter = { start: () => {} }
 export const nativeTheme = { shouldUseDarkColors: true, themeSource: 'system' }
 export const ipcMain = { handle: () => {}, on: () => {} }

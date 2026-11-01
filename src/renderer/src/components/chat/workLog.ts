@@ -5,8 +5,9 @@ import { activitySummary, type ActivityCall } from '../agent/Activity'
  * A reply as a work log, the way Chat lays it out: its sentences, each
  * thought on a line of its own, and between them each run of tool calls
  * folded to one line of what it did — "Read 2 files and ran 1 command",
- * "Changed 1 file" — that opens into the calls. Kept free of React so the
- * test harness can run it.
+ * "Changed 1 file" — that opens into the calls. In a worker's thread its
+ * cards and events (a routine set up, a job handed on) are items of their
+ * own. Kept free of React so the test harness can run it.
  */
 
 export type LogItem =
@@ -15,37 +16,107 @@ export type LogItem =
   | { kind: 'tools'; key: string; parts: ChatToolPart[] }
   /** A call whose result is something to look at, not a line: a swarm's agents, a generated picture. */
   | { kind: 'own'; key: string; part: ChatToolPart }
+  /** A worker's card (show_card) or sign-in request, drawn as a card in its thread. */
+  | { kind: 'card'; key: string; part: ChatToolPart }
+  /** Something a worker did that reads as a line of its own: a routine created, a job handed to a colleague. */
+  | { kind: 'event'; key: string; part: ChatToolPart }
+  /** Stocks a worker looked up, drawn live as a card whether or not it drew one itself (see workLog). */
+  | { kind: 'stocks'; key: string; symbols: string[]; range: string }
 
 /** Calls another part of the screen already shows: the Plan panel above the composer, the plan card. */
 const SHOWN_ELSEWHERE = new Set(['update_plan', 'present_plan'])
 const OWN = new Set(['spawn_agents', 'generate_image'])
+/** In a worker's thread: calls drawn as cards rather than folded into a run. */
+export const CARD_TOOLS = new Set(['show_card', 'show_ui', 'request_sign_in'])
+/** In a worker's thread: calls shown as a centred line ("Created routine ⏱ Overnight outbound"). */
+export const EVENT_TOOLS = new Set(['add_routine', 'remove_routine', 'create_worker', 'hand_off', 'message_worker', 'post_to_room', 'save_playbook', 'set_goal'])
 
 /**
  * The parts in order. A run of calls stays one item until a sentence or a
  * thought comes between; whitespace doesn't split it. A run keeps its first
  * call's key as it grows, so whether it is open survives streaming.
  */
-export function workLog(parts: ChatMessage['parts']): LogItem[] {
+export function workLog(parts: ChatMessage['parts'], worker = false): LogItem[] {
   const items: LogItem[] = []
+  // A worker that looked a stock up shows it live (WorkerUi.tsx), once a turn, unless it drew one itself:
+  // a smaller model answering "How's NVDA doing?" in a paragraph still gets the user a chart. It goes
+  // after the run of calls it came from, so the run reads as one line.
+  const shown = new Set(worker ? drawnStocks(parts) : [])
+  let looked: Extract<LogItem, { kind: 'stocks' }> | null = null
+  const push = (item: LogItem): void => {
+    if (looked && item.kind !== 'tools') {
+      items.push(looked)
+      looked = null
+    }
+    items.push(item)
+  }
   parts.forEach((part, index) => {
     if (part.type === 'text') {
-      if (part.text.trim()) items.push({ kind: 'text', key: `t${index}`, text: part.text })
+      if (part.text.trim()) push({ kind: 'text', key: `t${index}`, text: part.text })
       return
     }
     if (part.type === 'reasoning') {
-      if (part.text.trim()) items.push({ kind: 'thought', key: `r${index}`, text: part.text })
+      if (part.text.trim()) push({ kind: 'thought', key: `r${index}`, text: part.text })
       return
     }
     if (part.type !== 'tool' || SHOWN_ELSEWHERE.has(part.name)) return
+    // A worker's reaction is drawn on the user's bubble, not as a step.
+    if (worker && part.name === 'react' && part.status !== 'error' && part.status !== 'denied') return
+    // A card is drawn unless it was refused or failed; an event ("Created ● Vega") only once
+    // it has happened, since one can wait for an approval first. Until then, and when
+    // it fails, the call stays in the run, where its progress or error shows.
+    if (worker && CARD_TOOLS.has(part.name) && part.status !== 'error' && part.status !== 'denied') {
+      push({ kind: 'card', key: part.id, part })
+      return
+    }
+    if (worker && EVENT_TOOLS.has(part.name) && part.status === 'done') {
+      push({ kind: 'event', key: part.id, part })
+      return
+    }
     if (OWN.has(part.name)) {
-      items.push({ kind: 'own', key: part.id, part })
+      push({ kind: 'own', key: part.id, part })
       return
     }
     const last = items[items.length - 1]
     if (last?.kind === 'tools') last.parts.push(part)
-    else items.push({ kind: 'tools', key: part.id, parts: [part] })
+    else push({ kind: 'tools', key: part.id, parts: [part] })
+    if (worker && LOOKUPS.has(part.name) && part.status === 'done') {
+      const symbols = tickers(part.input.symbols).filter((s) => !shown.has(s)).slice(0, MAX_STOCK_CARDS)
+      for (const s of symbols) shown.add(s)
+      if (symbols.length) {
+        if (looked) looked.symbols.push(...symbols.slice(0, MAX_STOCK_CARDS - looked.symbols.length))
+        else looked = { kind: 'stocks', key: `${part.id}:stocks`, symbols, range: typeof part.input.range === 'string' ? part.input.range : '1d' }
+      }
+    }
   })
+  if (looked) items.push(looked)
   return items
+}
+
+/** Looking a stock up (main/features/trading/tools.ts). */
+const LOOKUPS = new Set(['trading_quote', 'trading_history'])
+const MAX_STOCK_CARDS = 3
+const tickers = (value: unknown): string[] =>
+  (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\s,]+/) : [])
+    .map((s) => String(s).trim().toUpperCase().replace(/^\$/, ''))
+    .filter((s) => /^[A-Z][A-Z0-9.\-]{0,9}$/.test(s))
+
+/** The stocks a turn's own show_ui cards already draw. */
+function drawnStocks(parts: ChatMessage['parts']): string[] {
+  const out: string[] = []
+  for (const part of parts) {
+    if (part.type !== 'tool' || part.name !== 'show_ui' || part.status === 'error' || part.status === 'denied') continue
+    const blocks = Array.isArray(part.input.blocks) ? part.input.blocks : []
+    const walk = (list: unknown[]): void => {
+      for (const b of list) {
+        const block = b as { type?: unknown; symbol?: unknown; tabs?: { blocks?: unknown[] }[] }
+        if (block?.type === 'stock') out.push(...tickers([block.symbol]))
+        if (block?.type === 'tabs' && Array.isArray(block.tabs)) for (const tab of block.tabs) walk(Array.isArray(tab?.blocks) ? tab.blocks : [])
+      }
+    }
+    walk(blocks)
+  }
+  return out
 }
 
 /** What a run's line says it did, grouped by the kind of call. */

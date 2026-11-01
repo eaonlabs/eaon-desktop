@@ -29,6 +29,8 @@ const URLS: Record<string, string> = Object.fromEntries(
 /** Marks stored as white glyphs (the logo is one colour). */
 const MONO = new Set([
   'baseten',
+  // Codex's mark is OpenAI's knot, in white (assets/providers/codex.svg is it on a black tile).
+  'codex',
   'cursor',
   'droid',
   'eaon',

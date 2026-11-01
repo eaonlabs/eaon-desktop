@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Download, X } from 'lucide-react'
 import { useApp } from '../state/store'
+import { versionLabel } from '@shared/version'
 
 /** Floats over every view once an update has finished downloading — the one
  * moment worth interrupting the user for. Checking/downloading stays ambient,
@@ -19,7 +20,7 @@ export function UpdateToast(): JSX.Element | null {
       <div className="update-toast__body">
         <div className="update-toast__title">Update ready</div>
         {/* Not "the next time you restart": a .deb installs only from Restart now (main/updater.ts). */}
-        <p className="update-toast__desc">Version {status.version} is ready. Restart Eaon to install it.</p>
+        <p className="update-toast__desc">Version {versionLabel(status.version)} is ready. Restart Eaon to install it.</p>
         <div className="update-toast__actions">
           <button className="btn btn--primary btn--sm" onClick={() => void window.api.updater.install()}>
             Restart now

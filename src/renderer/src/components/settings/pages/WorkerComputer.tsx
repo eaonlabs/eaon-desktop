@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, Loader2, TriangleAlert } from 'lucide-react'
 import { Card, Modal, Row, Section, Segmented, Switch } from '../../ui'
 import { HOST_DISK_LOW, type HostInstallProgress, type HostPairing, type WorkerHostState } from '@shared/workerHost'
+import { versionLabel } from '@shared/version'
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error))
 
@@ -410,7 +411,7 @@ export function WorkerComputerPage(): JSX.Element {
                     Send again
                   </button>
                 </Row>
-                <Row title="Host app" description={`Version ${hello.appVersion}. Eaon keeps it up to date by itself.`} />
+                <Row title="Host app" description={`Version ${versionLabel(hello.appVersion)}. Eaon keeps it up to date by itself.`} />
               </Card>
             </Section>
           )}

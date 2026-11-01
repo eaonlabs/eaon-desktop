@@ -4,6 +4,7 @@ import { useApp } from '../state/store'
 import { Popover, useDisclosure } from './ui'
 import { downloadPercent, repoName } from '../lib/format'
 import type { ModelDownloadProgress, UpdateStatus } from '@shared/types'
+import { versionLabel } from '@shared/version'
 
 /** Header button + popover showing every download in flight — Hugging Face
  * models and app updates alike, both sourced from the global store so this
@@ -126,14 +127,14 @@ function DownloadsPanel({
             <DownloadRow
               icon={<RefreshCw size={15} strokeWidth={1.9} />}
               title="Eaon Desktop update"
-              subtitle={`Version ${updateStatus.version} — starting download…`}
+              subtitle={`Version ${versionLabel(updateStatus.version)} — starting download…`}
             />
           )}
           {updateStatus.state === 'downloaded' && (
             <DownloadRow
               icon={<RefreshCw size={15} strokeWidth={1.9} />}
               title="Update ready"
-              subtitle={`Version ${updateStatus.version} — restart to install`}
+              subtitle={`Version ${versionLabel(updateStatus.version)} — restart to install`}
               action={{ label: 'Restart', onClick: () => void window.api.updater.install() }}
             />
           )}

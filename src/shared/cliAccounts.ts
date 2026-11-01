@@ -81,12 +81,12 @@ export type AccountUsage =
     }
 
 /**
- * What a Claude Code account shows when Claude Code hasn't kept its plan's
- * limits yet. Eaon starts no Claude Code work of its own to fetch them; it
- * reads the ones Claude Code keeps (main/features/cliAccounts/parse.ts,
- * claudeCachedUsage), which come once Claude Code has shown them.
+ * What a Claude Code account shows before Claude Code has said anything of
+ * its plan's limits. Eaon starts no Claude Code work of its own to fetch
+ * them: Claude Code reports them to the status line of the panes Eaon starts
+ * (main/features/cliAccounts/usageReport.ts), after each reply.
  */
-export const CLAUDE_LIMITS_NOTE = 'Claude Code hasn’t checked this plan’s limits on this computer yet. They show here once it has: open Claude Code, or type /usage in it.'
+export const CLAUDE_LIMITS_NOTE = 'Claude Code hasn’t reported this plan’s limits yet. They show here after its next reply in one of Eaon’s terminals.'
 
 /** Signing in to a new account, run by the CLI's own login. */
 export type CliLogin =

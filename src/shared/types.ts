@@ -3,6 +3,7 @@
 import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
+import type { AgentPermission, AgentPermissionChoice } from './agentPermissions'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -521,6 +522,10 @@ export interface Settings {
     lowPriority: boolean
     /** Look for newer versions of installed CLIs in the background. */
     updateChecks: boolean
+    /** What the ADE's agents may do without asking, for those on "Same as all agents" (shared/agentPermissions.ts). */
+    permissions: AgentPermission
+    /** An agent's own choice, by agent id. Claude Code starts on full access, as the ADE has always run it. */
+    agentPermissions: Record<string, AgentPermissionChoice>
   }
   cliUsage: {
     /** Show the plan usage meter at all. */
@@ -533,6 +538,12 @@ export interface Settings {
     autoSwitchCodex: boolean
     /** What it looks like: a ring per CLI, or a bar with the figures. */
     style: 'rings' | 'bar'
+    /**
+     * Every Claude Code session on this computer reports its plan's limits,
+     * not only those Eaon starts: Eaon's status line in Claude Code's own
+     * settings, the one there before still showing (main/features/cliAccounts/usageReport.ts).
+     */
+    claudeEverywhere: boolean
   }
   /** Settings → Usage. */
   /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */

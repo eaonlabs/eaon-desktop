@@ -82,6 +82,17 @@ const ACCOUNT_TOOLS = new Set(['payment_card', 'ios_simulator'])
 const ACCOUNT_REFUSAL =
   "You are answering a guest, and that tool reaches the user's own connected accounts, card or devices, so a guest can't have you use it."
 
+/**
+ * A worker's linked apps and connections (workers/apps.ts, connectors.ts):
+ * the user's bank, calendar, home, car, lists and saved logins. Below "Same
+ * as you" a guest gets the ones that reach nothing of the user's: a card
+ * without a screenshot, one the worker lays out, a trip's time, a link the
+ * user confirms.
+ */
+const GUEST_APP_TOOLS = new Set(['show_card', 'show_ui', 'route', 'app_link'])
+const APPS_REFUSAL =
+  "You are answering a guest, and that reaches the user's own apps, home or saved logins, so a guest can't have you use it."
+
 const MONEY_AND_MAIL_REFUSAL =
   "You are answering a guest, and your email and the user's trading account are the user's alone, so a guest can't have you use them."
 
@@ -98,6 +109,9 @@ export function guestGate(cap: GuestAccess): ToolGate | undefined {
     // The agent's inbox and the user's brokerage account are the user's alone, whatever a guest may otherwise do.
     if (tool.name.startsWith('email_') || tool.name.startsWith('trading_')) return MONEY_AND_MAIL_REFUSAL
     if (ACCOUNT_TOOLS.has(tool.name) || toolSourceOf(tool) === 'plugins') return ACCOUNT_REFUSAL
+    // A card's screenshot is the worker's signed-in browser, as the browser itself would show it.
+    if (tool.name === 'show_card' && input.screenshot === true) return PRIVATE_REFUSAL
+    if (toolSourceOf(tool) === 'worker-apps' && !GUEST_APP_TOOLS.has(tool.name)) return APPS_REFUSAL
     // At every level below "Same as you", not only "Talk only": a guest must
     // not reach the user's router, local servers or cloud metadata.
     if (tool.name === 'web_fetch') {

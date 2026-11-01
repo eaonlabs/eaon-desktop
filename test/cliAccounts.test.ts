@@ -181,11 +181,43 @@ test('a Claude plan shows the limits Claude Code last saw, with when it saw them
   }
 })
 
+test('what Claude Code reported after its last reply in an Eaon pane wins over an older /usage, and loses to a newer one', async () => {
+  const h = harness()
+  try {
+    const status = { loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com', subscriptionType: 'max' }
+    const fetched = h.clock() - 3 * 60 * 60_000
+    const reportedAt = h.clock() - 2 * 60_000
+    const report = { at: reportedAt, input: { rate_limits: { five_hour: { used_percentage: 61.4, resets_at: (h.clock() + 90 * 60_000) / 1000 }, seven_day: { used_percentage: 48, resets_at: (h.clock() + 3 * 86_400_000) / 1000 } } } }
+    h.script.claude.set(null, { status, config: claudeConfigWith(fetched), report })
+    await h.service.refresh()
+    let claude = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(claude?.ok)
+    assert.equal(claude.asOf, reportedAt, 'the report from two minutes ago, not /usage from three hours ago')
+    assert.deepEqual(claude.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 61%', 'Week 48%'])
+
+    h.script.claude.set(null, { status, config: claudeConfigWith(h.clock() - 30_000), report })
+    h.tick(20_000)
+    await h.service.refresh({ force: true, tool: 'claude' })
+    claude = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(claude?.ok)
+    assert.deepEqual(claude.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 39%', 'Week 45%'], 'a /usage typed since is newer')
+
+    h.script.claude.set(null, { status, report })
+    h.tick(20_000)
+    await h.service.refresh({ force: true, tool: 'claude' })
+    claude = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(claude?.ok, 'a report alone is enough: nobody has to type /usage')
+    assert.ok(!h.script.calls.some((c) => /usage|print/.test(c)), 'no Claude Code was started to ask')
+  } finally {
+    h.cleanup()
+  }
+})
+
 /* -------------------------------------------------------------------- service */
 
 interface Script {
   /** Per folder (null = default): who is signed in, and what its .claude.json holds. */
-  claude: Map<string | null, { status: unknown; config?: unknown }>
+  claude: Map<string | null, { status: unknown; config?: unknown; report?: { at: number; input: unknown } }>
   codex: Map<string | null, { account: unknown; limits: unknown }>
   calls: string[]
   loggedOut: string[]
@@ -205,6 +237,7 @@ function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwit
       return script.claude.get(dir)?.status ?? { loggedIn: false }
     },
     claudeConfig: async (dir) => script.claude.get(dir)?.config ?? null,
+    claudeReport: async (dir) => script.claude.get(dir)?.report ?? null,
     codexRead: async (_bin, dir) => {
       script.calls.push(`codex read ${dir ?? 'default'}`)
       return script.codex.get(dir) ?? { account: { account: null }, limits: null }

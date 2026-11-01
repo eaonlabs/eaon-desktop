@@ -3,10 +3,32 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.7.5] — 2026-10-31
+
+### Added
+- **Workers that look like themselves.** Ten shapes to pick from on the New worker page, and new faces: heart eyes, dizzy, thinking, laughing, worried and shades.
+- **Cards in a worker's thread.** A worker can show an order, a ride, a trip, a list, a calendar or a device as a card instead of a paragraph, and react to your message with an emoji instead of a reply that only says "OK".
+- **What a worker set up reads as a line of its own:** "Created routine Friday dinner", "Handed … to Chief". Messages from colleagues fold into one line that opens to show them, and colleagues' names show in their colours.
+- **Cards a worker designs itself.** Ask "How's NVDA doing?" and a worker can answer with a card it lays out: the stock's live price and chart (switch between 1D, 5D, 1M, 6M and 1Y, and read any point), its figures, the latest headlines, and buttons to act on it. Workers build these from charts, tables you can sort, tabs, lists, figures and buttons; Eaon draws them, and nothing the worker writes runs.
+- **Choose which plugins each worker can use**, from its settings.
+- **A worker that looks a stock up shows it live**, as a card with its price, today's move, a chart you can switch and read, and headlines, even when its reply is only a sentence.
+- **Workers answer with cards when it helps.** Every worker is told to show figures, a state or choices as a card, to use the live stock block for a stock, and never to put a number on a card it didn't get from a tool or you.
+- **Labs builds only:** a doorbell or camera in Home Assistant (Ring included) shows on its card as it is now, with Watch live for its live view. Import from Passwords opens Apple's Passwords app and brings your logins and 2FA codes in by itself the moment you export them, then moves the file to the Trash (Apple keeps passkeys in Passwords). Link Shortcuts to a worker and it can run your shortcuts, which reach the apps on your Mac: Home, Messages, Music, Focus and any app's own actions. A light's or plug's card switch flips it straight away through Hue or Home Assistant, without waiting on the worker. Workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
+- **Choose what each coding agent may do without asking.** Settings → Agent providers has a permission for all of the ADE's agents and one for each: its own settings, ask first, accept edits, approve for me, or full access. Each uses that agent's own switch, and an agent without one isn't offered it. Out of the box nothing changes: Claude Code keeps full access, the others their own settings.
 
 ### Changed
 - **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
+- **Eaon says its release's name.** Settings, About Eaon, update notices and the release-notes link say 2026.7.2.1 (its name on GitHub) instead of the 2026.7.3 that updates compare.
+- **A new Codex logo**: OpenAI's knot, white on black.
+
+### Fixed
+- **A stock's move today was wrong for a moment after a longer chart was looked at.** Prices from a month's chart replaced the day's quote, so "today" was measured from a month ago (a flat stock read +14%). The Trading tab and workers' quotes were affected too.
+- **Opening Terminal from Connect apps works in the installed app.** macOS refused Eaon's Apple events without asking, because the app didn't declare them; the same fix lets workers reach Calendar and Reminders (labs).
+- **Labs: the workers' connections follow each service's rules.** Tesla commands wait for a sleeping car to wake (up to two minutes) and never look failed when they may have run. SimpleFIN is asked once an hour at most (it disables tokens asked more than 24 times a day), says when a bank needs signing in again, and marks pending transactions. An Instacart Development key works (it was refused: only approved Production keys work on Instacart's main host). Home Assistant services with digits in their name work, turning a Hue light off while naming a colour no longer errors, and an IPv6 Hue bridge works.
+- **Automatic purchases carry on through a restart.** When Eaon closes in the middle of a purchase (an update, or the computer restarting for one), an order whose card was never typed and whose order button was never pressed is cancelled and no longer uses up the day's or month's limit, so later automatic purchases aren't sent to you for approval. One that may have gone through says "Needs attention" in Settings → Payments, keeps counting, and is never bought again. A purchase schedule (made with /purchase, or kept in Scheduled tasks) whose order was cut off before anything was bought makes it once when Eaon is back, within a day.
+- **Payments suggests running in the background** when automatic purchases or a purchase schedule are on, so Eaon starts again after the computer restarts for an update.
+- **Agent providers no longer says "0 of 0 enabled"** while it is still looking for the coding CLIs on this computer.
+- **Claude's usage in the ADE keeps itself up to date.** The meter showed what Claude Code's /usage last fetched, so it went stale unless you typed /usage. Claude Code now reports its plan's 5-hour and weekly limits, and when each resets, to Eaon after every reply — in any terminal on your Mac, not only Eaon's, for each of your Claude accounts — and the meter follows within seconds. Eaon adds its status line to Claude Code's settings for that, as Orca does; Settings → Accounts → Track every Claude Code session turns it off and puts your own back. Your own Claude Code status line still shows. Eaon still never reads your Claude sign-in or asks Anthropic itself, as Anthropic's terms require. (macOS and Linux; on Windows the meter shows what /usage last fetched, as before.)
 
 ## [2026.7.2.1] — 2026-10-28
 

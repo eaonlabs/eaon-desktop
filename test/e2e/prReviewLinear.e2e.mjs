@@ -21,6 +21,14 @@ const KEY = 'lin_api_e2etestkeye2etestkey00'
 const PR_URL = 'https://github.com/acme/widget/pull/7'
 
 /** The JSON lines a stand-in logged, once there are at least `count` (or what there is after 30 s). */
+/** Claude Code's arguments after the status line Eaon starts it with (cliAccounts/usageReport.ts), which comes first. Windows panes get none. */
+function afterUsageReport(args) {
+  if (process.platform === 'win32') return args
+  assert.equal(args[0], '--settings', `Claude Code is started with the usage report: ${JSON.stringify(args)}`)
+  assert.match(args[1], /claude-usage[\\/]settings\.json$/)
+  return args.slice(2)
+}
+
 async function linesOf(file, count) {
   const read = () => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
   const deadline = Date.now() + 30_000
@@ -179,10 +187,11 @@ if (fs.existsSync('.eaon/review-task.md')) {
     s.t.diagnostic(`claude was run with: ${JSON.stringify(asked)}`)
     assert.equal(asked.length, 1, 'Claude Code started once')
     assert.equal(realpathSync(asked[0].cwd), realpathSync(worktree))
-    // Claude Code panes always start with bypass permissions; the task is the one argument after that.
-    assert.deepEqual(asked[0].args.slice(0, 1), ['--dangerously-skip-permissions'])
-    assert.equal(asked[0].args.length, 2, 'the task is one argument')
-    assert.match(asked[0].args[1], /^Review pull request #7 \(Retry the login three times\)\. Read \.eaon\/review-task\.md/)
+    // Claude Code panes start with the usage meter's status line, then bypass permissions; the task is the one argument after that.
+    const review = afterUsageReport(asked[0].args)
+    assert.deepEqual(review.slice(0, 1), ['--dangerously-skip-permissions'])
+    assert.equal(review.length, 2, 'the task is one argument')
+    assert.match(review[1], /^Review pull request #7 \(Retry the login three times\)\. Read \.eaon\/review-task\.md/)
     assert.equal(readFileSync(join(worktree, 'login.ts'), 'utf8'), 'export const retries = 3\n', 'the PR’s change is what’s checked out')
     assert.equal(git(worktree, 'status', '--porcelain'), '', 'Eaon’s notes stay out of git')
     const sub = await page.eval(() => [...document.querySelectorAll('.ade-session')].map((el) => el.textContent?.replace(/\s+/g, ' ')).find((t) => t?.includes('Review #7')))
@@ -230,8 +239,9 @@ if (fs.existsSync('.eaon/review-task.md')) {
     s.t.diagnostic(`claude runs: ${JSON.stringify(runs)}`)
     assert.equal(runs.length, 2)
     const worked = runs[1]
-    assert.equal(worked.args[0], '--dangerously-skip-permissions')
-    assert.match(worked.args[1], /^Work on Linear issue ENG-12 \(Add search to the docs\)\. Read \.eaon\/issue\.md/)
+    const work = afterUsageReport(worked.args)
+    assert.equal(work[0], '--dangerously-skip-permissions')
+    assert.match(work[1], /^Work on Linear issue ENG-12 \(Add search to the docs\)\. Read \.eaon\/issue\.md/)
     const issueDir = realpathSync(worked.cwd)
     assert.ok(issueDir.startsWith(join(home, 'Eaon', 'worktrees', 'widget') + '/'), `a worktree of its own: ${issueDir}`)
     assert.equal(git(issueDir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'alex/eng-12-add-search', 'on the branch Linear named')

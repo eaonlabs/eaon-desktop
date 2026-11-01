@@ -26,6 +26,7 @@ import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
+import { applyClaudeEverywhere } from './features/cliAccounts'
 import { noteFirstRun } from './features/onboarding'
 import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
@@ -59,6 +60,7 @@ import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './e
 import { POLICY_GATED_FEATURES } from './features/enterprise'
 import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl } from './security/hardening'
 import { trustSystemNetwork } from './netTrust'
+import { versionLabel } from '@shared/version'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -100,7 +102,10 @@ protocol.registerSchemesAsPrivileged([
   // A video wallpaper (features/wallpaper.ts): a standard scheme, which is what
   // lets a video seek and loop by byte ranges, with CORS so the page can draw
   // its frames into the wallpaper's styles. It serves only Eaon's own copies.
-  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } }
+  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } },
+  // A worker's camera card (workers/cameraView.ts): a Home Assistant camera's
+  // picture or live stream, fetched by main so its token never reaches the page.
+  { scheme: 'eaon-camera', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])
@@ -396,6 +401,10 @@ async function openReleaseNotes(): Promise<void> {
 }
 
 function buildMenu(): void {
+  // About Eaon says the release's name, 2026.7.2.1, not the semver under it (shared/version.ts). Both
+  // fields alike, so macOS shows the one version rather than "2026.7.2.1 (2026.7.3)".
+  const label = versionLabel(app.getVersion())
+  app.setAboutPanelOptions({ applicationName: 'Eaon', applicationVersion: label, version: label })
   // To the Eaon window in front, not whatever window has focus: with the
   // computer-use pill focused that was the pill, and the command was lost.
   const send = (channel: string): void => {
@@ -590,6 +599,7 @@ function registerIpc(): void {
     if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
+    if (patch.cliUsage && patch.cliUsage.claudeEverywhere !== undefined) applyClaudeEverywhere(next.cliUsage.claudeEverywhere)
     broadcast('settings:changed', forRenderer(next), e.sender)
     return forRenderer(next)
   })

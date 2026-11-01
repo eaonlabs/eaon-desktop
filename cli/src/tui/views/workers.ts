@@ -50,7 +50,13 @@ const FACES: Record<WorkerMood, string> = {
   angry: '(ò_ó)',
   sleepy: '(˘_˘)',
   asleep: '(-_-)',
-  dead: '(x_x)'
+  dead: '(x_x)',
+  love: '(♥‿♥)',
+  dizzy: '(@_@)',
+  thinking: '(•ˇ•)',
+  laughing: '(>‿<)',
+  worried: '(•﹏•)',
+  cool: '(■_■)'
 }
 
 const STATUS_STYLE: Record<Worker['status'], Style> = {

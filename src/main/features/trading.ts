@@ -277,6 +277,7 @@ export const tradingFeature: Feature = {
     ipcMain.handle('trading:reset-simulator', (_e, cash?: number) => trading.resetSimulator(cash ?? undefined))
     ipcMain.handle('trading:quote', (_e, symbol: string) => trading.quote(String(symbol ?? '')))
     ipcMain.handle('trading:bars', (_e, symbol: string, range: BarRange) => trading.bars(String(symbol ?? ''), range))
+    ipcMain.handle('trading:news', (_e, symbol: string, count?: number) => trading.news(String(symbol ?? ''), Math.max(1, Math.min(Number(count) || 4, 10))))
     ipcMain.handle('trading:save-schedule', (_e, draft: TradingScheduleDraft) => trading.saveSchedule(draft ?? ({} as TradingScheduleDraft)))
     ipcMain.handle('trading:remove-schedule', (_e, id: string) => trading.removeSchedule(String(id ?? '')))
     ipcMain.handle('trading:start-session', (_e, request: StartSessionRequest) => trading.startSession(request ?? ({} as StartSessionRequest)))
