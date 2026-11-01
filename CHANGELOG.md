@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.7.4] — 2026-10-31
+## [2026.7.5] — 2026-10-31
 
 ### Added
 - **Workers that look like themselves.** Ten shapes to pick from on the New worker page, and new faces: heart eyes, dizzy, thinking, laughing, worried and shades.
