@@ -65,6 +65,11 @@ export function setPurchaseLookup(next: PurchaseLookup | null): void {
   lookup = next
 }
 
+/** Whether the payments engine is running, so purchases can be looked up at all. */
+export function purchasesKnown(): boolean {
+  return lookup !== null
+}
+
 export function findPurchase(id: string): PurchaseRecord | null {
   return lookup?.all().find((p) => p.id === id) ?? null
 }
@@ -72,4 +77,25 @@ export function findPurchase(id: string): PurchaseRecord | null {
 /** A purchase schedule's orders, newest first. */
 export function planPurchases(planId: string): PurchaseRecord[] {
   return lookup?.all().filter((p) => p.planId === planId) ?? []
+}
+
+/**
+ * Slack on "since": a purchase stamped a little before the run started (the
+ * clock set back mid-run) still counts as the run's. Too wide only means a
+ * cut-off run isn't made again; too narrow could buy twice.
+ */
+const CLOCK_SLACK_MS = 60 * 60_000
+
+/**
+ * Whether a run may have bought something: a purchase of its chat or of its
+ * purchase schedule, from when it started on, whose card was typed, whose
+ * order button was pressed, or that was paid (engine.ts `mayHaveCharged`).
+ * A purchase schedule's runs share one chat, so earlier runs' orders there
+ * don't count. Null when the payments engine isn't running, so nobody can tell.
+ */
+export function mayHaveBoughtSince(chatId: string | null, planId: string, since: number): boolean | null {
+  if (!lookup) return null
+  return lookup
+    .all()
+    .some((p) => (p.planId === planId || (chatId !== null && p.chatId === chatId)) && p.createdAt >= since - CLOCK_SLACK_MS && (p.status === 'paid' || Boolean(p.typedAt || p.submittedAt)))
 }

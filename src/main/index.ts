@@ -59,6 +59,7 @@ import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './e
 import { POLICY_GATED_FEATURES } from './features/enterprise'
 import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl } from './security/hardening'
 import { trustSystemNetwork } from './netTrust'
+import { versionLabel } from '@shared/version'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -399,6 +400,10 @@ async function openReleaseNotes(): Promise<void> {
 }
 
 function buildMenu(): void {
+  // About Eaon says the release's name, 2026.7.2.1, not the semver under it (shared/version.ts). Both
+  // fields alike, so macOS shows the one version rather than "2026.7.2.1 (2026.7.3)".
+  const label = versionLabel(app.getVersion())
+  app.setAboutPanelOptions({ applicationName: 'Eaon', applicationVersion: label, version: label })
   // To the Eaon window in front, not whatever window has focus: with the
   // computer-use pill focused that was the pill, and the command was lost.
   const send = (channel: string): void => {

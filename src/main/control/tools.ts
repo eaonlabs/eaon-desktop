@@ -13,6 +13,7 @@ import { LIBRARY, libraryState, pullLibraryVariant, removeInstalledModel } from 
 import { findLibraryModel } from '../modelLibrary/catalog'
 import { listProviders } from '../providers'
 import { store } from '../store'
+import { versionLabel } from '@shared/version'
 
 /**
  * The tools behind Eaon's control API (`/control`). Each is a name, a plain
@@ -144,7 +145,8 @@ export function createControlTools(host: ControlHost): ControlTool[] {
         const runtime = await llamaRuntime.status()
         return {
           app: 'Eaon',
-          version: app.getVersion(),
+          // The release's name, as Settings says it (shared/version.ts).
+          version: versionLabel(app.getVersion()),
           computer: { platform: process.platform, arch: process.arch, memory: gb(os.totalmem()) },
           loaded: runtime.chat ? { model: runtime.chat.modelId, state: runtime.chat.state } : null,
           downloaded: localModels().filter((m) => !isEmbeddingModel(m)).length,
