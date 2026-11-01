@@ -1,3 +1,5 @@
+import { versionLabel } from './version'
+
 /**
  * Where Eaon's own pages live: the public repository, its releases and
  * issues, and the user documentation on eaon.dev. One place, so a move (the
@@ -19,7 +21,8 @@ export const DOCS_URL = 'https://eaon.dev/docs'
  */
 export function releaseTagUrl(version: string): string | null {
   const v = version.trim().replace(/^v/, '')
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(v)) return null
+  // A release's GitHub name may have a fourth part (2026.7.2.1: shared/version.ts).
+  if (!/^\d+\.\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z.-]+)?$/.test(v)) return null
   return `${RELEASES_URL}/tag/v${v}`
 }
 
@@ -31,7 +34,8 @@ export function releaseTagUrl(version: string): string | null {
  * limited) falls back to the list, which always works.
  */
 export async function releaseNotesUrl(version: string, exists: (url: string) => Promise<boolean>): Promise<string> {
-  const tag = releaseTagUrl(version)
+  // The release's GitHub tag is its name: v2026.7.2.1 for the 2026.7.3 underneath (shared/version.ts).
+  const tag = releaseTagUrl(versionLabel(version))
   if (!tag) return RELEASES_URL
   try {
     return (await exists(tag)) ? tag : RELEASES_URL

@@ -81,6 +81,11 @@
 .usage-ring__arc[data-tone='warn'] {
   stroke: var(--ring-warn);
 }
+.usage-ring__arc[data-tone='unknown'] {
+  stroke: var(--text-3);
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+}
 .usage-ring__arc[data-tone='low'] {
   stroke: var(--ring-low);
 }

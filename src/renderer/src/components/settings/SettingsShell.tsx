@@ -92,7 +92,7 @@ const KEYWORDS: Record<string, string> = {
   providers:
     'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free event code hackathon workshop eaon event eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
-  'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority',
+  'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority permissions full access yolo bypass skip permissions accept edits approve for me ask for approval',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',

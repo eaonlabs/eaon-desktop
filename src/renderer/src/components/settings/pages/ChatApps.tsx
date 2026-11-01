@@ -178,7 +178,7 @@ function LinkSection({ link, status, autoFocus }: { link: ChannelLink; status: C
   const update = (patch: Parameters<typeof window.api.channels.update>[1]): Promise<void> => run(() => window.api.channels.update(link.id, patch))
 
   const workerOptions = [
-    ...workers.map((w) => ({ value: w.id, label: w.name, icon: <WorkerFace color={w.color} size={16} /> })),
+    ...workers.map((w) => ({ value: w.id, label: w.name, icon: <WorkerFace color={w.color} shape={w.shape} size={16} /> })),
     ...(worker ? [] : [{ value: '', label: 'Choose a worker' }])
   ]
 

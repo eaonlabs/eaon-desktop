@@ -14,7 +14,8 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
-import { cliAccountEnv, cliToolEnv } from './cliAccounts'
+import { cliAccountDirs, cliAccountEnv, cliToolEnv } from './cliAccounts'
+import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccounts/usageReport'
 import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
@@ -24,6 +25,7 @@ import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
 import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, PROMPT_ARG, privacyBlockedMessage, type HandoffRequest, type HandoffResult, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
+import { effectivePermission, permissionArgs, permissionEnv, type PermissionPrefs } from '@shared/agentPermissions'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
 import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
@@ -106,18 +108,39 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
 ]
 
 /**
- * Flags an agent always starts with in the ADE. Claude Code runs with bypass
- * permissions, never stopping to ask before it edits or runs something. A
- * resume, `--continue`, a first task and a handoff all build on this command,
- * so they keep the flag; the session watch knows the agent by the first word,
- * which is still `claude`.
+ * How a pane starts an agent found on PATH: its binary, then the flags for
+ * what Settings → Agent providers lets it do without asking
+ * (shared/agentPermissions.ts). Out of the box that is Claude Code on full
+ * access (`--dangerously-skip-permissions`), as the ADE has always run it, and
+ * every other agent on its own settings. A resume, `--continue`, a first task
+ * and a handoff all build on this command, so they keep the flags; the session
+ * watch knows the agent by the first word, which is still its binary.
  */
-const AGENT_FLAGS: Partial<Record<TerminalAgentId, string>> = { claude: '--dangerously-skip-permissions' }
-
-/** How a pane starts an agent found on PATH: its binary, then any flags it always takes here. */
-export function agentCommand(id: TerminalAgentId, bin: string): string {
-  const flags = AGENT_FLAGS[id]
+export function agentCommand(id: TerminalAgentId, bin: string, prefs: PermissionPrefs | undefined = store.getSettings().agentProviders): string {
+  const flags = permissionArgs(id, effectivePermission(id, prefs))
   return flags ? `${bin} ${flags}` : bin
+}
+
+/** Whether a pane's line starts Claude Code: its first word is `claude`, bare or as a path. */
+const runsClaude = (command: string | null | undefined): boolean =>
+  path.basename((/^\S+/.exec(command ?? '')?.[0] ?? '').replace(/^['"]|['"]$/g, '')) === 'claude'
+
+/**
+ * A local pane's Claude Code, started with the status line that reports its
+ * plan's limits to the usage meter (cliAccounts/usageReport.ts) — your own
+ * status line still shows. Only here, not in an SSH pane (the file is on this
+ * computer) or a friend's (they get the bare binary). Any other line, or one
+ * that brings its own settings, is left as it is.
+ */
+export function withUsageReport(command: string | null, settings: string | null, kind: ShellKind): string | null {
+  if (!command || !settings || !runsClaude(command) || /\s--settings(?:\s|=)/.test(command)) return command
+  const first = /^\S+/.exec(command)?.[0] ?? ''
+  return `${first} --settings ${quoteArg(settings, kind)}${command.slice(first.length)}`
+}
+
+/** The settings file for that, made ready for every Claude Code account; null where it can't be used. */
+function usageReportSettings(): string | null {
+  return prepareClaudeReport(claudeReportRoot(), cliAccountDirs('claude').map(claudeFolder))
 }
 
 /** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
@@ -185,7 +208,7 @@ function agents(): TerminalAgent[] {
  */
 async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
   // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
-  return { ...cliAccountEnv(), ...(await toolEnv(agent)) }
+  return { ...cliAccountEnv(), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
 }
 
 async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
@@ -434,6 +457,13 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   /** A local shell started (not reattached) with `env`: its Codex account is noted. */
   const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null): TerminalSpawnResult => {
+    // Claude Code's plan limits reach the usage meter after each reply (withUsageReport).
+    if (runsClaude(req.command) || runsClaude(plan?.command)) {
+      const settings = usageReportSettings()
+      const kind = paneShellKind()
+      if (req.command) req = { ...req, command: withUsageReport(req.command, settings, kind) }
+      if (plan) plan = { ...plan, command: withUsageReport(plan.command, settings, kind) }
+    }
     const result = manager.spawn(req, env, plan)
     if (result.ok && !result.reattached) codexHomes.set(req.paneId, env.CODEX_HOME ?? null)
     return result

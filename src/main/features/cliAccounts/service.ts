@@ -19,7 +19,7 @@ import {
   type CliToolAccounts,
   CLAUDE_LIMITS_NOTE
 } from '@shared/cliAccounts'
-import { claudeCachedUsage, claudeStatus, codexAccount, codexUsage } from './parse'
+import { claudeCachedUsage, claudeReportedUsage, claudeStatus, codexAccount, codexUsage, type ClaudeCachedUsage } from './parse'
 import { DIR_VARIABLE } from './cli'
 import { prepareFolder, removeFolder } from './folders'
 
@@ -46,6 +46,8 @@ export interface CliRunner {
   claudeStatus: (bin: string, dir: string | null) => Promise<unknown>
   /** Claude Code's settings file for an account (cli.ts, claudeConfig): only read, for the limits it keeps there. */
   claudeConfig?: (dir: string | null) => Promise<unknown>
+  /** What Claude Code last reported to the status line Eaon's terminals give it (usageReport.ts), and when. */
+  claudeReport?: (dir: string | null) => Promise<{ at: number; input: unknown } | null>
   codexRead: (bin: string, dir: string | null) => Promise<{ account: unknown; limits: unknown | null }>
   logout: (tool: CliTool, bin: string, dir: string) => Promise<void>
 }
@@ -157,6 +159,11 @@ export class CliAccounts {
     return account.dir ? { [DIR_VARIABLE[tool]]: account.dir } : {}
   }
 
+  /** Every account's folder for `tool` (null for the default one). */
+  accountDirs(tool: CliTool): (string | null)[] {
+    return this.saved.tools[tool].accounts.map((a) => a.dir ?? null)
+  }
+
   /** Told whenever a CLI's active account changes, whoever changed it. */
   onActive(listener: (tool: CliTool) => void): () => void {
     this.activeListeners.add(listener)
@@ -264,12 +271,20 @@ export class CliAccounts {
         this.saved.usage[key] = { ok: false, at, reason: 'no-limits', message: 'Signed in with an API key: billed per use, no plan limits' }
         return
       }
-      // A Claude plan's limits come only from Claude Code: Eaon doesn't start it to
-      // ask (Anthropic's terms for other apps), but reads what it last saw from the
-      // settings file it keeps them in. With none there yet, it says where to look.
-      const cached = claudeCachedUsage(await this.deps.runner.claudeConfig?.(account.dir).catch(() => null))
-      this.saved.usage[key] = cached
-        ? { ok: true, at, asOf: cached.asOf, plan: status.plan, windows: cached.windows }
+      // A Claude plan's limits come only from Claude Code: Eaon doesn't ask Anthropic
+      // itself (Anthropic's terms for other apps). Claude Code reports them to the
+      // status line of the panes Eaon starts after each reply, and keeps what its
+      // /usage last fetched in its settings file: the newer of the two is shown.
+      // With neither yet, it says where they come from.
+      const [cached, report] = await Promise.all([
+        this.deps.runner.claudeConfig?.(account.dir).catch(() => null),
+        this.deps.runner.claudeReport?.(account.dir).catch(() => null)
+      ])
+      const seen = [claudeCachedUsage(cached), report ? claudeReportedUsage(report.input, report.at, at) : null]
+        .filter((usage): usage is ClaudeCachedUsage => usage !== null)
+        .sort((a, b) => b.asOf - a.asOf)[0]
+      this.saved.usage[key] = seen
+        ? { ok: true, at, asOf: seen.asOf, plan: status.plan, windows: seen.windows }
         : { ok: false, at, reason: 'in-cli', message: CLAUDE_LIMITS_NOTE }
       return
     }

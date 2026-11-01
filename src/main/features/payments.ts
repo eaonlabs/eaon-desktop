@@ -48,9 +48,17 @@ export function paymentsEngine(): PaymentsEngine | null {
  * didn't take, until the order is completed. Before the authorization the
  * usual rules hold, so a "Buy now" can't place an order nobody priced.
  */
-export function autopilotCovers(chatId: string, url: string, click: SpendingClick | undefined, payments: Pick<PaymentsEngine, 'openPlanOrder'>): boolean {
+export function autopilotCovers(
+  chatId: string,
+  url: string,
+  click: SpendingClick | undefined,
+  payments: Pick<PaymentsEngine, 'openPlanOrder'> & Partial<Pick<PaymentsEngine, 'notePlanPress'>>
+): boolean {
   const grant = click?.messageId ? grantFor(click.messageId) : null
-  return Boolean(grant?.autopilot && grant.used && urlMatchesSite(url, grant.site) && payments.openPlanOrder(chatId, grant.planId, url))
+  if (!(grant?.autopilot && grant.used && urlMatchesSite(url, grant.site) && payments.openPlanOrder(chatId, grant.planId, url))) return false
+  // It may be the order button: recorded, so a restart can tell this order may have gone through.
+  payments.notePlanPress?.(chatId, grant.planId, url)
+  return true
 }
 
 function createEngine(): PaymentsEngine {

@@ -205,14 +205,17 @@ export const defaultSettings: Settings = {
     hidden: [],
     order: [],
     lowPriority: false,
-    updateChecks: true
+    updateChecks: true,
+    permissions: 'own',
+    agentPermissions: { claude: 'full' }
   },
   cliUsage: {
     meter: true,
     view: 'detailed',
     alerts: true,
     autoSwitchCodex: false,
-    style: 'rings'
+    style: 'rings',
+    claudeEverywhere: true
   },
   ade: {
     theme: 'eaon',

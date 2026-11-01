@@ -117,9 +117,14 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   await s.shot(page2, 'providers-codex-row')
   await page2.click('.settings__back')
 
-  // A worker can run on Codex too: the editor offers it, and signs in right there.
+  // A worker can run on Codex too: its editor offers it, and signs in right there. A new worker
+  // is made on a page of its own (name and purpose); its engine is chosen in Edit.
   await page2.click('.mode-switch__option', { text: 'Workers' })
   await page2.click('[aria-label="New worker"]')
+  await page2.fill('.worker-create__input[placeholder="New worker"]', 'Kit')
+  await page2.click('.worker-create__go', { text: 'Get started' })
+  await page2.waitFor(() => document.querySelector('.worker-profile__name')?.textContent?.trim() === 'Kit', { message: "the new worker's page" })
+  await page2.click('[aria-label="Edit"]')
   await page2.click('.worker-editor .select', { text: /Eaon \(any provider\)/ })
   await page2.click('[role="menuitem"]', { text: /^Codex/ })
   await page2.find('.worker-editor__engine-note', { text: /isn't signed in/ })

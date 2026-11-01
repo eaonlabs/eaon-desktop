@@ -1,4 +1,4 @@
-import { app, Notification, powerMonitor, powerSaveBlocker } from 'electron'
+import { app, dialog, Notification, powerMonitor, powerSaveBlocker, shell, type BrowserWindow } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
@@ -45,6 +45,24 @@ import { look, type WatchReading } from './watch'
 import { isReadOnlyCommand } from '../../agent/approvals'
 import { refreshBrowserStatus, reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
 import { workerBrowserTarget } from '@shared/agentBrowser'
+import { setWorkerPluginFilter } from '../../agent/pluginTools'
+import { secrets } from '../../secrets'
+import { readAppData, workerAppSecret, type WorkerAppData } from '@shared/workerHost'
+import { workerApp, workerAppsEnabled } from '@shared/workerApps'
+import { appsToolSource, signedInByHand, signInApp } from './apps'
+import { createHue, type HueBridge } from './hue'
+import { createLists } from './lists'
+import { createHousehold } from './household'
+import { createConnectors } from './connectors'
+import { serveCameras } from './cameraView'
+import { EXPORT_FOLDERS, EXPORT_WAIT_ENDED, openPasswords, waitForPasswordsExport } from './passwordsExport'
+import { createShortcuts } from './shortcuts'
+import { SWITCHABLE_DOMAINS } from '@shared/workerCards'
+import { createVault } from './vault'
+import { isSealed, openVault, sealVault, setVaultKey } from './vaultSeal'
+import { readFile } from 'node:fs/promises'
+import type { ConnectorId } from '@shared/workerConnectors'
+import { mayHaveBoughtSince } from '../payments/plans'
 
 /**
  * Glue between the workers engine and the app: files, the renderer, IPC and
@@ -60,6 +78,10 @@ import { workerBrowserTarget } from '@shared/agentBrowser'
 const WORKERS_FILE = 'workers.json'
 const ROOMS_FILE = 'worker-rooms.json'
 const DELEGATIONS_FILE = 'worker-delegations.json'
+const LISTS_FILE = 'worker-lists.json'
+/** The Hue bridge's address and app key, kept with the other secrets. */
+const HUE_SECRET = 'worker-apps:hue-bridge'
+const VAULT_SECRET = 'worker-vault'
 /** A thread's file, by threadKey: `worker-<id>.json` for the main thread, `worker-<id>.t-<thread>.json` for the others. */
 const threadFile = (key: string): string => `worker-${key.replace('#', '.t-')}.json`
 const runsFile = (id: string): string => `worker-${id}-runs.json`
@@ -113,6 +135,17 @@ export interface WorkersService {
   resume: () => void
   readonly suspended: boolean
   openWorker: (id: string) => void
+  /**
+   * The workers' passwords, passkeys, app connections, Hue pairing and shared
+   * lists, which move with them to a worker computer and back
+   * (features/workerHost.ts). Import replaces what's here; clear forgets it,
+   * for a worker computer the workers have left.
+   */
+  exportAppData: () => WorkerAppData
+  importAppData: (data: unknown) => void
+  clearAppData: () => void
+  /** On a worker computer: the desktop's key for the sealed vault (vaultSeal.ts), kept in memory only. */
+  unlockVault: (key: string) => void
 }
 
 /**
@@ -296,6 +329,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     now: overrides.now
   })
   const engine = new WorkersEngine({
+    mayHaveBought: (chatId, routineId, since) => mayHaveBoughtSince(chatId, routineId, since),
     // Everything a worker's run asks of a model — its loop, sub-agents,
     // compaction — is counted as the workers' (Settings → Usage).
     runAgent: overrides.runAgent ?? ((request, emit, options) => withUsageSource('worker', () => runAgent(request, emit, options))),
@@ -371,10 +405,67 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
   /** Each worker's own browser (BetterWright), created on its first web_browser call. */
   const browsers = new WorkerBrowsers()
 
+  // Linked apps' own doors (workers/apps.ts): the Hue bridge, the shared lists, Calendar and Reminders.
+  const hue = createHue({
+    load: () => {
+      try {
+        const saved = JSON.parse(secrets.get(HUE_SECRET) ?? 'null') as HueBridge | null
+        return saved && typeof saved.ip === 'string' && typeof saved.username === 'string' ? saved : null
+      } catch {
+        return null
+      }
+    },
+    save: (bridge) => secrets.set(HUE_SECRET, bridge ? JSON.stringify(bridge) : '')
+  })
+  const lists = createLists({
+    load: () => store.getJson<unknown>(LISTS_FILE, []),
+    save: (all) => store.setJsonAsync(LISTS_FILE, all),
+    onChange: (all) => ctx.send('workers:lists-changed', all)
+  })
+  const household = createHousehold()
+  // The workers' password vault (vault.ts): one encrypted secrets entry.
+  const vault = createVault({
+    // Sealed at rest on a worker computer, with the desktop's key (vaultSeal.ts); as is on the desktop.
+    load: () => openVault(secrets.get(VAULT_SECRET)),
+    save: (value) => secrets.set(VAULT_SECRET, sealVault(value)),
+    onChange: (state) => ctx.send('workers:vault-changed', state)
+  })
+  // Each worker's browser keeps the passkeys it makes in the vault, and gets them back when it starts.
+  // Called from the browser's debugger events, so never throwing: a locked vault (vaultSeal.ts) gives no passkeys for now.
+  const quietly = <T>(work: () => T, fallback: T): T => {
+    try {
+      return work()
+    } catch (error) {
+      console.error('[workers] passkeys:', error instanceof Error ? error.message : error)
+      return fallback
+    }
+  }
+  // Only where the vault is (labs): an armed authenticator says yes to every
+  // "Create a passkey?", and without a vault to keep it, the site would be left
+  // holding a passkey nobody has.
+  if (workerAppsEnabled()) {
+    browsers.setPasskeyStore({
+      credentials: (workerId) => quietly(() => vault.passkeyCredentials(workerId), []),
+      added: (workerId, credential) => void quietly(() => vault.addPasskey(workerId, credential), null),
+      asserted: (_workerId, credential) => quietly(() => vault.passkeyUsed(credential.credentialId, credential.signCount), undefined)
+    })
+  }
+  /** The export file last imported from Apple's Passwords app, which the user may move to the Trash. */
+  let importedFile: string | null = null
+  let importWait: { stop: () => void } | null = null
+  const importFor = (workers: unknown): string[] | 'all' => (workers === 'all' ? 'all' : Array.isArray(workers) ? workers.filter((x): x is string => typeof x === 'string') : 'all')
+  // Services connected for the apps (connectors.ts): their keys stay in the vault.
+  const connectors = createConnectors({
+    load: (id) => secrets.get(`worker-apps:conn:${id}`),
+    save: (id, value) => secrets.set(`worker-apps:conn:${id}`, value ?? ''),
+    onChange: (statuses) => ctx.send('workers:connections-changed', statuses)
+  })
+
   const remove = async (id: string): Promise<void> => {
     await engine.remove(id)
     // Not just closed: its cookies and cache go too, so a later worker never inherits its sign-ins.
     await browsers.forget(id)
+    if (workerAppsEnabled()) vault.forgetWorker(id)
   }
 
   const channels: string[] = []
@@ -492,6 +583,139 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       return steps.length
     })
     ipcMain.handle('workers:teach-steps', (_e, id: unknown) => browsers.recordedSteps(idOf(id)))
+    // Linked apps (labs: not in release builds).
+    if (workerAppsEnabled()) {
+      ipcMain.handle('workers:link-app', (_e, id: unknown, appId: unknown, options?: { url?: unknown }) => {
+        const workerId = idOf(id)
+        if (!workerApp(str(appId))) throw new Error('There is no such app.')
+        return engine.updateApp(workerId, str(appId), typeof options?.url === 'string' && options.url ? { url: options.url } : {})
+      })
+      ipcMain.handle('workers:unlink-app', (_e, id: unknown, appId: unknown) => engine.unlinkApp(idOf(id), str(appId)))
+      ipcMain.handle('workers:app-sign-in', (_e, id: unknown, appId: unknown, login: { username?: unknown; password?: unknown; remember?: unknown }, threadId?: unknown) =>
+        signInApp({ engine, browsers }, idOf(id), str(appId), { username: str(login?.username), password: str(login?.password), remember: login?.remember === true }, optionalThread(threadId), vault)
+      )
+      // The password vault. Nothing that leaves here carries a password, a 2FA secret or a key.
+      ipcMain.handle('workers:vault', () => vault.state())
+      ipcMain.handle('workers:vault-save', (_e, draft: unknown) => {
+        const d = (draft && typeof draft === 'object' ? draft : {}) as Record<string, unknown>
+        return vault.saveLogin({
+          ...(typeof d.id === 'string' ? { id: d.id } : {}),
+          site: str(d.site),
+          ...(Array.isArray(d.domains) ? { domains: d.domains.filter((x): x is string => typeof x === 'string') } : {}),
+          username: str(d.username),
+          ...(typeof d.password === 'string' && d.password ? { password: d.password } : {}),
+          ...(typeof d.code === 'string' ? { code: d.code } : {}),
+          workers: d.workers === 'all' ? 'all' : Array.isArray(d.workers) ? d.workers.filter((x): x is string => typeof x === 'string') : [],
+          ask: d.ask === true,
+          source: d.source === 'chat' ? 'chat' : 'manual'
+        })
+      })
+      ipcMain.handle('workers:vault-remove', (_e, loginId: unknown) => vault.removeLogin(str(loginId)))
+      ipcMain.handle('workers:vault-access', (_e, loginId: unknown, access: { workers?: unknown; ask?: unknown }) =>
+        vault.setAccess(str(loginId), {
+          ...(access?.workers === 'all' ? { workers: 'all' as const } : Array.isArray(access?.workers) ? { workers: access.workers.filter((x): x is string => typeof x === 'string') } : {}),
+          ...(typeof access?.ask === 'boolean' ? { ask: access.ask } : {})
+        })
+      )
+      ipcMain.handle('workers:vault-remove-passkey', async (_e, passkeyId: unknown) => {
+        const passkey = vault.state().passkeys.find((p) => p.id === str(passkeyId))
+        vault.removePasskey(str(passkeyId))
+        if (passkey) await browsers.resetPasskeys(passkey.workerId)
+      })
+      // Apple's Passwords app → File → Export All Passwords to File: read here, so the renderer never holds the file.
+      ipcMain.handle('workers:vault-import-apple', async (_e, workers: unknown) => {
+        const picked = await pickPasswordsExport(ctx.getWindow())
+        if (!picked) return null
+        const result = vault.importApple(picked.text, importFor(workers))
+        importedFile = picked.file
+        return { ...result, file: picked.file }
+      })
+      // "Bring them in from Passwords": Passwords opens, and the export is taken in, and put in
+      // the Trash, the moment it's saved (passwordsExport.ts). The page hears with vault-import-found.
+      ipcMain.handle('workers:vault-import-watch', async (_e, workers: unknown) => {
+        importWait?.stop()
+        importWait = waitForPasswordsExport((file, text) => {
+          importWait = null
+          void (async () => {
+            try {
+              const result = vault.importApple(text, importFor(workers))
+              const trashed = await shell.trashItem(file).then(
+                () => true,
+                () => false
+              )
+              if (!trashed) importedFile = file
+              ctx.send('workers:vault-import-found', { ...result, file, trashed })
+            } catch (error) {
+              ctx.send('workers:vault-import-found', { error: error instanceof Error ? error.message : String(error) })
+            }
+          })()
+        }, {
+          gaveUp: () => {
+            importWait = null
+            ctx.send('workers:vault-import-found', { error: EXPORT_WAIT_ENDED })
+          }
+        })
+        await openPasswords()
+        return { folders: EXPORT_FOLDERS() }
+      })
+      ipcMain.handle('workers:vault-import-stop', () => {
+        importWait?.stop()
+        importWait = null
+      })
+      // The same export's text, read on the desktop: a worker computer has no screen to pick a file on (workerHost.ts).
+      ipcMain.handle('workers:vault-import-csv', (_e, text: unknown, workers: unknown) => vault.importApple(str(text), importFor(workers)))
+      ipcMain.handle('workers:vault-trash-import', async () => {
+        if (!importedFile) return false
+        await shell.trashItem(importedFile)
+        importedFile = null
+        return true
+      })
+      // "Use the browser instead": the worker's browser on the app's sign-in page, in front, for the user to sign in themselves.
+      ipcMain.handle('workers:app-browser', async (_e, id: unknown, appId: unknown) => {
+        const workerId = idOf(id)
+        const app = workerApp(str(appId))
+        const link = engine.appsOf(workerId).find((l) => l.id === str(appId))
+        if (!app || !link) throw new Error('That app isn’t linked to this worker any more.')
+        const url = app.signIn ?? (app.id === 'bank' ? link.url : app.url) ?? app.url
+        if (url) await browsers.open(workerId, url)
+        refreshBrowserStatus(workerBrowserTarget(workerId))
+        return true
+      })
+      ipcMain.handle('workers:app-signed-in', (_e, id: unknown, appId: unknown, threadId?: unknown) => signedInByHand(engine, idOf(id), str(appId), optionalThread(threadId)))
+      ipcMain.handle('workers:hue-status', () => ({ paired: hue.paired() ? { ip: hue.paired()!.ip } : null }))
+      ipcMain.handle('workers:hue-pair', async (_e, ip?: unknown) => {
+        const bridge = await hue.pair(typeof ip === 'string' && ip.trim() ? ip : undefined)
+        return { ip: bridge.ip, lights: (await hue.lights().catch(() => [])).length }
+      })
+      ipcMain.handle('workers:hue-forget', () => hue.forget())
+      // A device card's switch (workerCards.ts, control): the light or plug itself, at once, as the
+      // user's own tap. Only on and off, and only what turns on and off: never a lock or a garage.
+      ipcMain.handle('workers:device-switch', async (_e, control: unknown, on: unknown) => {
+        const c = (control && typeof control === 'object' ? control : {}) as Record<string, unknown>
+        const turn = on === true
+        if (typeof c.entity === 'string' && c.entity) {
+          const domain = c.entity.split('.')[0]
+          if (!SWITCHABLE_DOMAINS.includes(domain)) throw new Error('That device is switched through its worker, not straight from the card.')
+          await connectors.ha.call(domain, turn ? 'turn_on' : 'turn_off', { entity_id: c.entity })
+          return true
+        }
+        if (typeof c.hue === 'string' && c.hue) {
+          await hue.set(c.hue, { on: turn })
+          return true
+        }
+        throw new Error('That card has nothing to switch.')
+      })
+      ipcMain.handle('workers:lists', () => lists.all())
+      ipcMain.handle('workers:list-toggle', (_e, listId: unknown, itemId: unknown, done: unknown) => lists.toggle(str(listId), str(itemId), done === true))
+      ipcMain.handle('workers:connections', () => connectors.statuses())
+      // A camera card's picture and live view (cameraView.ts).
+      serveCameras(connectors)
+      ipcMain.handle('workers:connect', (_e, id: unknown, fields: unknown) =>
+        connectors.connect(str(id) as ConnectorId, fields && typeof fields === 'object' ? (Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, str(v)])) as Record<string, string>) : {})
+      )
+      ipcMain.handle('workers:disconnect', (_e, id: unknown) => connectors.disconnect(str(id) as ConnectorId))
+      ipcMain.handle('workers:list-add', (_e, listId: unknown, text: unknown) => lists.edit(str(listId), { action: 'add', items: [str(text)] }, 'You').list)
+    }
   }
 
   let suspended = false
@@ -525,11 +749,62 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       engine.reload()
       engine.start()
     },
+    exportAppData: () => {
+      const theirs = Object.entries(secrets.entries()).filter(([id]) => workerAppSecret(id))
+      const out: WorkerAppData = { secrets: {}, lists: lists.all() }
+      for (const [id, value] of theirs) {
+        if (id !== VAULT_SECRET) {
+          out.secrets[id] = value
+          continue
+        }
+        // Sent opened, over the link; the desktop keeps it in its keychain. One that won't open is left out, and
+        // the desktop keeps its own copy rather than losing it.
+        try {
+          const opened = openVault(value)
+          if (opened) out.secrets[id] = opened
+        } catch {
+          out.kept = [VAULT_SECRET]
+        }
+      }
+      return out
+    },
+    importAppData: (raw) => {
+      const data = readAppData(raw)
+      const kept = new Set(data.kept)
+      const own = Object.keys(secrets.entries()).filter((id) => workerAppSecret(id) && !kept.has(id))
+      // Sealed before anything is written, so a locked vault stops the import with nothing changed.
+      const incoming = Object.fromEntries(Object.entries(data.secrets).filter(([id]) => !kept.has(id)).map(([id, value]) => [id, id === VAULT_SECRET ? sealVault(value) : value]))
+      // Exactly what came: one removed there is removed here too.
+      secrets.setMany({ ...Object.fromEntries(own.map((id) => [id, ''])), ...incoming })
+      lists.replace(data.lists)
+      ctx.send('workers:vault-changed', vault.state())
+      ctx.send('workers:connections-changed', connectors.statuses())
+    },
+    unlockVault: (key) => {
+      setVaultKey(key)
+      // A vault written before it was sealed here is sealed now.
+      const stored = secrets.get(VAULT_SECRET)
+      if (stored && !isSealed(stored)) secrets.set(VAULT_SECRET, sealVault(stored))
+      try {
+        ctx.send('workers:vault-changed', vault.state())
+      } catch {
+        // Sealed with another key: it stays locked, and says so when it's used.
+      }
+    },
+    clearAppData: () => {
+      const own = Object.keys(secrets.entries()).filter((id) => workerAppSecret(id))
+      if (own.length > 0) secrets.setMany(Object.fromEntries(own.map((id) => [id, ''])))
+      lists.replace([])
+    },
     start: () => {
       engine.load()
       // The computer's one pointer is leased to a run at a time; its indicator names the worker.
       setLeaseNames((id) => engine.list().find((w) => w.id === id)?.name ?? null)
       registerToolSource(workersToolSource(engine))
+      // Cards in a worker's thread, and its linked apps (workers/apps.ts).
+      registerToolSource(appsToolSource({ engine, browsers, hue, lists, household, connectors, vault, shortcuts: createShortcuts() }))
+      // Each worker's own choice of plugins (Edit → Plugins).
+      setWorkerPluginFilter((id) => engine.pluginsOf(id))
       // The chat agent's way to start a team and talk to it.
       registerToolSource(teamToolSource(engine, (roomId) => ctx.send('workers:open-room', roomId)))
       // Live view and take-over for each worker's browser (features/agentBrowser.ts).
@@ -546,4 +821,13 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     stop: halt,
     openWorker
   }
+}
+
+/** The file exported from Apple's Passwords, picked on this computer's screen, and its text. Null when nothing was picked. */
+export async function pickPasswordsExport(window: BrowserWindow | null): Promise<{ file: string; text: string } | null> {
+  const options = { title: 'Choose the file exported from Passwords', properties: ['openFile' as const], filters: [{ name: 'Passwords export', extensions: ['csv'] }] }
+  const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+  const file = picked.filePaths[0]
+  if (picked.canceled || !file) return null
+  return { file, text: await readFile(file, 'utf8') }
 }

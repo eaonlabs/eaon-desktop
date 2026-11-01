@@ -186,7 +186,8 @@ test('Yahoo client: parses quotes and bars, caches, retries a 429, and explains 
         chart: {
           result: [
             {
-              meta: { symbol, currency: 'USD', regularMarketPrice: 105, previousClose: 100, chartPreviousClose: 90, regularMarketDayHigh: 106, regularMarketDayLow: 99, regularMarketVolume: 1234, longName: 'Test Co', regularMarketTime: 1_790_798_401 },
+              // As Yahoo answers: yesterday's close only for a day's chart; a longer range has only the close before it.
+              meta: { symbol, currency: 'USD', regularMarketPrice: 105, ...(url.searchParams.get('range') === '1d' ? { previousClose: 100 } : {}), chartPreviousClose: 90, regularMarketDayHigh: 106, regularMarketDayLow: 99, regularMarketVolume: 1234, longName: 'Test Co', regularMarketTime: 1_790_798_401 },
               timestamp: [1, 2, 3],
               indicators: { quote: [{ open: [1, 2, 3], high: [1, 2, 3], low: [1, 2, 3], close: [100.0000001, null, 105], volume: [10, 20, 30] }] }
             }
@@ -215,6 +216,8 @@ test('Yahoo client: parses quotes and bars, caches, retries a 429, and explains 
       [100, 105],
       'the null close is skipped and float noise rounded'
     )
+    await md.bars('NVDA', '1mo')
+    assert.equal((await md.quote('NVDA')).prevClose, 100, 'a month’s chart doesn’t make the quote: its previous close is a month old')
     await assert.rejects(md.quote('ZZZZ'), /Couldn’t find a stock called ZZZZ/)
     const msft = await md.quote('MSFT')
     assert.equal(msft.price, 105)

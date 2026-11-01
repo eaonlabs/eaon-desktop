@@ -20,6 +20,8 @@ import {
   type WorkerExecution
 } from '@shared/workers'
 import type { Provider, Settings, StreamEvent, StreamRequest } from '@shared/types'
+import { setPurchaseLookup } from '../src/main/features/payments/plans'
+import type { PurchaseRecord } from '@shared/payments'
 
 /**
  * Workers are independent agents, not one queue of turns: each worker — and
@@ -374,6 +376,52 @@ test('a run that may already have acted is never replayed after a crash', async 
   assert.match(lastUserText(agent.pending[0].request), /\[Retry\].*may already have changed things/s)
   assert.equal(receipts(engine, nova.id).at(-1)!.retryOf, cut.id)
   agent.pending[0].release()
+})
+
+test('a purchase schedule’s run cut off after it browsed the store goes again when nothing was bought, never once the card was typed', async () => {
+  const agent = heldAgent()
+  // Finding the item in the store's pages counts as acting, as any browser step does.
+  const browsing: RunAgent = (request, emit, options) => {
+    options.onToolRun?.('web_browser', true)
+    return agent.runAgent(request, emit, options)
+  }
+  const plan = { item: '2 bags of coffee', site: 'shop.test', merchant: 'Shop', maxAmount: 40, currency: 'USD', notes: '', orders: null, track: false }
+  const purchases: PurchaseRecord[] = []
+  setPurchaseLookup({ all: () => purchases })
+  try {
+    let { engine } = start(browsing)
+    const nova = engine.save(draft('Nova'))
+    engine.putRoutine(nova.id, { name: 'Coffee', task: 'Buy the coffee', everyMs: 7 * 86_400_000, daily: null, nextAt: Date.now() - 1000, purchase: plan })
+    engine.tick()
+    await until(() => agent.pending.length === 1)
+    const chatId = agent.pending[0].request.chatId
+    // Eaon quits (a computer update) before the card was typed: it goes again, once.
+    ;({ engine } = await relaunch(browsing))
+    await until(() => agent.pending.length === 1)
+    assert.match(lastUserText(agent.pending[0].request), /\[Resumed\]/)
+    assert.equal(receipts(engine, nova.id).at(-1)!.trigger.kind, 'resume')
+
+    assert.ok(chatId)
+    agent.pending[0].release()
+    await until(() => agent.pending.length === 0)
+
+    // Another schedule's run, cut off after its card was typed: it may have paid, so it waits for the user.
+    const iris = engine.save(draft('Iris'))
+    engine.putRoutine(iris.id, { name: 'Tea', task: 'Buy the tea', everyMs: 7 * 86_400_000, daily: null, nextAt: Date.now() - 1000, purchase: { ...plan, item: 'tea' } })
+    engine.tick()
+    await until(() => agent.pending.length === 1)
+    const irisChat = agent.pending[0].request.chatId
+    purchases.push({ id: 'pay_1', merchant: 'Shop', site: 'shop.test', description: 'tea', amount: 30, currency: 'USD', charged: null, status: 'authorized', how: 'scheduled', chatId: irisChat, createdAt: Date.now(), expiresAt: Date.now() + 60_000, typedAt: Date.now() })
+    ;({ engine } = await relaunch(browsing))
+    await settle(150)
+    assert.equal(agent.pending.length, 0, 'not bought a second time')
+    const cut = receipts(engine, iris.id).at(-1)!
+    assert.equal(cut.state, 'interrupted')
+    assert.equal(cut.trigger.kind, 'routine', 'the cut-off run itself, not a resume of it')
+    assert.match(cut.reason ?? '', /may already have acted/)
+  } finally {
+    setPurchaseLookup(null)
+  }
 })
 
 test('waking from a long sleep runs a routine once, late, with the skipped runs counted', async () => {

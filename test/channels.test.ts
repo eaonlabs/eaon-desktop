@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { RunOptions, RunOutcome } from '../src/main/agent/loop'
-import type { AgentTool } from '../src/main/agent/tools'
+import { getToolSource, registerToolSource, toolsFor, type AgentTool, type ToolQuery } from '../src/main/agent/tools'
 import { store } from '../src/main/store'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
 import type { RunAgent } from '../src/main/features/workers/runner'
@@ -264,6 +264,19 @@ test('a guest’s message caps the turn, and the gate keeps guests from lasting 
     assert.match(guestGate('safe')!(tool(name), {})!, /accounts or screen/, name)
   }
   assert.equal(guestGate('autonomous'), undefined)
+
+  // A worker's apps: the user's bank, home, car and logins stay theirs; a card, a trip's time and a link to confirm don't.
+  const before = getToolSource('worker-apps')
+  registerToolSource({ id: 'worker-apps', tools: () => ['show_card', 'route', 'app_link', 'bank', 'tesla', 'home', 'lists', 'saved_logins', 'sign_in_saved', 'open_app'].map(tool) })
+  const offered = toolsFor({ mode: 'work', cwd: null, depth: 0, readOnly: false, settings: store.getSettings(), request: { workerId: 'none' } } as unknown as ToolQuery)
+  registerToolSource(before ?? { id: 'worker-apps', tools: () => [] })
+  const app = (name: string): AgentTool => offered.find((t) => t.name === name)!
+  for (const name of ['bank', 'tesla', 'home', 'lists', 'saved_logins', 'sign_in_saved', 'open_app']) {
+    assert.match(look(app(name), {})!, /own apps/, name)
+    assert.match(guestGate('safe')!(app(name), {})!, /own apps/, name)
+  }
+  for (const name of ['show_card', 'route', 'app_link']) assert.equal(look(app(name), {}), null, name)
+  assert.match(look(app('show_card'), { kind: 'status', screenshot: true })!, /accounts or screen/, 'a card’s screenshot is the signed-in browser')
 
   for (const host of ['localhost', '10.0.0.4', '192.168.1.1', '172.20.0.1', '[::1]', 'router', 'nas.local', 'fd12:3456::1']) assert.ok(isPrivateHost(host), host)
   for (const host of ['example.com', '8.8.8.8', 'fcbarcelona.com', '172.32.0.1']) assert.ok(!isPrivateHost(host), host)

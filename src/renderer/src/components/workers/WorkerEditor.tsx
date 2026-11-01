@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Check, Pipette } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { Modal, Select } from '../ui'
 import { ModelSelect } from '../composer/ModelSelect'
-import { WorkerFace } from './WorkerFace'
+import { WorkerLookPicker } from './WorkerLookPicker'
+import { AppPicker, PluginPicker } from './WorkerApps'
+import { workerAppsEnabled } from '@shared/workerApps'
+import type { WorkerShape } from '@shared/workerLook'
 import { WorkerTradingFields } from './WorkerTradingFields'
 import { useWorkers } from './workersStore'
 import { WORKER_ACCESS, WORKER_COLORS, WORKER_PERSONALITIES, type WorkerAccess, type WorkerMood, type WorkerTrading } from '@shared/workers'
@@ -71,6 +73,9 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
 
   const [name, setName] = useState(existing?.name ?? '')
   const [color, setColor] = useState(existing?.color ?? pickColor(workers.map((w) => w.color)))
+  const [shape, setShape] = useState<WorkerShape>(existing?.shape ?? 'pebble')
+  const [plugins, setPlugins] = useState<string[] | null>(existing?.plugins ?? null)
+  const [apps, setApps] = useState<string[]>(existing?.apps?.map((a) => a.id) ?? [])
   const [personality, setPersonality] = useState(existing?.personality ?? WORKER_PERSONALITIES[0].text)
   const [purpose, setPurpose] = useState(existing?.purpose ?? '')
   const [model, setModel] = useState(existing?.model ? `${existing.model.providerId}::${existing.model.modelId}` : '')
@@ -88,7 +93,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const mood: WorkerMood = focus === 'purpose' ? 'curious' : name.trim() ? 'happy' : 'neutral'
+  const mood: WorkerMood = focus === 'purpose' ? 'thinking' : name.trim() ? 'happy' : 'neutral'
   // The levels the chosen model takes, when known; otherwise none are offered
   // (an unknown model may not think in levels at all).
   const effortLevels = useMemo((): EffortLevel[] => {
@@ -112,6 +117,9 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
         ...(existing ? { id: existing.id } : {}),
         name: name.trim(),
         color,
+        shape,
+        plugins,
+        ...(workerAppsEnabled() ? { apps } : {}),
         personality: personality.trim(),
         purpose: purpose.trim() || (trading ? 'Trade for the user, following the strategy in the trading settings.' : ''),
         model: providerId && modelId ? { providerId, modelId } : null,
@@ -147,7 +155,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
     >
       <div className="worker-editor">
         <div className="worker-editor__preview">
-          <WorkerFace color={color} mood={mood} size={104} follow reactOnClick />
+          <WorkerLookPicker color={color} shape={shape} mood={mood} size={96} onColor={setColor} onShape={setShape} />
           <span className="worker-editor__preview-name">{name.trim() || 'Your new worker'}</span>
         </div>
 
@@ -164,29 +172,6 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
             onChange={(e) => setName(e.target.value)}
           />
         </label>
-
-        <div className="field">
-          <span className="field-label">Colour</span>
-          <div className="swatches" role="radiogroup" aria-label="Colour">
-            {WORKER_COLORS.map((c) => (
-              <button
-                key={c}
-                role="radio"
-                aria-checked={c.toLowerCase() === color.toLowerCase()}
-                aria-label={c}
-                className="swatch"
-                style={{ background: c }}
-                onClick={() => setColor(c)}
-              >
-                {c.toLowerCase() === color.toLowerCase() && <Check size={14} strokeWidth={3} />}
-              </button>
-            ))}
-            <label className="swatch swatch--custom" title="Any colour" data-active={!WORKER_COLORS.some((c) => c.toLowerCase() === color.toLowerCase()) || undefined} style={!WORKER_COLORS.some((c) => c.toLowerCase() === color.toLowerCase()) ? { background: color } : undefined}>
-              <Pipette size={14} strokeWidth={2} />
-              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Pick any colour" />
-            </label>
-          </div>
-        </div>
 
         <div className="field">
           <span className="field-label">Personality</span>
@@ -294,6 +279,19 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
           </div>
         </div>
         <p className="worker-editor__hint worker-editor__access-hint">{WORKER_ACCESS.find((a) => a.id === access)?.description}</p>
+
+        <div className="field">
+          <span className="field-label">Plugins</span>
+          <PluginPicker value={plugins} onChange={setPlugins} />
+        </div>
+
+        {workerAppsEnabled() && (
+          <div className="field">
+            <span className="field-label">Apps</span>
+            <AppPicker value={apps} onChange={setApps} />
+            <p className="worker-editor__hint">Sign it in to each from its page (Apps) once it’s saved.</p>
+          </div>
+        )}
 
         <WorkerTradingFields value={trading} onChange={setTrading} access={access} />
 

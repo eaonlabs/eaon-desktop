@@ -21,8 +21,9 @@ import { applySync, pickSettings } from '../src/host/sync'
 import { tokenStore } from '../src/main/providers/oauth/shared'
 import { createWorkerHost } from '../src/main/features/workerHost'
 import { createChannels, type ChannelsHandle } from '../src/main/features/channels'
+import { isSealed, newVaultKey, openVault, sealVault, sealVaultAtRest, setVaultKey, VaultLocked } from '../src/main/features/workers/vaultSeal'
 import type { ChannelLink, ChannelStatus } from '@shared/channels'
-import { credentialExpiry, hostServesChannel, signInEntries, WORKER_HOST_PATH } from '@shared/workerHost'
+import { credentialExpiry, hostServesChannel, signInEntries, WORKER_HOST_PATH, type WorkerAppData } from '@shared/workerHost'
 import type { Worker } from '@shared/workers'
 
 const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }
@@ -434,6 +435,127 @@ test('chat apps move in with the workers, answer for them there, keep their toke
   assert.deepEqual((await ipcCall<{ links: ChannelLink[] }>(desktop, 'channels:list')).links, [])
   assert.equal(secrets.get('channel:l-tg'), undefined)
   assert.equal(existsSync(waDir), false)
+})
+
+test('their passwords, app connections, Hue pairing and lists move in with the workers, keep through a sync, and move out again', async () => {
+  const { desktop } = await startHost()
+  const nova = { id: 'w-nova', name: 'Nova', color: '#3E86C6', personality: '', purpose: 'Errands', folder: '/Users/someone/Eaon/Workers/Nova', access: 'safe', model: null, createdAt: 1, createdBy: null, paused: false, status: 'idle', inbox: [], unread: 0 }
+  await desktop.call('workers.import', { snapshot: { workers: [nova], threads: {}, rooms: null } })
+  const vault = (password: string): string =>
+    JSON.stringify({ logins: [{ id: 'l-uber', site: 'Uber', domains: ['uber.com'], username: 'sam@example.com', password, workers: 'all', ask: false, createdAt: 1, usedAt: null }], passkeys: [] })
+  const groceries = { id: 'list-groceries', name: 'Groceries', items: [{ id: 'i-milk', text: 'Milk', done: false, by: 'You', at: 1 }], updatedAt: 1 }
+  await desktop.call('workers.apps-import', {
+    data: {
+      secrets: { 'worker-vault': vault('s3cret'), 'worker-apps:conn:tessie': '{"token":"tessie-token"}', 'worker-apps:hue-bridge': '{"ip":"10.0.0.2","username":"hue-user"}', openai: 'sk-not-theirs' },
+      lists: [groceries]
+    }
+  })
+  await desktop.call('workers.resume')
+  assert.equal(secrets.get('worker-vault'), vault('s3cret'))
+  assert.equal(secrets.get('worker-apps:conn:tessie'), '{"token":"tessie-token"}')
+  assert.equal(secrets.get('openai'), undefined, 'only their app entries come this way')
+
+  // A password changed there, then syncs from the desktop: with none of them, and with its older copy.
+  secrets.set('worker-vault', vault('n3w'))
+  applySync({ secrets: { fake: 'key' }, providers: {}, settings: {}, mcpServers: [] })
+  applySync({ secrets: { fake: 'key', 'worker-vault': vault('s3cret'), 'worker-apps:hue-bridge': '{"ip":"stale","username":"x"}' }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(secrets.get('worker-vault'), vault('n3w'), 'a sync no longer puts back the desktop’s copy')
+  assert.equal(secrets.get('worker-apps:hue-bridge'), '{"ip":"10.0.0.2","username":"hue-user"}')
+  assert.equal(secrets.get('worker-apps:conn:tessie'), '{"token":"tessie-token"}')
+  // Nor do they go back to the desktop as if they were refreshed sign-ins.
+  assert.deepEqual(Object.keys(signInEntries(secrets.entries())).filter((id) => id.startsWith('worker-')), [])
+
+  // Out again: exactly what they have there now.
+  await service!.engine.whenIdle()
+  await desktop.call('workers.export')
+  const out = await desktop.call<WorkerAppData>('workers.apps-export')
+  assert.deepEqual(Object.keys(out.secrets).sort(), ['worker-apps:conn:tessie', 'worker-apps:hue-bridge', 'worker-vault'])
+  assert.equal(out.secrets['worker-vault'], vault('n3w'))
+  assert.deepEqual(out.lists, [groceries])
+  // Released: none of it stays on the worker computer.
+  await desktop.call('workers.release')
+  for (const id of ['worker-vault', 'worker-apps:conn:tessie', 'worker-apps:hue-bridge']) assert.equal(secrets.get(id), undefined, id)
+  assert.deepEqual(await desktop.call<WorkerAppData>('workers.apps-export'), { secrets: {}, lists: [] })
+})
+
+test('importing their app data replaces what was there, and takes nothing but their entries', async () => {
+  await startHost()
+  secrets.setMany({ 'worker-vault': '{"logins":[],"passkeys":[]}', 'worker-apps:conn:simplefin': 'old', 'worker-apps:hue-bridge': 'old', unrelated: 'keep' })
+  const local = service!
+  local.importAppData({ secrets: { 'worker-apps:conn:simplefin': 'new', 'not-theirs': 'x', 'worker-apps:empty': '', 'worker-apps:odd': 42 }, lists: 'not a list' })
+  assert.equal(secrets.get('worker-apps:conn:simplefin'), 'new')
+  assert.equal(secrets.get('worker-vault'), undefined, 'removed there, removed here')
+  assert.equal(secrets.get('worker-apps:hue-bridge'), undefined)
+  assert.equal(secrets.get('not-theirs'), undefined)
+  assert.equal(secrets.get('worker-apps:odd'), undefined)
+  assert.equal(secrets.get('unrelated'), 'keep')
+  assert.deepEqual(local.exportAppData(), { secrets: { 'worker-apps:conn:simplefin': 'new' }, lists: [] })
+  secrets.setMany({ unrelated: '', 'worker-apps:conn:simplefin': '' })
+})
+
+test('a sealed vault: unreadable without the desktop’s key, never written over while locked, opened once it comes', async () => {
+  const { desktop } = await startHost()
+  const login = JSON.stringify({ logins: [{ id: 'l-uber', site: 'Uber', domains: ['uber.com'], username: 'sam@example.com', password: 's3cret', workers: 'all', ask: false, createdAt: 1, usedAt: null }], passkeys: [] })
+  sealVaultAtRest(true)
+  try {
+    // Locked: what came can't be sealed, so nothing is written.
+    await assert.rejects(desktop.call('workers.apps-import', { data: { secrets: { 'worker-vault': login }, lists: [] } }), /locked until Eaon on your desktop connects/)
+    assert.equal(secrets.get('worker-vault'), undefined)
+
+    // The desktop's key: then it goes in sealed, with nothing readable on disk.
+    const key = newVaultKey()
+    await desktop.call('vault.key', { key })
+    await desktop.call('workers.apps-import', { data: { secrets: { 'worker-vault': login }, lists: [] } })
+    const sealed = secrets.get('worker-vault')!
+    assert.ok(isSealed(sealed) && !sealed.includes('s3cret') && !sealed.includes('sam@example.com'))
+    assert.equal((await desktop.call<WorkerAppData>('workers.apps-export')).secrets['worker-vault'], login, 'it goes back opened')
+
+    // The host restarts: no key in memory. The vault is locked, not empty, and stays as it was.
+    sealVaultAtRest(false)
+    sealVaultAtRest(true)
+    assert.throws(() => openVault(sealed), VaultLocked)
+    const out = await desktop.call<WorkerAppData>('workers.apps-export')
+    assert.equal(out.secrets['worker-vault'], undefined)
+    assert.deepEqual(out.kept, ['worker-vault'], 'the desktop keeps its own copy instead')
+    await assert.rejects(desktop.call('workers.apps-import', { data: { secrets: { 'worker-vault': login.replace('s3cret', 'other') }, lists: [] } }), /locked/)
+    assert.equal(secrets.get('worker-vault'), sealed, 'nothing was written over it')
+
+    // Another desktop's key doesn't open it either.
+    await desktop.call('vault.key', { key: newVaultKey() })
+    assert.throws(() => openVault(sealed), /sealed with a key this desktop doesn’t have/)
+    // The right one does.
+    await desktop.call('vault.key', { key })
+    assert.equal(openVault(secrets.get('worker-vault')), login)
+
+    // A vault written before sealing is sealed as soon as the key arrives.
+    secrets.set('worker-vault', login)
+    await desktop.call('vault.key', { key })
+    assert.ok(isSealed(secrets.get('worker-vault')))
+    assert.equal(openVault(secrets.get('worker-vault')), login)
+    await assert.rejects(desktop.call('vault.key', { key: 'too-short' }), /isn’t one Eaon made/)
+  } finally {
+    sealVaultAtRest(false)
+    secrets.set('worker-vault', '')
+  }
+})
+
+test('sealing: AES-GCM with a fresh nonce each time, and a changed byte doesn’t open', () => {
+  sealVaultAtRest(true)
+  try {
+    setVaultKey(newVaultKey())
+    const a = sealVault('{"logins":[]}')
+    const b = sealVault('{"logins":[]}')
+    assert.notEqual(a, b)
+    assert.equal(openVault(a), '{"logins":[]}')
+    const bytes = Buffer.from(a.slice('sealed:v1:'.length), 'base64')
+    bytes[bytes.length - 1] ^= 1
+    assert.throws(() => openVault(`sealed:v1:${bytes.toString('base64')}`), VaultLocked)
+    assert.equal(openVault('{"plain":true}'), '{"plain":true}', 'one from before sealing reads as it is')
+  } finally {
+    sealVaultAtRest(false)
+  }
+  // On the desktop nothing is sealed: its vault is the keychain's.
+  assert.equal(sealVault('{"logins":[]}'), '{"logins":[]}')
 })
 
 test('sync brings the desktop’s keys, providers, model and MCP servers, but not its folders', async () => {

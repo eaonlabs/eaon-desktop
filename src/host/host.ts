@@ -152,6 +152,10 @@ export function createHost(deps: HostDeps): Host {
         }
         case 'tokens':
           return deps.signIns?.() ?? {}
+        // The key to the workers' sealed password vault, sent each time the desktop connects; kept in memory only.
+        case 'vault.key':
+          deps.service().unlockVault(String(p.key ?? ''))
+          return true
 
         case 'ipc': {
           const channel = String(p.channel ?? '')
@@ -204,6 +208,8 @@ export function createHost(deps: HostDeps): Host {
           writeSnapshot(deps.store, { workers: [], threads: {}, rooms: null })
           // Their bots too: the desktop answers on them now, and two of one bot fight over its messages.
           await deps.channels?.clear()
+          // And their passwords, keys and lists: the desktop has them back, and they shouldn't sit here.
+          service.clearAppData()
           service.resume()
           deps.channels?.resume()
           return hello()
@@ -214,6 +220,14 @@ export function createHost(deps: HostDeps): Host {
           deps.channels?.resume()
           return hello()
         }
+
+        /* The workers' passwords, passkeys, app connections and lists, moving with them. */
+        case 'workers.apps-import': {
+          deps.service().importAppData(p.data)
+          return true
+        }
+        case 'workers.apps-export':
+          return deps.service().exportAppData()
 
         /* Chat apps, moving with the workers (or after them, from a desktop that moved them before they could). */
         case 'channels.import': {

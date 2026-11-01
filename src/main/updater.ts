@@ -4,6 +4,7 @@ import type { UpdateStatus } from '@shared/types'
 import { store } from './store'
 import { isPrerelease, updateChannelFor } from './updateChannel'
 import { UpdateController } from './updates'
+import { versionLabel } from '@shared/version'
 
 // electron-updater exposes `autoUpdater` via a lazy getter on its CJS exports,
 // which Node's ESM/CJS interop can't statically detect as a named export —
@@ -71,9 +72,9 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
     interactiveResult: (result) => {
       void dialog.showMessageBox(
         result.kind === 'up-to-date'
-          ? { type: 'info', message: `You're up to date`, detail: `Eaon Desktop ${app.getVersion()} is the latest version.` }
+          ? { type: 'info', message: `You're up to date`, detail: `Eaon Desktop ${versionLabel(app.getVersion())} is the latest version.` }
           : result.kind === 'ready'
-            ? { type: 'info', message: 'An update is ready', detail: `Version ${result.version} has downloaded. Restart Eaon to install it.` }
+            ? { type: 'info', message: 'An update is ready', detail: `Version ${versionLabel(result.version)} has downloaded. Restart Eaon to install it.` }
             : result.kind === 'downloading'
               ? { type: 'info', message: 'An update is downloading', detail: result.percent === null ? 'Eaon will say when it’s ready to install.' : `${result.percent}% done. Eaon will say when it’s ready to install.` }
               : { type: 'error', message: 'Update check failed', detail: result.message }

@@ -161,8 +161,29 @@ function startOfMonth(at: number): number {
   return d.getTime()
 }
 
-/** What a purchase counts toward the limits: what was charged, else what was authorized. Failed and cancelled ones count nothing. */
-const counted = (p: PurchaseRecord): number => (p.status === 'failed' || p.status === 'cancelled' ? 0 : (p.charged ?? p.amount))
+/**
+ * What a purchase counts against the limits: what it charged, or may have.
+ * One authorized but never used (the card never typed, the order never
+ * placed) and now expired charged nothing and never can, so it counts for
+ * nothing: a run that died with it (Eaon closed for an update, the computer
+ * restarted) doesn't use up the day's or month's limit.
+ */
+const counted = (p: PurchaseRecord, now: number): number => {
+  if (p.status === 'failed' || p.status === 'cancelled') return 0
+  if (p.status === 'authorized' && !p.typedAt && !p.submittedAt && now > p.expiresAt) return 0
+  return p.charged ?? p.amount
+}
+
+/** A purchase the agent may have placed: the card was typed, the order button pressed, or it was paid. */
+export const mayHaveCharged = (p: PurchaseRecord): boolean => p.status === 'paid' || Boolean(p.typedAt || p.submittedAt)
+
+/**
+ * Purchases authorized by this process. Only an earlier Eaon's are left
+ * over when an engine starts, but should one ever be made again while Eaon
+ * runs, a run of this process may still be using its authorization: it is
+ * never settled as abandoned.
+ */
+const authorizedHere = new Set<string>()
 
 export class PaymentsEngine {
   private config: PaymentsConfig
@@ -171,6 +192,37 @@ export class PaymentsEngine {
   constructor(private readonly deps: PaymentsDeps) {
     this.config = normalizeConfig(deps.load())
     this.now = deps.now ?? Date.now
+    this.settleAbandoned()
+  }
+
+  /**
+   * Purchases still authorized when this engine starts were left by a run
+   * that ended with Eaon (quit, an update, the computer restarting): nothing
+   * can finish them now. One whose card was never typed charged nothing, and
+   * is cancelled. One whose card was typed, or whose order was placed, may
+   * have gone through: it keeps counting against the limits, can't be used
+   * again, and says to check, so it's neither forgotten nor bought twice.
+   */
+  private settleAbandoned(): void {
+    const now = this.now()
+    let changed = false
+    for (const p of this.config.purchases) {
+      if (p.status !== 'authorized' || authorizedHere.has(p.id)) continue
+      if (!mayHaveCharged(p)) {
+        p.status = 'cancelled'
+        p.completedAt = now
+        p.note = 'Eaon closed before this order was placed, so nothing was charged.'
+      } else if (!p.tracking || p.tracking.stage !== 'problem') {
+        p.expiresAt = Math.min(p.expiresAt, now)
+        p.tracking = {
+          stage: 'problem',
+          note: 'Eaon closed while this order was being placed. Check the store or your email to see whether it went through.',
+          checkedAt: now
+        }
+      } else continue
+      changed = true
+    }
+    if (changed) this.persist()
   }
 
   private persist(): void {
@@ -200,7 +252,7 @@ export class PaymentsEngine {
     let thisMonth = 0
     for (const p of this.config.purchases) {
       if (p.currency !== this.config.currency) continue
-      const amount = counted(p)
+      const amount = counted(p, now)
       if (p.createdAt >= month) thisMonth += amount
       if (p.createdAt >= day) today += amount
     }
@@ -390,6 +442,7 @@ export class PaymentsEngine {
       createdAt: now,
       expiresAt: now + AUTHORIZATION_MS
     }
+    authorizedHere.add(record.id)
     this.config.purchases = [record, ...this.config.purchases].slice(0, MAX_PURCHASES)
     this.persist()
     return record
@@ -454,6 +507,31 @@ export class PaymentsEngine {
         now <= p.expiresAt &&
         urlMatchesSite(url, p.site)
     )
+  }
+
+  /**
+   * An autopilot run pressed a spending button on the store of its open plan
+   * order (`openPlanOrder`, which uses nothing up). The first press is
+   * recorded as the order being placed: a free order, or one the store pays
+   * with a card it has saved, may have gone through with no card typed, so a
+   * run cut off after this is never taken for one that bought nothing.
+   */
+  notePlanPress(chatId: string, planId: string, url: string): void {
+    const now = this.now()
+    const record = this.config.purchases.find(
+      (p) => p.chatId === chatId && p.planId === planId && p.status === 'authorized' && p.site !== null && now <= p.expiresAt && urlMatchesSite(url, p.site)
+    )
+    if (!record || record.submittedAt) return
+    record.submittedAt = now
+    this.persist()
+  }
+
+  /** The card is being typed for this purchase: from now on it may go through, whatever happens to the run. */
+  markTyped(id: string): void {
+    const record = this.config.purchases.find((p) => p.id === id)
+    if (!record || record.typedAt) return
+    record.typedAt = this.now()
+    this.persist()
   }
 
   /** The secret parts of the card, for typing only. Never returned to the model. */

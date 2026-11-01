@@ -41,6 +41,11 @@ import { mergeRuns, repairRuns, repairTasks, settleInterrupted, trimRuns } from 
  * tests without a model, a window or Electron.
  */
 
+/** What a run cut off by quitting says, so the next launch can tell it from one the user stopped. */
+export const QUIT_ERROR = 'Eaon quit during this run.'
+/** What a run the user stopped says when Eaon quit before it had reported back. */
+export const USER_STOP_ERROR = 'Stopped by the user.'
+
 export interface RunHandle {
   runId: string
   trigger: TaskRun['trigger']
@@ -105,6 +110,10 @@ export class SchedulerEngine {
   private timer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private started = false
+  /** Ids of the runs `load()` found still running: cut off when Eaon last quit. */
+  private cutOff: string[] = []
+  /** Runs the user stopped that haven't reported back yet: a quit meanwhile mustn't pass them off as cut off by it. */
+  private readonly stoppedByUser = new Set<string>()
   private readonly now: () => number
   private readonly monotonic: () => number
   private readonly zone: () => string
@@ -121,6 +130,16 @@ export class SchedulerEngine {
     this.zone = deps.zone ?? systemZone
   }
 
+  /**
+   * The runs the last quit cut off (`stop`, or a crash: `settleInterrupted`),
+   * as found at `load()`, that haven't been run again since — by `retry`
+   * from here or from the page. A run that was itself a retry isn't one: a
+   * run is made again after a quit once at most.
+   */
+  interruptedAtLoad(): TaskRun[] {
+    return this.runs.filter((run) => this.cutOff.includes(run.id) && !run.retryOf && !this.runs.some((r) => r.retryOf === run.id)).map(clone)
+  }
+
   /** Reads the saved tasks and runs. Nothing fires until `start()`. */
   load(): void {
     const now = this.now()
@@ -129,6 +148,11 @@ export class SchedulerEngine {
     this.tasks = loaded.tasks
     this.foreign = loaded.foreign
     this.runs = mergeRuns(repairRuns(this.deps.loadRuns?.() ?? []).runs, repairRuns(loaded.embedded).runs)
+    // Cut off by the last quit: stopped by it (`stop`), or still running when Eaon ended without one (a crash).
+    this.cutOff = this.runs
+      .filter((run) => run.status === 'running' || (run.status === 'cancelled' && run.error === QUIT_ERROR))
+      .filter((run) => !this.runs.some((r) => r.retryOf === run.id))
+      .map((run) => run.id)
     settleInterrupted(this.runs)
     for (const task of this.tasks) task.lastStatus = this.latestStatus(task.id) ?? task.lastStatus
     if (loaded.dropped > 0) this.deps.onDamaged?.(loaded.dropped)
@@ -162,7 +186,7 @@ export class SchedulerEngine {
       const run = this.runs.find((r) => r.id === runId)
       const task = this.find(taskId)
       if (run && run.status === 'running') {
-        Object.assign(run, { status: 'cancelled', finishedAt: now, error: 'Eaon quit during this run.' })
+        Object.assign(run, { status: 'cancelled', finishedAt: now, error: this.stoppedByUser.has(runId) ? USER_STOP_ERROR : QUIT_ERROR })
         if (task) task.lastStatus = this.latestStatus(taskId)
         changed = true
       }
@@ -284,7 +308,10 @@ export class SchedulerEngine {
   }
 
   cancel(taskId: string): void {
-    this.running.get(taskId)?.controller.abort()
+    const active = this.running.get(taskId)
+    if (!active) return
+    this.stoppedByUser.add(active.runId)
+    active.controller.abort()
   }
 
   /** Starts every task that is due. Safe to call at any time and as often as you like. */
@@ -523,6 +550,7 @@ export class SchedulerEngine {
       })
       .finally(() => {
         this.running.delete(taskId)
+        this.stoppedByUser.delete(run.id)
         this.inflight.delete(work)
         this.arm()
       })

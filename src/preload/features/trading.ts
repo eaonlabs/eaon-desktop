@@ -7,6 +7,7 @@ import type {
   OrderRequest,
   Quote,
   StartSessionRequest,
+  StockHeadline,
   TradingConfig,
   TradingOrder,
   TradingSchedule,
@@ -59,6 +60,8 @@ export const tradingApi = {
   resetSimulator: (cash?: number): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:reset-simulator', cash),
   quote: (symbol: string): Promise<Quote> => ipcRenderer.invoke('trading:quote', symbol),
   bars: (symbol: string, range: BarRange): Promise<Bar[]> => ipcRenderer.invoke('trading:bars', symbol, range),
+  /** A stock's latest headlines, newest first (a worker's live stock card). */
+  news: (symbol: string, count?: number): Promise<StockHeadline[]> => ipcRenderer.invoke('trading:news', symbol, count),
   saveSchedule: (draft: TradingScheduleDraft): Promise<TradingSchedule> => ipcRenderer.invoke('trading:save-schedule', draft),
   removeSchedule: (id: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:remove-schedule', id),
   startSession: (request: StartSessionRequest): Promise<TradingSession> => ipcRenderer.invoke('trading:start-session', request),

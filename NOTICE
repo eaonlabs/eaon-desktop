@@ -1,16 +1,18 @@
 Eaon
 Copyright (c) 2026 The Eaon Authors.
 
-This product is licensed under the GNU General Public License v3.0.
+This product is licensed under the Apache License, Version 2.0.
 See the LICENSE.md file for the full license text.
 
-You may use, study, modify, and redistribute the source code. Any version
-you distribute must also be GPLv3, with source available, and must keep the
-existing copyright and license notices intact.
+You may use, study, modify, and redistribute it, in open or closed-source
+products, as long as you include the license, keep the existing copyright
+and attribution notices (this file's among them), and mark the files you
+changed. The license doesn't grant use of the Eaon name or logo.
 
-Contributions are welcome and made easy — see CONTRIBUTING.md. By
-submitting a contribution, you certify it under the Developer Certificate
-of Origin (DCO), included in CONTRIBUTING.md.
+Contributions are welcome. Unless you say otherwise, what you submit is
+under the Apache License 2.0, as its section 5 says. By submitting a
+contribution, you certify it under the Developer Certificate of Origin
+(https://developercertificate.org).
 
 Third-party software that ships inside Eaon
 -------------------------------------------
@@ -19,6 +21,12 @@ Eaon CLI is a fork of OpenCode (https://github.com/sst/opencode), Eaon
 runs local models with llama.cpp (https://github.com/ggml-org/llama.cpp), and
 computer use runs on Cua Driver (https://github.com/trycua/cua). All three
 are MIT-licensed, and their copyright and permission notices follow.
+
+Two parts that ship inside Eaon keep their own GPL licences: the WhatsApp
+channel uses libsignal (https://github.com/WhiskeySockets/libsignal-node,
+GPL-3.0), and the tokn command (https://github.com/toknlabs/Tokn,
+GPL-3.0-or-later) runs as its own program. Their source is in those
+repositories.
 
 Browser control uses Browser Use (https://github.com/browser-use/browser-use,
 MIT) and uv (https://github.com/astral-sh/uv, Apache-2.0 or MIT). Neither

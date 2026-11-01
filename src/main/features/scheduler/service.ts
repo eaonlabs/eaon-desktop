@@ -1,12 +1,12 @@
 import { app, Notification, powerMonitor, type WebContents } from 'electron'
-import { mergeRunChat, ORDER_WATCH_MS, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
+import { mergeRunChat, ORDER_WATCH_MS, type ScheduledTask, type TaskDraft, type TaskRun } from '@shared/scheduler'
 import { orderSettled } from '@shared/payments'
 import type { Chat } from '@shared/types'
 import { runAgent } from '../../agent/loop'
 import { registerToolSource } from '../../agent/tools'
 import { store } from '../../store'
 import { currentZone } from '../../timezone'
-import { findPurchase, planPurchases } from '../payments/plans'
+import { findPurchase, mayHaveBoughtSince, planPurchases, purchasesKnown } from '../payments/plans'
 import type { FeatureContext } from '../types'
 import { SchedulerEngine, type RunResult } from './engine'
 import { RUNS_FILE, TASKS_FILE } from './migrate'
@@ -57,6 +57,46 @@ export interface SchedulerService {
   rendererReady: (sender: WebContents) => void
   openChat: (chatId: string) => void
 }
+
+/** How late a cut-off purchase run may still be run again: the same day the catch-up rule allows. */
+const CUT_OFF_RETRY_MS = 24 * 60 * 60_000
+
+/**
+ * Of the runs Eaon quitting cut off (an update, the computer restarting for
+ * one), the purchase schedules' runs to start again, once. Only when:
+ * - nothing can have been bought in it: no card typed, no order button
+ *   pressed, nothing paid (`mayHaveBought`; null, when payments isn't
+ *   running to tell, counts as maybe). One that may have bought something is
+ *   left for the user to check (payments engine, settleAbandoned), so a
+ *   restart never buys the same thing twice;
+ * - it is within a day, like any late run;
+ * - the schedule is still on, and the user hasn't changed it since the run
+ *   started. A one-off's run switches it off as it starts; that alone isn't
+ *   the user turning it off;
+ * - nothing of the schedule has run since (a catch-up already making its
+ *   order), and it hasn't placed all its orders.
+ */
+export function cutOffPurchasesToRetry(
+  cutOff: TaskRun[],
+  tasks: ScheduledTask[],
+  now: number,
+  mayHaveBought: (run: TaskRun, task: ScheduledTask) => boolean | null,
+  paidOrders: (taskId: string) => number = () => 0
+): TaskRun[] {
+  return cutOff.filter((run) => {
+    const task = tasks.find((t) => t.id === run.taskId)
+    if (!task?.purchase || run.retryOf || now - run.startedAt > CUT_OFF_RETRY_MS) return false
+    const usedUpOneOff = task.schedule.kind === 'once' && task.nextRunAt === null && task.updatedAt <= run.startedAt
+    if (!task.enabled && !usedUpOneOff) return false
+    if (task.history.some((r) => r.id !== run.id && r.startedAt > run.startedAt && r.status !== 'missed' && r.status !== 'skipped')) return false
+    if (task.purchase.orders !== null && paidOrders(task.id) >= task.purchase.orders) return false
+    return mayHaveBought(run, task) === false
+  })
+}
+
+/** How often, and how many times, launch looks again for the payments engine before giving up on cut-off purchases. */
+const RESUME_WAIT_MS = 2_000
+const RESUME_TRIES = 30
 
 export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrides = {}): SchedulerService {
   /** Pages that have said they are ready (one per window), until they reload or close. */
@@ -230,6 +270,47 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     if (startTimer) clearTimeout(startTimer)
     startTimer = null
     engine.start()
+    resumeCutOffPurchases()
+  }
+
+  /**
+   * Once per launch: every window's page says it's ready (and again on each
+   * reload), and a second pass would make a cut-off order a second time.
+   * Payments starts after the scheduler, so until it runs this waits for it.
+   */
+  let resumed = false
+  let resumeTries = 0
+  let resumeTimer: ReturnType<typeof setTimeout> | null = null
+  function resumeCutOffPurchases(): void {
+    if (resumed || resumeTimer) return
+    const cutOff = engine.interruptedAtLoad()
+    if (cutOff.length === 0) {
+      resumed = true
+      return
+    }
+    if (!purchasesKnown() && ++resumeTries < RESUME_TRIES) {
+      resumeTimer = setTimeout(() => {
+        resumeTimer = null
+        resumeCutOffPurchases()
+      }, RESUME_WAIT_MS)
+      resumeTimer.unref?.()
+      return
+    }
+    resumed = true
+    const runs = cutOffPurchasesToRetry(
+      cutOff,
+      engine.list(),
+      (overrides.now ?? Date.now)(),
+      (run, task) => mayHaveBoughtSince(run.chatId, task.id, run.startedAt),
+      (taskId) => planPurchases(taskId).filter((p) => p.status === 'paid').length
+    )
+    for (const run of runs) {
+      try {
+        engine.retry(run.taskId!, run.id)
+      } catch (error) {
+        console.error('[scheduler] couldn’t run a cut-off purchase again:', error)
+      }
+    }
   }
 
   const ready = (sender: WebContents): void => {
@@ -289,6 +370,9 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     },
     stop: () => {
       if (startTimer) clearTimeout(startTimer)
+      if (resumeTimer) clearTimeout(resumeTimer)
+      resumeTimer = null
+      resumed = true
       engine.stop()
     },
     rendererReady: ready,

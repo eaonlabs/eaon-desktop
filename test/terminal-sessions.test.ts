@@ -691,7 +691,8 @@ setInterval(() => {}, 1000)
     assert.equal(a.restored, undefined, 'a resumed agent redraws its own conversation')
     assert.ok(b.restored?.includes('MARKER-42'), 'the shell shows what it showed')
     assert.ok(second.events.some((e) => JSON.stringify(e) === JSON.stringify({ paneId: 'pane-a', agent: 'claude' })))
-    await until('the agent to be resumed', () => (second.output.get('pane-a') ?? '').includes(`FAKE CLAUDE --resume ${ID_B}`))
+    // Resumed with the status line that reports its plan's limits (cliAccounts/usageReport.ts).
+    await until('the agent to be resumed', () => /FAKE CLAUDE --settings \S*claude-usage\/settings\.json --resume /.test(second.output.get('pane-a') ?? '') && (second.output.get('pane-a') ?? '').includes(`--resume ${ID_B}`))
     second.type('pane-b', 'pwd\r')
     await until('the shell to report its folder', () => (second.output.get('pane-b') ?? '').includes(sub))
   } finally {

@@ -151,10 +151,10 @@ test('each agent gets its first task the way its CLI takes one', () => {
   assert.equal(line('amp', 'amp'), 'amp')
 })
 
-test('Claude Code in the ADE always starts with bypass permissions, resumed, continued or given a task', async () => {
+test('Claude Code in the ADE starts with bypass permissions out of the box, resumed, continued or given a task', async () => {
   const claude = agentCommand('claude', 'claude')
   assert.equal(claude, 'claude --dangerously-skip-permissions')
-  assert.equal(agentCommand('codex', 'codex'), 'codex', 'other agents start as they are')
+  assert.equal(agentCommand('codex', 'codex'), 'codex', 'other agents start on their own settings')
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eaon-agents-'))
   try {
     const listed = (await createTerminals({ dir }).control.agents()).find((a) => a.id === 'claude')
