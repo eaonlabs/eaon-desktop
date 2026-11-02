@@ -173,4 +173,22 @@ test('downloaded models get stable picker ids and labels', () => {
   assert.equal(info.tools, true)
   assert.equal(info.vision, true)
   assert.equal(info.reasoning, true)
+  // MiniCPM5's template only switches thinking on and off.
+  assert.deepEqual(info.efforts, ['none', 'high'])
+})
+
+test('a library model offers the thinking levels its chat template takes; others offer none', () => {
+  const base = { sizeBytes: 1, path: '/m.gguf', downloadedAt: 0, capabilities: ['tools', 'reasoning'] }
+  const spark = localModelInfo({
+    ...base,
+    repoId: 'XHToken/Spark-X2.6-4B-GGUF',
+    filename: 'Spark-X2.6-4B-Q4_K_M.gguf',
+    quant: 'Q4_K_M',
+    library: { modelId: 'spark-x2.6-4b', variantId: 'q4_k_m' }
+  })
+  assert.equal(spark.id, 'spark-x2.6-4b:q4_k_m')
+  assert.deepEqual(spark.efforts, ['none', 'light', 'high'])
+  // A GGUF from Browse Hugging Face: nothing is known about its template.
+  const browsed = localModelInfo({ ...base, repoId: 'someone/Thing-4B-GGUF', filename: 'Thing-4B-Q4_K_M.gguf', quant: 'Q4_K_M' })
+  assert.deepEqual(browsed.efforts, [])
 })

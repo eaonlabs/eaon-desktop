@@ -1,5 +1,6 @@
 import type { DownloadedModel, ModelInfo } from '@shared/types'
 import { store } from '../store'
+import { LIBRARY } from '../modelLibrary/catalog'
 import type { RuntimeModel } from './runtime'
 
 /**
@@ -50,7 +51,9 @@ export function localModelInfo(model: DownloadedModel): ModelInfo {
     tools: model.capabilities ? caps.has('tools') : true,
     ...(model.mmprojPath ? { vision: true } : {}),
     reasoning: caps.has('reasoning'),
-    efforts: [],
+    // Read from the library now rather than saved with the download, so models
+    // downloaded before a library entry learned its levels get them too.
+    efforts: (model.library && LIBRARY.find((entry) => entry.id === model.library?.modelId)?.efforts) || [],
     contextWindow: Math.min(model.contextLength ?? 32_768, 32_768)
   }
 }

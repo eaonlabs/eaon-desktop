@@ -22,6 +22,7 @@ import {
   type InstalledModel,
   type LibraryModel
 } from '@shared/modelLibrary'
+import { orderEfforts } from '@shared/effort'
 
 const GiB = 1024 ** 3
 const GB = 1e9
@@ -98,9 +99,35 @@ test('pickVariant rounds reported RAM to the nominal size so a "16 GB" PC is in 
 
 /* ----------------------------------------------------------- catalog */
 
-test('catalog: the three models the user named are present and featured', () => {
+test('catalog: Spark X2.6 4B is the first recommended model, then the three the user named', () => {
   const featured = LIBRARY.filter((m) => m.featured).map((m) => m.name)
-  assert.deepEqual(featured, ['MiniCPM5 2B', 'K2 Horizon 7B', 'Qwen3.8 27B'])
+  assert.deepEqual(featured, ['Spark X2.6 4B', 'MiniCPM5 2B', 'K2 Horizon 7B', 'Qwen3.8 27B'])
+  assert.equal(LIBRARY[0].id, 'spark-x2.6-4b')
+})
+
+test('catalog: Spark X2.6 4B downloads XHToken’s own GGUFs and fits an 8 GB machine', () => {
+  const spark = model('spark-x2.6-4b')
+  assert.deepEqual(
+    spark.variants.map((v) => [v.id, v.source.repo, v.source.files]),
+    [
+      ['q4_k_m', 'XHToken/Spark-X2.6-4B-GGUF', ['Spark-X2.6-4B-Q4_K_M.gguf']],
+      ['q8_0', 'XHToken/Spark-X2.6-4B-GGUF', ['Spark-X2.6-4B-Q8_0.gguf']]
+    ]
+  )
+  assert.equal(pickVariant(spark, 8 * GiB).variant.id, 'q4_k_m')
+  assert.equal(pickVariant(spark, 8 * GiB).fit, 'good')
+  assert.equal(pickVariant(spark, 16 * GiB).variant.id, 'q8_0')
+  // Its architecture (spark2_5) is upstream since llama.cpp b10828, which Eaon's base is past.
+  assert.equal(spark.requires, undefined)
+  assert.equal(runtimeGap(spark, runtime([])), null)
+})
+
+test('catalog: thinking levels are in Effort order, only on models that reason', () => {
+  for (const m of LIBRARY.filter((m) => m.efforts)) {
+    assert.ok(m.capabilities.includes('reasoning'), `${m.id} lists efforts but does not reason`)
+    assert.deepEqual(m.efforts, orderEfforts(m.efforts ?? []), `${m.id} efforts out of order or repeated`)
+    assert.ok((m.efforts ?? []).length >= 2, `${m.id} needs at least off and on`)
+  }
 })
 
 test('catalog: 15–25 further models, covering every category', () => {
@@ -175,11 +202,11 @@ test('suggestFor puts the featured models first, then distinct well-fitting chat
   const ram = 24 * GiB
   const suggested = suggestFor(LIBRARY, ram)
   assert.deepEqual(
-    suggested.slice(0, 3).map((m) => m.id),
-    ['minicpm5-2b', 'k2-horizon-7b', 'qwen3.8-27b']
+    suggested.slice(0, 4).map((m) => m.id),
+    ['spark-x2.6-4b', 'minicpm5-2b', 'k2-horizon-7b', 'qwen3.8-27b']
   )
   assert.equal(suggested.length, 6)
-  const rest = suggested.slice(3)
+  const rest = suggested.slice(4)
   assert.equal(new Set(rest.map((m) => m.categories[0])).size, rest.length, 'one per primary category')
   for (const m of rest) {
     assert.equal(pickVariant(m, ram).fit, 'good', `${m.id} should fit well`)
