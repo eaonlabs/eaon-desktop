@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest something new for Eaon, or a change to something it already does.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The job or problem behind the idea. "I want to …, but …"
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you picture it working.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do now instead?
+      description: Workarounds, or other apps that do it well.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Eaon?
+      options:
+        - Chat
+        - Workers
+        - ADE (terminals and coding agents)
+        - Eaon CLI
+        - Model providers or local models
+        - Plugins, MCP servers or skills
+        - Automations
+        - Usage
+        - Voice
+        - Eaon Remote
+        - Chat apps or email
+        - Something new

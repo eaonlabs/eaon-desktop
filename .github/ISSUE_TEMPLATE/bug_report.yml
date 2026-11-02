@@ -1,0 +1,83 @@
+name: Bug report
+description: Something in Eaon doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please don't include API keys, tokens or personal details; logs and screenshots can contain them.
+        Security problems go through [SECURITY.md](https://github.com/eaonlabs/eaon-desktop/blob/main/SECURITY.md), not a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and any error message Eaon showed.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      placeholder: |
+        1. Open Chat
+        2. Pick a model and send "…"
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+  - type: input
+    id: version
+    attributes:
+      label: Eaon version
+      description: Settings → General shows it.
+      placeholder: 2026.7.5
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      placeholder: macOS 15.4 on Apple silicon, Windows 11 arm64, Ubuntu 24.04…
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Eaon?
+      options:
+        - Chat
+        - Workers
+        - ADE (terminals and coding agents)
+        - Eaon CLI
+        - Model providers or local models
+        - Plugins, MCP servers or skills
+        - Automations
+        - Usage
+        - Voice
+        - Eaon Remote
+        - Chat apps or email
+        - Installing or updating
+        - Something else
+  - type: input
+    id: model
+    attributes:
+      label: Provider and model
+      description: If it's about a model's replies or tools.
+      placeholder: Anthropic, Claude Sonnet 5.5
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Anything that helps. Remove keys and personal details first.
+      render: shell
