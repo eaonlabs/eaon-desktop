@@ -80,7 +80,9 @@ Always-on agents, each with a name, colour, personality and purpose.
 - Every run leaves a receipt with how it went, and Retry. Nobody is watching
   to approve risky actions, so workers refuse them or ask you.
 
-Workers run on Eaon's own agent with any model, or on an installed Codex.
+Workers run on Eaon's own agent with any model, including Claude Agent on your
+own Claude plan, or on an installed Codex, Claude Code, GitHub Copilot or
+Gemini CLI.
 
 ### ADE
 

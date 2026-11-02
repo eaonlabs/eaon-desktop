@@ -12,6 +12,9 @@ import { store } from '../src/main/store'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
 import type { RunAgent } from '../src/main/features/workers/runner'
 import { guestCap, guestGate, isPrivateHost } from '../src/main/features/workers/guests'
+import { claudeEngineOnPlan, GUEST_ON_CLAUDE_PLAN } from '../src/main/features/workers/runner'
+import { noteClaudeCodeStatus } from '../src/main/engines/claude/status'
+import type { EngineStatus } from '@shared/engines'
 import type { FeatureContext } from '../src/main/features/types'
 import { ChannelsService, safeName } from '../src/main/features/channels/service'
 import { calledByName, chunkText, parseCommand, replyText, toTelegramHtml, toWhatsApp } from '../src/main/features/channels/format'
@@ -176,8 +179,8 @@ function message(extra: Partial<IncomingMessage>): IncomingMessage {
 }
 
 /** A Telegram link for Nova, paired with the user ('owner'). */
-async function pairedTelegram(env: ReturnType<typeof setup>) {
-  const nova = env.engine.save(draft('Nova'))
+async function pairedTelegram(env: ReturnType<typeof setup>, extra: Partial<WorkerDraft> = {}) {
+  const nova = env.engine.save(draft('Nova', extra))
   const link = env.channels.create('telegram', nova.id)
   await env.channels.setToken(link.id, '123:token')
   const connector = env.connectors.get(link.id)!
@@ -371,6 +374,54 @@ test('a friend asks, the owner allows them from the chat, and their turns are he
   assert.ok(env.engine.list()[0].paused)
   await env.channels.handle(link.id, message({ chatId: 'alex-chat', senderId: 'alex', senderName: 'Alex', text: '/workers' }))
   assert.match(connector.said('alex-chat').at(-1)!, /Only Sam can use \/workers/)
+})
+
+/** Claude Code as `claude auth status` left it, signed in with `method`. */
+const claudeCode = (method: string | null): EngineStatus =>
+  ({ id: 'claude', name: 'Claude Code', installed: true, outdated: false, auth: method ? { state: 'signed-in', method, plan: null } : { state: 'signed-out', method: null, plan: null } }) as unknown as EngineStatus
+
+test('a worker on the owner’s Claude plan never answers guests, on Claude Agent or the Claude engine; the owner still gets answers', async () => {
+  noteClaudeCodeStatus(claudeCode('Claude account'))
+  try {
+    for (const extra of [{ model: { providerId: 'claude-agent', modelId: 'default' } }, { engine: 'claude' as const }]) {
+      store.setJson('workers.json', [])
+      const env = setup('Hi!')
+      const { nova, link, connector } = await pairedTelegram(env, extra)
+      await env.channels.handle(link.id, message({ chatId: 'alex-chat', senderId: 'alex', senderName: 'Alex', text: 'Hey Nova' }))
+      await env.channels.handle(link.id, message({ text: `/allow ${env.channels.list()[0].requests[0].code}` }))
+      await settle()
+
+      await env.channels.handle(link.id, message({ chatId: 'alex-chat', senderId: 'alex', senderName: 'Alex', text: 'What can you do?' }))
+      await until(() => connector.said('alex-chat').some((t) => /something went wrong/.test(t)))
+      await env.engine.whenIdle()
+      assert.equal(env.agent.requests.length, 0, `${JSON.stringify(extra)}: nothing ran for the guest`)
+      assert.equal(connector.said('alex-chat').at(-1), 'Sorry, something went wrong on my side.')
+      assert.equal(env.engine.list().find((w) => w.id === nova.id)!.lastError, GUEST_ON_CLAUDE_PLAN)
+
+      if (!extra.engine) {
+        // The owner's own message runs on the plan as before.
+        await env.channels.handle(link.id, message({ text: 'Status?' }))
+        await until(() => env.agent.requests.length === 1)
+        await env.engine.whenIdle()
+        assert.equal(env.agent.requests[0].providerId, 'claude-agent')
+      }
+      await channels?.stop()
+      channels = null
+      workers?.stop()
+      await workers?.engine.whenIdle()
+      workers = null
+    }
+  } finally {
+    noteClaudeCodeStatus(claudeCode(null))
+  }
+})
+
+test('the Claude engine counts as a Claude plan unless Claude Code is known to use an API key', () => {
+  assert.equal(claudeEngineOnPlan(null), true, 'not checked yet')
+  assert.equal(claudeEngineOnPlan(claudeCode(null)), true, 'signed out')
+  assert.equal(claudeEngineOnPlan(claudeCode('Claude account')), true)
+  assert.equal(claudeEngineOnPlan(claudeCode('API key')), false)
+  assert.equal(claudeEngineOnPlan(claudeCode('bedrock')), false)
 })
 
 test('in a group the bot answers only when called on, and a group the owner allows lets everyone in it talk', async () => {

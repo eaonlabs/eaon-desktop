@@ -15,14 +15,15 @@ import { useSetupAction } from './setupActions'
  * before anything is typed, so nobody writes a long prompt into a box that
  * can't send it; the draft stays in the box while they fix it.
  *
- * On first run it also says what Eaon found on this computer: Codex signed
- * in (Chat can run on it straight away, with its sign-in and plan), or
- * Ollama installed but not running.
+ * On first run it also says what Eaon found on this computer: an agent CLI
+ * signed in (Chat can run on it straight away, with its sign-in and plan; a
+ * signed-in Claude Code means Claude Agent), or Ollama installed but not running.
  */
 export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedSelection; onChooseModel: () => void }): JSX.Element | null {
   const setSettingsPage = useApp((s) => s.setSettingsPage)
   const setView = useApp((s) => s.setView)
   const patchSettings = useApp((s) => s.patchSettings)
+  const selectModel = useApp((s) => s.selectModel)
   const providers = useApp((s) => s.providers)
   const runAction = useSetupAction()
   const [linking, setLinking] = useState(false)
@@ -104,6 +105,15 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
   }
 
   const ollama = providers.find((p) => p.id === 'ollama')
+  // A signed-in Claude Code runs Chat as Claude Agent, the provider (Eaon's own
+  // agent and tools on the Claude plan): Chat's picker has no tab for the Claude
+  // engine, so choosing that here would leave Chat on something it can't show.
+  const useSignedIn = (): void => {
+    if (found.signedIn === 'claude') {
+      const models = providers.find((p) => p.id === CLAUDE_AGENT)?.models ?? []
+      selectModel(models.find((m) => m.id === 'default')?.id ?? models[0]?.id ?? 'default', CLAUDE_AGENT)
+    } else if (found.signedIn) void patchSettings({ selectedEngine: found.signedIn, selectedEngineModel: '' })
+  }
   return (
     <div className="model-notice" role="alert">
       <CircleAlert size={15} strokeWidth={2} className="model-notice__icon" />
@@ -113,7 +123,7 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
         {found.signedIn && (
           <span className="model-notice__hint">
             {ENGINE_LABEL[found.signedIn]} is signed in on this computer, so Chat can run on it with your {ENGINE_PLAN[found.signedIn]}.{' '}
-            <button className="model-notice__link" onClick={() => void patchSettings({ selectedEngine: found.signedIn, selectedEngineModel: '' })}>
+            <button className="model-notice__link" onClick={useSignedIn}>
               Use {ENGINE_LABEL[found.signedIn]} in Chat
             </button>
           </span>
@@ -153,6 +163,8 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
     </div>
   )
 }
+
+const CLAUDE_AGENT = 'claude-agent'
 
 /** Whose plan Chat runs on with each agent CLI. */
 const ENGINE_PLAN: Record<CliEngineId, string> = { codex: 'ChatGPT plan', claude: 'Claude plan', copilot: 'GitHub Copilot plan', gemini: 'Google account' }
