@@ -11,6 +11,8 @@ import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
 import { resolveModel, STALL_MS } from '../scheduler/runner'
 import { applyStreamEvent } from '../scheduler/transcript'
 import { guestGate, guestNote, guestPolicy } from './guests'
+import { claudeCodeStatus } from '../../engines/claude/status'
+import { listProviders } from '../../providers'
 import { hideEaonAddress } from '../../eaonAddress'
 
 /**
@@ -291,13 +293,40 @@ function watchdog(signal: AbortSignal, stallMs: number): { signal: AbortSignal; 
 const stallError = (stallMs: number): string =>
   `No progress for ${Math.round(stallMs / 60_000)} minutes, so the turn was stopped. The model or a tool stopped responding — a dropped connection, or the computer sleeping mid-turn, can do that.`
 
+/**
+ * A Claude plan is its owner's alone. Anthropic's consumer terms say "You also
+ * may not make your Account available to anyone else", and its plans' limits
+ * assume one person's ordinary use (code.claude.com/docs/en/legal-and-compliance).
+ * So a turn with a guest's message in it (someone the user let talk to a
+ * worker from a chat app) never runs on one: not on Claude Agent, and not on
+ * the Claude engine unless Claude Code is known to be signed in with an API key.
+ */
+export const GUEST_ON_CLAUDE_PLAN =
+  'This worker runs on your own Claude plan, which Anthropic’s terms keep to you alone, so it can’t answer guests. To let guests talk to it, give it a model with an API key or a local model.'
+
+/** Whether this turn carries a guest's message. */
+const hasGuest = (input: TurnInput): boolean => Boolean(input.guestCap) || input.origin === 'guest'
+
+/** The Claude engine runs on a Claude plan unless Claude Code is known to use an API key (or a cloud provider's). */
+export function claudeEngineOnPlan(status = claudeCodeStatus()): boolean {
+  return !(status?.auth.state === 'signed-in' && status.auth.method !== null && status.auth.method !== 'Claude account')
+}
+
 export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
   const { worker, thread, assistant, settings } = input
+  if (hasGuest(input) && worker.engine === 'claude' && claudeEngineOnPlan()) {
+    assistant.error = GUEST_ON_CLAUDE_PLAN
+    return { text: '', error: GUEST_ON_CLAUDE_PLAN, cancelled: false }
+  }
   if (worker.engine && worker.engine !== 'native') return runOnEngine(input)
   const target = resolveWorkerModel(input.model === undefined ? worker.model : input.model, settings)
   if (!target.ok) {
     assistant.error = target.error
     return { text: '', error: target.error, cancelled: false }
+  }
+  if (hasGuest(input) && listProviders().find((p) => p.id === target.providerId)?.kind === 'claude-agent') {
+    assistant.error = GUEST_ON_CLAUDE_PLAN
+    return { text: '', error: GUEST_ON_CLAUDE_PLAN, cancelled: false }
   }
   assistant.model = target.modelId
 
