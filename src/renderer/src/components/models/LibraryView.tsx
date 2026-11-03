@@ -26,8 +26,8 @@ export function LibraryView(): JSX.Element {
   const [category, setCategory] = useState<LibraryCategory | 'all'>('all')
 
   const ram = state?.ramBytes ?? 0
-  // The three the design spec names come first, on their own, whatever this
-  // machine can run — then what else suits it.
+  // The recommended models (Spark X2.6 4B first) come first, on their own,
+  // whatever this machine can run — then what else suits it.
   const recommended = useMemo(() => catalog.filter((m) => m.featured), [catalog])
   const suggested = useMemo(() => (ram ? suggestFor(catalog, ram).filter((m) => !m.featured) : []), [catalog, ram])
   const filtered = useMemo(

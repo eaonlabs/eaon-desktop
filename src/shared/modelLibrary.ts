@@ -7,6 +7,8 @@
  * See .eaonbrain/local-model-hub.md for how this fits the rest of the page.
  */
 
+import type { EffortLevel } from './types'
+
 export type LibraryCategory = 'general' | 'coding' | 'reasoning' | 'vision' | 'small' | 'embedding'
 
 export const LIBRARY_CATEGORIES: { id: LibraryCategory; label: string }[] = [
@@ -69,7 +71,15 @@ export interface LibraryModel {
    * `ramGB` of memory, pull `variant`. The first row is the model's minimum.
    */
   recommended: { ramGB: number; variant: string }[]
-  /** One of the models the user asked for by name; always shown first. */
+  /**
+   * The thinking levels the model's chat template takes, as the composer's
+   * Effort levels. llama-server passes `reasoning_effort` into the template:
+   * `none` switches thinking off (`enable_thinking: false`) and the others go
+   * through as low, medium or high. A template raises an error for a value it
+   * doesn't know, so list only what it accepts. Unset: no Effort control.
+   */
+  efforts?: EffortLevel[]
+  /** Shown first, under Recommended, whatever this machine can run. */
   featured?: boolean
   /** Set when the model can't run anywhere yet. Get stays disabled and this explains why. */
   unsupported?: string

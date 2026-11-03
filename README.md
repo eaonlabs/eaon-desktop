@@ -129,7 +129,7 @@ others, or a plain shell.
 - **Voice**: dictation and read-aloud, with a choice of speech-to-text model.
 - **Eaon Remote**: use your terminals and Workers from another device, watch
   the agents' browsers live, and share a terminal with a link that expires.
-- **Local models**: a curated model library, plus Ollama, LM Studio,
+- **Local models**: a curated model library, with Spark X2.6 4B recommended for most computers (a 3.5 GB download that runs in 8 GB of memory), plus Ollama, LM Studio,
   llama.cpp, MLX, vLLM and Jan, found automatically.
 - **Chat apps and email**: talk to Eaon and your Workers from Discord, Telegram,
   WhatsApp, Slack, Matrix, Mattermost or Zulip, and let them read and answer email.

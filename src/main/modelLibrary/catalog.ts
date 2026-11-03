@@ -27,7 +27,34 @@ function hf(id: string, quant: string, repo: string, files: string[], sizeBytes:
 }
 
 export const LIBRARY: LibraryModel[] = [
-  // ---- The three the user asked for by name ----
+  // ---- Recommended: shown first, in this order ----
+  {
+    id: 'spark-x2.6-4b',
+    name: 'Spark X2.6 4B',
+    org: 'XHToken',
+    family: 'Spark X2.6',
+    params: '4B',
+    paramsB: 4.45,
+    description:
+      'Eaon’s recommended local model: a 4B on-device agent that XHToken reports matching or beating ~9B models on tool use, coding and long context, with Off, Low and High thinking.',
+    categories: ['small', 'general', 'coding'],
+    capabilities: ['tools', 'reasoning', 'coding'],
+    contextLength: 1_048_576,
+    license: APACHE,
+    released: '2026-10-19',
+    links: { huggingFace: 'XHToken/Spark-X2.6-4B' },
+    variants: [
+      hf('q4_k_m', 'Q4_K_M', 'XHToken/Spark-X2.6-4B-GGUF', ['Spark-X2.6-4B-Q4_K_M.gguf'], 3_543_441_312),
+      hf('q8_0', 'Q8_0', 'XHToken/Spark-X2.6-4B-GGUF', ['Spark-X2.6-4B-Q8_0.gguf'], 4_375_021_824)
+    ],
+    recommended: [
+      { ramGB: 8, variant: 'q4_k_m' },
+      { ramGB: 16, variant: 'q8_0' }
+    ],
+    // Its template takes enable_thinking plus reasoning_effort 'low' or 'high' only.
+    efforts: ['none', 'light', 'high'],
+    featured: true
+  },
   {
     id: 'minicpm5-2b',
     name: 'MiniCPM5 2B',
@@ -51,6 +78,8 @@ export const LIBRARY: LibraryModel[] = [
       { ramGB: 8, variant: 'q4_k_m' },
       { ramGB: 16, variant: 'q8_0' }
     ],
+    // Thinking switches on and off (enable_thinking); there are no levels in between.
+    efforts: ['none', 'high'],
     featured: true
   },
   {
@@ -76,6 +105,8 @@ export const LIBRARY: LibraryModel[] = [
       { ramGB: 16, variant: 'q4_k_m' },
       { ramGB: 24, variant: 'q8_0' }
     ],
+    // reasoning_effort low, medium or high; anything else raises in the template.
+    efforts: ['none', 'light', 'medium', 'high'],
     featured: true,
     // Upstream llama.cpp can't load 'k2-horizon' until ggml-org/llama.cpp#29535
     // merges; Eaon's build carries that PR (native/llama-fork.json). Drop this
@@ -107,6 +138,8 @@ export const LIBRARY: LibraryModel[] = [
       { ramGB: 32, variant: 'q4_k_m' },
       { ramGB: 48, variant: 'q8_0' }
     ],
+    // low, medium or xhigh; the template reads 'high' as xhigh.
+    efforts: ['none', 'light', 'medium', 'high'],
     featured: true
   },
 
