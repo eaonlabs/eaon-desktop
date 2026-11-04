@@ -3,11 +3,13 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, wri
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import type { ToknCliStatus } from '@shared/toknCli'
+import type { Settings } from '@shared/types'
 import { adoptLoginShellPath, terminalPathDirs } from '../shellEnv'
 import { store } from '../store'
 import type { Feature, FeatureContext } from './types'
+import { applyToknJob, jobRuns, resumeToknAutosync, toknJobStatus } from './toknJob'
 import { requestLinkCode, toknAccount, toknHost } from './usage/tokn'
 
 /**
@@ -26,9 +28,11 @@ import { requestLinkCode, toknAccount, toknHost } from './usage/tokn'
  * Linking: once Eaon is signed in to Tokn, unless tracking the coding CLIs
  * was turned off (the setup, or Settings → Usage), Eaon asks Tokn for a
  * one-time link code and runs `tokn link --code`; the command gets its own
- * token, as if it had been linked by hand. Then `tokn sync` runs every hour
- * while Eaon is open. tokn reads the CLIs' own logs, so what they used while
- * Eaon was closed is counted at the next sync.
+ * token, as if it had been linked by hand. From then on a job the operating
+ * system runs publishes what the CLIs used, also while Eaon is closed
+ * (toknJob.ts). Where there is no such job, `tokn sync` runs every hour while
+ * Eaon is open; tokn reads the CLIs' own logs, so what they used while Eaon
+ * was closed is counted at the next sync.
  *
  * Channels (all `tokn-cli:`): `status`, `link`, `sync`, and the `changed` event.
  */
@@ -47,7 +51,7 @@ let syncTimer: ReturnType<typeof setInterval> | null = null
 let firstSync: ReturnType<typeof setTimeout> | null = null
 let installed: Promise<void> = Promise.resolve()
 
-const settings = (): { install: boolean; sync: boolean } => store.getSettings().toknCli
+const settings = (): Settings['toknCli'] => store.getSettings().toknCli
 
 /** The bundled package: <Resources>/tokn-cli when packaged, resources/tokn-cli next to out/ in development. */
 function bundle(): { script: string; version: string } | null {
@@ -110,6 +114,17 @@ function syncsItself(): boolean {
     return config.autosync?.enabled === true
   } catch {
     return false
+  }
+}
+
+/** How often tokn's autosync publishes at most: its own setting (`tokn autosync on --every`), 90 minutes unless changed. */
+function autosyncEvery(): number {
+  try {
+    const config = JSON.parse(readFileSync(configFile(), 'utf8')) as { autosync?: { intervalMinutes?: unknown } }
+    const every = config.autosync?.intervalMinutes
+    return typeof every === 'number' && Number.isFinite(every) && every > 0 ? every : 90
+  } catch {
+    return 90
   }
 }
 
@@ -256,7 +271,8 @@ export function toknCliStatus(): ToknCliStatus {
     needsPath: dir && terminal && !terminal.includes(dir) ? dir : null,
     linked: linkedAs(),
     // Idle, the last sync is whichever ran last: Eaon's, or tokn's own scheduled one.
-    activity: activity.state === 'idle' && !activity.error ? { ...activity, at: latestSync(activity.at) } : activity
+    activity: activity.state === 'idle' && !activity.error ? { ...activity, at: latestSync(activity.at) } : activity,
+    background: { ...toknJobStatus(), everyMinutes: autosyncEvery() }
   }
 }
 
@@ -321,7 +337,11 @@ export async function linkToknCli(): Promise<ToknCliStatus> {
     activity = { state: 'idle', at: Date.now(), error: error instanceof Error ? error.message : String(error) }
   }
   changed()
-  if (linkedAs()) void syncToknCli()
+  if (linkedAs()) {
+    void syncToknCli()
+    // Linked now, so the background job can go in.
+    void applyToknJob().then(changed)
+  }
   return toknCliStatus()
 }
 
@@ -340,7 +360,7 @@ export async function syncToknCli(): Promise<ToknCliStatus> {
   return toknCliStatus()
 }
 
-/** Hourly syncs while linking is on and the command is linked. */
+/** Hourly syncs while linking is on and the command is linked, unless something else publishes. */
 function schedule(): void {
   if (syncTimer) clearInterval(syncTimer)
   if (firstSync) clearTimeout(firstSync)
@@ -349,18 +369,31 @@ function schedule(): void {
   if (!settings().sync) return
   // Checked each time, since `tokn autosync` can be turned on or off in a terminal at any time.
   const run = (): void => {
-    if (!syncsItself()) void syncToknCli()
+    if (!syncsItself() && !jobRuns()) void syncToknCli()
   }
   firstSync = setTimeout(run, FIRST_SYNC_AFTER_MS)
   syncTimer = setInterval(run, SYNC_EVERY_MS)
 }
 
-/** Settings changed: install or remove the launcher, link, and (re)start the hourly sync. */
-export async function applyToknCliSettings(): Promise<ToknCliStatus> {
+/**
+ * Settings changed: install or remove the launcher, link, (re)start the
+ * hourly sync, and put in or take out the background job. `resume`: the
+ * background switch was just turned on, which also undoes a `tokn autosync
+ * off` from a terminal.
+ */
+export async function applyToknCliSettings(options: { resume?: boolean } = {}): Promise<ToknCliStatus> {
   await installed
-  const { install, sync } = settings()
+  const { install, sync, background } = settings()
   if (install) installLauncher()
   else removeLauncher()
+  if (options.resume && sync && background) {
+    try {
+      resumeToknAutosync()
+    } catch (error) {
+      console.warn('[tokn-cli] could not turn tokn’s automatic syncing back on:', error)
+    }
+  }
+  await applyToknJob()
   schedule()
   changed()
   if (sync && toknAccount() && !linkedAs()) return linkToknCli()
@@ -394,6 +427,8 @@ export const toknCliFeature: Feature = {
         if (settings().install) installLauncher()
         // Signed in, tracking on, and not linked yet (a link that failed last time): link now.
         if (settings().sync && toknAccount() && !linkedAs()) void linkToknCli()
+        // Put in, brought up to date (Eaon moved or updated) or taken out to match the settings.
+        void applyToknJob().then(changed)
       })
       schedule()
     }
@@ -403,6 +438,13 @@ export const toknCliFeature: Feature = {
     })
     ipcMain.handle('tokn-cli:link', () => linkToknCli())
     ipcMain.handle('tokn-cli:sync', () => syncToknCli())
-    ipcMain.handle('tokn-cli:apply', () => applyToknCliSettings())
+    ipcMain.handle('tokn-cli:apply', (_event, options?: { resume?: unknown }) => applyToknCliSettings({ resume: options?.resume === true }))
+    ipcMain.handle('tokn-cli:login-items', async () => {
+      if (process.platform === 'darwin') await shell.openExternal('x-apple.systempreferences:com.apple.LoginItems-Settings.extension')
+    })
+    // Back from System Settings, where Eaon's background item may just have been allowed.
+    app.on('browser-window-focus', () => {
+      if (toknJobStatus().state === 'approval') void applyToknJob().then(changed)
+    })
   }
 }

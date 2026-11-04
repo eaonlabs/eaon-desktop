@@ -34,6 +34,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Labs builds only:** a doorbell or camera in Home Assistant (Ring included) shows on its card as it is now, with Watch live for its live view. Import from Passwords opens Apple's Passwords app and brings your logins and 2FA codes in by itself the moment you export them, then moves the file to the Trash (Apple keeps passkeys in Passwords). Link Shortcuts to a worker and it can run your shortcuts, which reach the apps on your Mac: Home, Messages, Music, Focus and any app's own actions. A light's or plug's card switch flips it straight away through Hue or Home Assistant, without waiting on the worker. Workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
 - **Choose what each coding agent may do without asking.** Settings → Agent providers has a permission for all of the ADE's agents and one for each: its own settings, ask first, accept edits, approve for me, or full access. Each uses that agent's own switch, and an agent without one isn't offered it. Out of the box nothing changes: Claude Code keeps full access, the others their own settings.
 
+### Added
+- **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
+
 ### Changed
 - **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
 - **Eaon says its release's name.** Settings, About Eaon, update notices and the release-notes link say 2026.7.2.1 (its name on GitHub) instead of the 2026.7.3 that updates compare.
@@ -47,6 +50,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Payments suggests running in the background** when automatic purchases or a purchase schedule are on, so Eaon starts again after the computer restarts for an update.
 - **Agent providers no longer says "0 of 0 enabled"** while it is still looking for the coding CLIs on this computer.
 - **Claude's usage in the ADE keeps itself up to date.** The meter showed what Claude Code's /usage last fetched, so it went stale unless you typed /usage. Claude Code now reports its plan's 5-hour and weekly limits, and when each resets, to Eaon after every reply — in any terminal on your Mac, not only Eaon's, for each of your Claude accounts — and the meter follows within seconds. Eaon adds its status line to Claude Code's settings for that, as Orca does; Settings → Accounts → Track every Claude Code session turns it off and puts your own back. Your own Claude Code status line still shows. Eaon still never reads your Claude sign-in or asks Anthropic itself, as Anthropic's terms require. (macOS and Linux; on Windows the meter shows what /usage last fetched, as before.)
+
+### Fixed
+- **`tokn autosync on` no longer opens Eaon.** Run with the tokn that comes with Eaon (or chosen in `tokn setup`), its background job started the Eaon app every 90 minutes, and whenever a CLI wrote a session, instead of running tokn. Eaon repairs such a job when it next starts, or when the job next runs.
 
 ## [2026.7.2.1] — 2026-10-28
 

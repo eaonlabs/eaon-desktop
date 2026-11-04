@@ -1,3 +1,6 @@
+// First, before anything else loads: a start that only runs tokn (the
+// background sync's scheduled task) does that and exits here.
+import './toknJobStart'
 import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, protocol, screen } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'

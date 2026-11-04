@@ -175,10 +175,10 @@ test('from an older Eaon: tracking goes on, except where Eaon is signed in to To
     trackCodingClisByDefault()
     assert.equal(store.getSettings().toknCli.sync, false)
 
-    // Signed in with it on: as it was.
+    // Signed in with it on: as it was, and syncing while Eaon is closed comes with it.
     freshStore({ 'settings.json': { toknCli: { install: false, sync: true } } })
     trackCodingClisByDefault()
-    assert.deepEqual(store.getSettings().toknCli, { install: false, sync: true })
+    assert.deepEqual(store.getSettings().toknCli, { install: false, sync: true, background: true })
   } finally {
     secrets.set('oauth::tokn', '')
     await store.flushWrites()

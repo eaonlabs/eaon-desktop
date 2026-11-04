@@ -369,7 +369,7 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
         <label className="card__row onboarding__option">
           <span className="card__row-body">
             <span className="card__row-title">Also track Claude Code, Codex and other coding CLIs</span>
-            <span className="card__row-desc">The tokn command that comes with Eaon publishes their usage to the same profile every hour.</span>
+            <span className="card__row-desc">The tokn command that comes with Eaon publishes their usage to the same profile, also while Eaon is closed.</span>
           </span>
           <Switch checked={trackCli} onChange={setTrackCli} label="Also track the coding CLIs" />
         </label>

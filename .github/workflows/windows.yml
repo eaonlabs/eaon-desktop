@@ -196,6 +196,12 @@ jobs:
           $arch = (Get-Item (Join-Path $env:LOCALAPPDATA 'Programs\Eaon\resources\llama') -ErrorAction SilentlyContinue | Get-ChildItem -Name)
           Write-Host "Installed $exe (llama-server for: $arch)"
 
+          # tokn's background sync (main/features/toknJob.ts): with tokn linked,
+          # here to a Tokn that isn't there, Eaon puts in its scheduled task at start.
+          $tokn = Join-Path $env:USERPROFILE '.tokn'
+          New-Item -ItemType Directory -Force -Path $tokn | Out-Null
+          '{"host":"http://127.0.0.1:9","token":"ci","user":{"handle":"ci"}}' | Set-Content -Path (Join-Path $tokn 'config.json') -Encoding utf8NoBOM
+
           $app = Start-Process -FilePath $exe -PassThru
           Start-Sleep -Seconds 30
           $crashLog = Join-Path $env:APPDATA 'Eaon\logs\crashes.log'
@@ -208,5 +214,29 @@ jobs:
           Stop-Process -Name Eaon -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 3
 
+          schtasks /Query /TN 'Eaon Tokn sync' /V /FO LIST
+          if ($LASTEXITCODE -ne 0) { throw 'Eaon did not put in the background task for tokn' }
+          # Run by Task Scheduler with Eaon closed, `Eaon --tokn-sync` runs tokn on
+          # Eaon's own Node (main/toknJobStart.ts). tokn notes in its log that there
+          # is nothing to publish here, or that Tokn can't be reached, and no Eaon
+          # is left running.
+          $log = Join-Path $tokn 'autosync.log'
+          Remove-Item $log -ErrorAction SilentlyContinue
+          schtasks /Run /TN 'Eaon Tokn sync'
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $log); $i++) { Start-Sleep -Seconds 2 }
+          if (-not (Test-Path $log)) { throw 'The background task did not run tokn' }
+          Get-Content $log
+          Start-Sleep -Seconds 5
+          if (Get-Process -Name Eaon -ErrorAction SilentlyContinue) { throw 'Eaon --tokn-sync left Eaon running' }
+
           $uninstaller = Join-Path $env:LOCALAPPDATA 'Programs\Eaon\Uninstall Eaon.exe'
           Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait
+          # Uninstalling takes the task out (resources/installer.nsh). The uninstaller
+          # hands over to a copy of itself, so this waits for it.
+          for ($i = 0; $i -lt 30; $i++) {
+            schtasks /Query /TN 'Eaon Tokn sync' 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { break }
+            Start-Sleep -Seconds 2
+          }
+          if ($LASTEXITCODE -eq 0) { throw 'Uninstalling Eaon left its background task for tokn' }
+          $global:LASTEXITCODE = 0
