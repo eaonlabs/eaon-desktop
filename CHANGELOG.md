@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## Unreleased
+
+### Added
+- **App control: agents use your apps through their accessibility tree.** Turn it on in Settings → App control, and Eaon's agents read an app's window as its buttons, fields and menus, the structure screen readers use. They press, type, pick options and choose menu items by name, with no screenshots and without moving your mouse, so they can work in one app while you use another. Every action reports what the element looks like afterwards, and agents wait for what should follow before the next step. Coding agents in the ADE can use it too when you allow them, as the `eaon-apps` command (Claude Code also gets it through Eaon's MCP server). Eaon itself, password managers, sign-in prompts and password fields are off limits, and the page lists every app an agent read or operated. It uses Accessibility on macOS (which needs your permission), UI Automation on Windows and AT-SPI on Linux.
+
 ## [2026.7.5] — 2026-10-31
 
 ### Added

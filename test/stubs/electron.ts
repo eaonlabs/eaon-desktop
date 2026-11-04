@@ -111,6 +111,13 @@ export const screen = {
   screenToDipPoint: (p: { x: number; y: number }) => p
 }
 export const desktopCapturer = { getSources: async () => [] }
+let clipboardText = ''
+export const clipboard = {
+  readText: () => clipboardText,
+  writeText: (text: string) => void (clipboardText = text),
+  clear: () => void (clipboardText = ''),
+  readImage: () => ({ isEmpty: () => true })
+}
 export const globalShortcut = { register: () => true, unregister: () => {}, isRegistered: () => false }
 /** Decodes like the real one only as far as telling an image from anything else: PNG, JPEG and WebP signatures. */
 const looksLikeImage = (data: Buffer | undefined): boolean =>
@@ -123,7 +130,7 @@ export const nativeImage = {
     toJPEG: () => Buffer.alloc(0)
   })
 }
-export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, powerMonitor, systemPreferences, screen, nativeImage, desktopCapturer, globalShortcut }
+export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, powerMonitor, systemPreferences, screen, nativeImage, desktopCapturer, globalShortcut, clipboard }
 
 /** Tray and menus exist only so modules that build them can be imported. */
 export class Tray {

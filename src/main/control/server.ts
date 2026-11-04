@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { claudeCodeToken, controlToken, sameToken, sentToken } from '../gateway/models'
+import { appControlToken, claudeCodeToken, controlToken, sameToken, sentToken } from '../gateway/models'
 import { audit } from '../enterprise/audit'
 import { toolInfo, type ControlTool } from './tools'
 
@@ -26,8 +26,22 @@ export function setControlTools(next: ControlTool[]): void {
 
 export const CONTROL_PREFIX = '/control'
 
-/** Who a request comes from, by its key: Eaon CLI, or the user's Claude Code. */
-export type ControlClient = 'eaon-cli' | 'claude-code'
+/**
+ * Who a request comes from, by its key: Eaon CLI, the user's Claude Code, or
+ * `eaon-apps` in an ADE terminal (features/appControl.ts), whose key opens
+ * app control and nothing else.
+ */
+export type ControlClient = 'eaon-cli' | 'claude-code' | 'app-control'
+
+/** The tools a client may see and call; null for all of them. */
+const CLIENT_TOOLS: Partial<Record<ControlClient, ReadonlySet<string>>> = {
+  'app-control': new Set(['app_control'])
+}
+
+const toolsFor = (client: ControlClient): ControlTool[] => {
+  const allowed = CLIENT_TOOLS[client]
+  return allowed ? tools.filter((tool) => allowed.has(tool.name)) : tools
+}
 
 /**
  * Only the control key (gateway/models.ts `controlToken`) and the key in
@@ -39,7 +53,9 @@ export function controlClient(req: IncomingMessage): ControlClient | null {
   const sent = sentToken(req.headers)
   if (sameToken(sent, controlToken())) return 'eaon-cli'
   const claude = claudeCodeToken()
-  return claude && sameToken(sent, claude) ? 'claude-code' : null
+  if (claude && sameToken(sent, claude)) return 'claude-code'
+  const apps = appControlToken(false)
+  return apps && sameToken(sent, apps) ? 'app-control' : null
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -67,12 +83,12 @@ async function call(
   args: Record<string, unknown>,
   client: ControlClient
 ): Promise<{ ok: true; result: unknown } | { ok: false; error: string; status: number }> {
-  const tool = tools.find((t) => t.name === name)
+  const tool = toolsFor(client).find((t) => t.name === name)
   if (!tool) return { ok: false, error: `No tool "${name}".`, status: 404 }
   const risk = toolInfo(tool).risk
   if (risk !== 'read') audit('control.tool', { tool: name, risk, client }, { via: 'control-api' })
   try {
-    return { ok: true, result: await tool.run(args) }
+    return { ok: true, result: await tool.run(args, client) }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error), status: 400 }
   }
@@ -82,7 +98,7 @@ async function call(
 function mcpServer(client: ControlClient): Server {
   const server = new Server({ name: 'eaon', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: 'Controls the Eaon desktop app: models, the ADE, workers and chats.' })
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((tool) => {
+    tools: toolsFor(client).map((tool) => {
       const info = toolInfo(tool)
       return {
         name: info.name,
@@ -140,7 +156,7 @@ export async function handleControl(req: IncomingMessage, res: ServerResponse, p
   }
 
   if (path === `${CONTROL_PREFIX}/v1/tools` && req.method === 'GET') {
-    json(res, 200, { tools: tools.map(toolInfo) })
+    json(res, 200, { tools: toolsFor(client).map(toolInfo) })
     return true
   }
 

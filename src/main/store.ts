@@ -325,6 +325,11 @@ export const defaultSettings: Settings = {
     confirmEachAction: true,
     quality: 'balanced'
   },
+  appControl: {
+    enabled: false,
+    terminalAgents: false,
+    showActions: true
+  },
   browserUse: {
     enabled: false,
     browser: null

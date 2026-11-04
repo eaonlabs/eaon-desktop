@@ -1,0 +1,121 @@
+/* Settings → App control (components/settings/pages/AppControl.tsx). */
+
+.appctl__try {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.appctl__select {
+  max-width: 220px;
+  min-width: 140px;
+  appearance: auto;
+}
+
+.appctl__output {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 16px 16px;
+}
+
+/* What an agent reads: indented lines, one element each. Scrolls inside the card, never the page sideways. */
+.appctl__tree {
+  margin: 0;
+  max-height: 340px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  border: 0.5px solid var(--border);
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre;
+  tab-size: 2;
+}
+
+.appctl__tree--sample {
+  margin: 0 16px 16px;
+  max-height: none;
+}
+
+.appctl__cmd {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 3px 7px;
+  border-radius: var(--r-xs, 4px);
+  background: var(--surface-3);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.appctl__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.appctl__clear {
+  height: 22px;
+  padding: 0 6px;
+  font-size: var(--fs-xs);
+  gap: 4px;
+}
+
+.appctl__activity {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.appctl__entry {
+  display: grid;
+  grid-template-columns: 76px minmax(90px, 160px) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 16px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+.appctl__entry + .appctl__entry {
+  border-top: 0.5px solid var(--border);
+}
+
+.appctl__when {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.appctl__who {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appctl__what {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.appctl__entry[data-ok='false'] .appctl__what strong {
+  color: var(--danger);
+}
+
+.appctl__error {
+  color: var(--text-3);
+}
+
+@media (max-width: 640px) {
+  .appctl__entry {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

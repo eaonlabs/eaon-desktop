@@ -8,7 +8,8 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { ControlAction } from '@shared/control'
 import { setControlTools } from '../src/main/control/server'
 import { createControlTools } from '../src/main/control/tools'
-import { claudeCodeToken, controlToken, forgetClaudeCodeToken, gatewayToken } from '../src/main/gateway/models'
+import { appControlToken, claudeCodeToken, controlToken, forgetClaudeCodeToken, gatewayToken } from '../src/main/gateway/models'
+import { appControlControlTool } from '../src/main/features/appControl'
 import { startLocalServer, stopLocalServer } from '../src/main/localServer'
 import { store } from '../src/main/store'
 
@@ -198,4 +199,35 @@ test('the same tools answer as plain JSON for scripts, with errors in the body',
   assert.equal(bad.status, 400)
   assert.match(((await bad.json()) as { error: { message: string } }).error.message, /isn’t downloaded/)
   assert.equal((await rest('/control/v1/tools/nope', { method: 'POST', body: '{}' })).status, 404)
+})
+
+test('eaon-apps’ key opens app control and nothing else, and the coding-agents switch decides whether it acts', async () => {
+  setControlTools([...createControlTools({ act: (action) => void acted.push(action), send: () => {} }), appControlControlTool])
+  const apps = appControlToken()!
+  assert.match(apps, /^eaonac-/)
+  assert.equal(appControlToken(), apps, 'it is kept')
+  const post = (body: unknown, withKey = apps): Promise<Response> => rest('/control/v1/tools/app_control', { method: 'POST', body: JSON.stringify(body), key: withKey })
+  const envelope = async (body: unknown, withKey = apps) => ((await (await post(body, withKey)).json()) as { result: { ok: boolean; command: string; error?: { code: string } } }).result
+
+  const listed = (await (await rest('/control/v1/tools', { key: apps })).json()) as { tools: { name: string }[] }
+  assert.deepEqual(listed.tools.map((t) => t.name), ['app_control'])
+  assert.equal((await rest('/control/v1/tools/status', { method: 'POST', body: '{}', key: apps })).status, 404, 'no other tool, not even a read')
+  assert.equal((await rest('/v1/models', { key: apps })).status, 401, 'and it spends nothing through the model routes')
+
+  store.patchSettings({ appControl: { enabled: false, terminalAgents: false, showActions: true } })
+  assert.equal((await envelope({ argv: ['guide'] })).ok, true, 'the guide answers whatever the switches say')
+  assert.equal((await envelope({ argv: ['list-apps'] })).error?.code, 'DISABLED')
+  store.patchSettings({ appControl: { enabled: true, terminalAgents: false, showActions: true } })
+  assert.equal((await envelope({ argv: ['list-apps'] })).error?.code, 'DISABLED', 'on for Eaon’s agents is not on for coding agents')
+  store.patchSettings({ appControl: { enabled: true, terminalAgents: true, showActions: true } })
+  const bad = await envelope({ argv: ['snapshot', '-z'] })
+  assert.deepEqual([bad.ok, bad.command, bad.error?.code], [false, 'snapshot', 'INVALID_ARGS'])
+  assert.equal((await envelope({ command: 'teleport' })).error?.code, 'UNKNOWN_COMMAND')
+
+  // Claude Code and Eaon CLI see it among Eaon's other tools.
+  const client = await connect()
+  const names = (await client.listTools()).tools.map((t) => t.name)
+  await client.close()
+  assert.ok(names.includes('app_control') && names.includes('status'))
+  store.patchSettings({ appControl: { enabled: false, terminalAgents: false, showActions: true } })
 })
