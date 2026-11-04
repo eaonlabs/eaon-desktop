@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { playModSound } from '../../../lib/modSounds'
 import { useApp } from '../../../state/store'
 import { useCode } from '../codeStore'
 import { PANE_NAMES, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalRunning } from '@shared/terminals'
@@ -247,7 +248,10 @@ async function loadLayout(): Promise<void> {
       // `/theme` typed in any pane.
       terminals.onCommand((_command, paneId) => get().openPicker(paneId))
       // An agent that worked for a while went quiet while you were elsewhere.
-      terminals.onFinish((paneId, task) => notifyFinished(paneId, task))
+      terminals.onFinish((paneId, task) => {
+        notifyFinished(paneId, task)
+        playModSound('ade')
+      })
       // A task is typed once. Left in the saved layout, a pane brought back
       // after a crash (where nothing recorded what it was running) typed it again.
       terminals.onPromptSent((paneId) => {

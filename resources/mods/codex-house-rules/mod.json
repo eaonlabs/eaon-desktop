@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.codex-house-rules",
+  "name": "House rules for Codex",
+  "category": "cli",
+  "description": "Gives the Codex sessions Eaon starts a few ground rules: test before saying done, keep changes small, ask when unsure.",
+  "contributes": {
+    "codex": {
+      "instructions": "Before you say a change is done, run the project's tests or build and report the result. Keep each change small and focused on what was asked. Don't commit, push or delete branches unless asked. When you're unsure what the user wants, ask one short question before editing."
+    }
+  }
+}

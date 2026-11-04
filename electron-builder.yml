@@ -67,6 +67,10 @@ extraResources:
   # plain JavaScript run by Eaon's own Node, one copy for every platform.
   - from: resources/tokn-cli
     to: tokn-cli
+  # Eaon's own mods (main/features/mods): bundled so the marketplace works
+  # offline. Installing one copies it out to the user's mods folder.
+  - from: resources/mods
+    to: mods
 publish:
   provider: github
   owner: eaonlabs

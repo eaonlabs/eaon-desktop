@@ -14,6 +14,9 @@ import { notify } from '../Notice'
  * main reopens at launch — so there is no separate "current session" to keep.
  */
 
+/** A pane a mod's session preset opens (shared/mods.ts `ModSessionPreset`). */
+export type PresetPane = { agent: TerminalAgentId; name?: string; prompt?: string }
+
 interface SessionsState {
   loaded: boolean
   error: string | null
@@ -38,7 +41,8 @@ interface SessionsState {
   show: (session: AdeSession) => Promise<void>
   /** A folder's own session (made when it has none), opened. */
   openFolder: (folder: string) => Promise<void>
-  create: (req: NewSessionRequest, agent: TerminalAgentId | null) => Promise<string | null>
+  /** Starts with one agent's pane, or a mod's preset of panes (each maybe with a first task). */
+  create: (req: NewSessionRequest, agent: TerminalAgentId | null | PresetPane[]) => Promise<string | null>
   /** Removes a session after closing its terminals; an error to show, or null. */
   remove: (session: AdeSession, deleteWorktree: boolean) => Promise<string | null>
   rename: (session: AdeSession, title: string) => Promise<void>
@@ -140,7 +144,13 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     set((s) => ({ sessions: [...s.sessions, session], creatingIn: undefined, collapsed: { ...s.collapsed, [session.project]: false } }))
     await get().open(session)
     showAde()
-    if (agent) {
+    if (Array.isArray(agent)) {
+      await useTerminals.getState().load()
+      for (const pane of agent) {
+        const added = useTerminals.getState().add(session.cwd, pane.agent, undefined, pane.prompt)
+        if (pane.name) useTerminals.getState().rename(session.cwd, added.id, pane.name)
+      }
+    } else if (agent) {
       await useTerminals.getState().load()
       useTerminals.getState().add(session.cwd, agent)
     }

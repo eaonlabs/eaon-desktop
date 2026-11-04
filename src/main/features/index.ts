@@ -40,6 +40,7 @@ import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
+import { modsFeature } from './mods'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -50,6 +51,8 @@ export const FEATURES: Feature[] = [
   // Agent engines (Codex…) before workers, which run turns on them.
   enginesFeature,
   pluginsFeature,
+  // Mods' tools and instructions, read by the agent loop; their CLI parts, by the terminals below.
+  modsFeature,
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,

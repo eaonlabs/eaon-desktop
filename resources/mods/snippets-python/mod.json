@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.snippets-python",
+  "name": "Python snippets",
+  "category": "editor",
+  "description": "Python snippets for the code editor: main guard, dataclass, argparse, pytest and more.",
+  "contributes": {
+    "snippets": [
+      {
+        "prefix": "main",
+        "description": "if __name__ == \"__main__\"",
+        "languages": [
+          "py"
+        ],
+        "body": "def main() -> None:\n    $0\n\n\nif __name__ == \"__main__\":\n    main()"
+      },
+      {
+        "prefix": "def",
+        "description": "Function with type hints",
+        "languages": [
+          "py"
+        ],
+        "body": "def name(arg: str) -> None:\n    $0"
+      },
+      {
+        "prefix": "dc",
+        "description": "Dataclass",
+        "languages": [
+          "py"
+        ],
+        "body": "from dataclasses import dataclass\n\n\n@dataclass\nclass Name:\n    $0"
+      },
+      {
+        "prefix": "withopen",
+        "description": "Read a file",
+        "languages": [
+          "py"
+        ],
+        "body": "with open(path, encoding=\"utf-8\") as f:\n    $0"
+      },
+      {
+        "prefix": "try",
+        "description": "try / except",
+        "languages": [
+          "py"
+        ],
+        "body": "try:\n    $0\nexcept Exception as error:\n    raise"
+      },
+      {
+        "prefix": "args",
+        "description": "argparse setup",
+        "languages": [
+          "py"
+        ],
+        "body": "import argparse\n\nparser = argparse.ArgumentParser(description=\"\")\nparser.add_argument(\"path\")\nargs = parser.parse_args()$0"
+      },
+      {
+        "prefix": "pytest",
+        "description": "pytest test",
+        "languages": [
+          "py"
+        ],
+        "body": "def test_name() -> None:\n    assert $0"
+      },
+      {
+        "prefix": "logger",
+        "description": "Module logger",
+        "languages": [
+          "py"
+        ],
+        "body": "import logging\n\nlogger = logging.getLogger(__name__)$0"
+      }
+    ]
+  }
+}

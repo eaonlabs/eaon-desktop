@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.show-sources",
+  "name": "Show your sources",
+  "category": "instructions",
+  "description": "Chat links the page behind each fact it looked up and says when it isn't sure.",
+  "contributes": {
+    "instructions": "When you state a fact you found in a web search or on a page, link that page next to the claim. If you aren't sure of something, say so and say what would settle it. Never present a guess as a fact."
+  }
+}

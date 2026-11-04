@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* Eaon sends its colours when the panel loads (see docs/mods.md); these are the fallbacks. */
+  :root { --bg: #161616; --surface: #1f1f1f; --raised: #2a2a2a; --text: #f2f2f2; --text2: #b8b8b8; --text3: #8a8a8a; --border: #333; --accent: #0a84ff; --on-accent: #fff; --danger: #ff453a; --font: -apple-system, system-ui, sans-serif; --mono: ui-monospace, Menlo, monospace; --fs: 14px; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: var(--fs) / 1.45 var(--font); display: flex; flex-direction: column; }
+  button { font: inherit; color: var(--text); background: var(--raised); border: 0; border-radius: 8px; height: 28px; padding: 0 11px; cursor: pointer; }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input, textarea, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: none; }
+  .bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; }
+  .bar .grow { flex: 1; }
+  .muted { color: var(--text3); font-size: 12px; }
+  .error { color: var(--danger); font-size: 12px; }
+</style>
+<script>
+  // The host calls this panel may make, and the theme it's sent. Messages only: no network, no app access.
+  const eaon = (() => {
+    let next = 1
+    const waiting = new Map()
+    const themeListeners = []
+    addEventListener('message', (event) => {
+      if (event.source !== parent) return
+      const m = event.data
+      if (!m || m.eaon !== 'mod') return
+      if (m.event === 'theme') {
+        const t = m.theme, r = document.documentElement.style
+        const set = (k, v) => v && r.setProperty(k, v)
+        set('--bg', t.background); set('--surface', t.surface); set('--raised', t.raised); set('--text', t.text); set('--text2', t.text2)
+        set('--text3', t.text3); set('--border', t.border); set('--accent', t.accent); set('--on-accent', t.onAccent); set('--danger', t.danger)
+        set('--font', t.font); set('--mono', t.mono); set('--fs', t.fontSize)
+        r.colorScheme = t.mode
+        themeListeners.forEach((f) => f(t))
+        return
+      }
+      const pending = waiting.get(m.id)
+      if (!pending) return
+      waiting.delete(m.id)
+      m.ok ? pending.resolve(m.result) : pending.reject(new Error(m.error))
+    })
+    const call = (name, ...args) => new Promise((resolve, reject) => {
+      const id = next++
+      waiting.set(id, { resolve, reject })
+      parent.postMessage({ eaon: 'mod', id, call: name, args }, '*')
+    })
+    return {
+      get: (key) => call('storage.get', key),
+      set: (key, value) => call('storage.set', key, value),
+      insert: (text) => call('composer.insert', text),
+      notify: (text) => call('notify', text),
+      onTheme: (f) => themeListeners.push(f)
+    }
+  })()
+</script>
+<title>Scratchpad</title>
+<style>
+  textarea { flex: 1; margin: 0 12px; padding: 10px 12px; font-size: 13px; line-height: 1.55; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <span class="grow muted" id="status">Saved</span>
+    <button id="clear" title="Clear the notes">Clear</button>
+    <button id="send" class="primary" title="Put the selected text, or all of it, in the message box">Add to message</button>
+  </div>
+  <textarea id="notes" placeholder="Notes, snippets, a to-do list. They save as you type and stay here between sessions." spellcheck="true"></textarea>
+  <div class="bar"><span class="muted" id="count">0 words</span></div>
+<script>
+  const notes = document.getElementById('notes')
+  const status = document.getElementById('status')
+  const count = document.getElementById('count')
+  let timer = null
+  const counted = () => {
+    const words = notes.value.trim() ? notes.value.trim().split(/\s+/).length : 0
+    count.textContent = `${words} word${words === 1 ? '' : 's'} · ${notes.value.length} characters`
+  }
+  const save = () => {
+    clearTimeout(timer)
+    status.textContent = 'Saving…'
+    timer = setTimeout(() => {
+      eaon.set('notes', notes.value).then(() => (status.textContent = 'Saved'), (e) => (status.textContent = e.message))
+    }, 400)
+  }
+  notes.addEventListener('input', () => { counted(); save() })
+  document.getElementById('send').addEventListener('click', () => {
+    const picked = notes.value.slice(notes.selectionStart, notes.selectionEnd)
+    eaon.insert(picked || notes.value).then(() => (status.textContent = 'Added to the message box'), (e) => (status.textContent = e.message))
+  })
+  document.getElementById('clear').addEventListener('click', () => {
+    if (!notes.value) return
+    notes.value = ''
+    counted()
+    save()
+    notes.focus()
+  })
+  eaon.get('notes').then((text) => { notes.value = text || ''; counted() }, (e) => (status.textContent = e.message))
+</script>
+</body>
+</html>

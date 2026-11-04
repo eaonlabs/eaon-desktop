@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.panel-time",
+  "name": "Time converter",
+  "category": "panels",
+  "description": "Turn Unix timestamps into dates and back, in your time zone, UTC and ISO 8601, in a dock panel.",
+  "contributes": {
+    "panels": [
+      {
+        "id": "time",
+        "title": "Time converter",
+        "description": "Unix timestamps and dates",
+        "entry": "panel.html",
+        "host": [
+          "composer"
+        ]
+      }
+    ]
+  }
+}

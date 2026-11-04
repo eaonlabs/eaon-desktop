@@ -35,7 +35,9 @@ import { GuestWatchPanel, GuestWatchPill } from './components/guestWatch/GuestWa
 import { useGuestWatch } from './components/guestWatch/guestWatchStore'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { CrashPage, PaneError, PanelError, SidebarError } from './components/CrashScreen'
-import { THEMES } from './lib/themes'
+import { allThemes } from './lib/themes'
+import { useMods } from './state/mods'
+import { ModsIntro } from './components/mods/ModsIntro'
 import { GLASS_DEFAULT, glassFactors } from '@shared/glass'
 import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
@@ -64,6 +66,8 @@ export default function App(): JSX.Element {
       setSettingsPage: s.setSettingsPage
     }))
   )
+  // The enabled mods' themes, commands and panels apply everywhere, so they load with the app.
+  useEffect(() => useMods.getState().ensure(), [])
 
   useEffect(() => {
     void init()
@@ -280,6 +284,9 @@ export default function App(): JSX.Element {
       <DiscordPresence />
       <Onboarding />
       <Tour />
+      <ErrorBoundary area="mods intro" fallback={() => null}>
+        <ModsIntro />
+      </ErrorBoundary>
     </>
   )
 }
@@ -304,6 +311,10 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
       if (event.shiftKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         onPlugins()
+      }
+      if (event.shiftKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault()
+        useApp.getState().setSettingsPage('mods')
       }
       // ⌘1 / ⌘2 / ⌘3 (Ctrl elsewhere): Chat, Workers, ADE — the top bar's switch, from the keyboard.
       const kind = ({ '1': 'chat', '2': 'workers', '3': 'code' } as const)[event.key as '1' | '2' | '3']
@@ -349,7 +360,7 @@ function useTheme(): void {
       root.style.setProperty('--accent', palette.accent)
       root.style.setProperty('--contrast', String(palette.contrast))
       // Belongs to the theme rather than the stored palette — see ThemeTone.
-      const tone = THEMES.find((theme) => theme.name === palette.preset)?.[resolved]
+      const tone = allThemes().find((theme) => theme.name === palette.preset)?.[resolved]
       root.style.setProperty('--text-fade', String(tone?.textFade ?? 1))
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
       // The ADE's scenes, softened when the blur is on (terminal.css).

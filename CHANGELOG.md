@@ -3,6 +3,23 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Mods (alpha).** Settings → Mods (also a tab on the Plugins page, or ⇧⌘M) is a marketplace of add-ons for Chat, Workers, the ADE and the coding CLIs Eaon starts. Before anything installs, each mod shows what it can touch, worked out from the mod itself. Anything that runs code, or reaches past the app's look, is reviewed first. Mods turn off and on, uninstall cleanly, and survive updates. A short note introduces them once after updating.
+- **30 mods from Eaon, bundled so they work offline:**
+  - **Themes:** Harbor, Sandstone, High Contrast, and four Night Shift terminal themes.
+  - **Commands and instructions:** writing, code and planning slash commands; Plain answers; Show your sources.
+  - **Editor:** snippets for web, Python, Go and Rust, plus colouring for Lua, Terraform, Nix, Haskell and R.
+  - **Dock panels:** Scratchpad, Focus timer, JSON tools and Time converter.
+  - **Workers:** research and developer worker templates.
+  - **Agent tools:** weather, Wikipedia, Hacker News and exchange rates.
+  - **ADE:** session presets, and a UTC clock with a focus timer in the top bar.
+  - **Coding CLIs:** git commands, guardrails and review helpers for Claude Code, and house rules for Codex.
+  - **Sounds:** soft chimes.
+- **Make your own mods:** a `mod.json` and its files, installed from a folder, a packed file, a link or a mod source's index. Mods from outside Eaon never get a verified mark. See docs/mods.md.
+- **Mods reach the CLIs only in sessions Eaon starts.** A mod's Claude Code plugin is loaded with `--plugin-dir`, and its Codex instructions and MCP servers are passed with `-c`. Nothing is written to your own ~/.claude or ~/.codex.
+
 ## [2026.7.5] — 2026-10-31
 
 ### Added

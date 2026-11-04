@@ -13,6 +13,7 @@ import { revealLabel } from '../../lib/files'
 import { shortcutLabel } from '../../lib/platform'
 import { DockToggle } from '../ide/Dock'
 import { useAdeDock } from '../ide/adeDock'
+import { ModWidgets } from '../mods/ModWidgets'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
@@ -27,6 +28,7 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
+          <ModWidgets />
           <UsagePlacement />
           <ReviewButton />
           <NewTerminalButton />

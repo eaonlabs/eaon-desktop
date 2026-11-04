@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Folder, GitBranch, Server } from 'lucide-react'
+import { Folder, GitBranch, LayoutGrid, Server } from 'lucide-react'
 import { Modal, Select } from '../ui'
 import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
@@ -20,6 +20,7 @@ import {
 import type { TerminalAgentId } from '@shared/terminals'
 import { arrangeAgents } from '../../lib/agentPrefs'
 import { useApp } from '../../state/store'
+import { presetsOf, useMods } from '../../state/mods'
 
 /** The agent a new session starts with, when it is installed: the first of these. */
 const PREFERRED: TerminalAgentId[] = ['claude', 'codex', 'eaon-code', 'opencode', 'antigravity']
@@ -47,6 +48,9 @@ export function NewSessionDialog(): JSX.Element | null {
   const [branch, setBranch] = useState('')
   const [branchEdited, setBranchEdited] = useState(false)
   const [agent, setAgent] = useState<TerminalAgentId | null>(null)
+  // A mod's session preset picked instead of one agent.
+  const [preset, setPreset] = useState<string | null>(null)
+  const presets = presetsOf(useMods((s) => s.enabled))
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,6 +64,7 @@ export function NewSessionDialog(): JSX.Element | null {
     setBranchEdited(false)
     setError(null)
     setBusy(false)
+    setPreset(null)
     void refreshAgents().catch(() => undefined)
     void window.api.ade.worktreesRoot().then(
       (info) => {
@@ -90,7 +95,8 @@ export function NewSessionDialog(): JSX.Element | null {
     if (!project || !title.trim() || problem || busy) return
     setBusy(true)
     setError(null)
-    const failed = await create({ project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }, agent)
+    const chosen = presets.find((p) => p.key === preset)
+    const failed = await create({ project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }, chosen ? chosen.panes : agent)
     setBusy(false)
     if (failed) setError(failed)
   }
@@ -222,10 +228,13 @@ export function NewSessionDialog(): JSX.Element | null {
                 key={a.id}
                 type="button"
                 role="radio"
-                aria-checked={agent === a.id}
+                aria-checked={!preset && agent === a.id}
                 className="ade-dialog__agent"
-                data-on={agent === a.id || undefined}
-                onClick={() => setAgent(a.id)}
+                data-on={(!preset && agent === a.id) || undefined}
+                onClick={() => {
+                  setAgent(a.id)
+                  setPreset(null)
+                }}
               >
                 <AgentMark agent={a.id} size={15} />
                 {a.label}
@@ -233,6 +242,33 @@ export function NewSessionDialog(): JSX.Element | null {
             ))}
           </div>
         </div>
+        {presets.length > 0 && (
+          <div className="field">
+            <span className="field-label">Or a preset from your mods</span>
+            <div className="ade-dialog__agents" role="radiogroup" aria-label="Session presets">
+              {presets.map((p) => {
+                const missing = [...new Set(p.panes.filter((pane) => pane.agent !== 'shell' && !installed.some((a) => a.id === pane.agent)).map((pane) => pane.agent))]
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    role="radio"
+                    aria-checked={preset === p.key}
+                    className="ade-dialog__agent"
+                    data-on={preset === p.key || undefined}
+                    disabled={missing.length > 0}
+                    title={missing.length ? `Needs ${missing.map((id) => agents.find((a) => a.id === id)?.label ?? id).join(' and ')}` : `${p.description} (${p.panes.length} panes)`}
+                    onClick={() => setPreset(p.key)}
+                  >
+                    <LayoutGrid size={14} strokeWidth={1.9} />
+                    {p.name}
+                  </button>
+                )
+              })}
+            </div>
+            {preset && <p className="ade-dialog__hint">{presets.find((p) => p.key === preset)?.description}</p>}
+          </div>
+        )}
         {error && (
           <p className="ade-dialog__error" role="alert">
             {error}

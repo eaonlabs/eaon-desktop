@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* Eaon sends its colours when the panel loads (see docs/mods.md); these are the fallbacks. */
+  :root { --bg: #161616; --surface: #1f1f1f; --raised: #2a2a2a; --text: #f2f2f2; --text2: #b8b8b8; --text3: #8a8a8a; --border: #333; --accent: #0a84ff; --on-accent: #fff; --danger: #ff453a; --font: -apple-system, system-ui, sans-serif; --mono: ui-monospace, Menlo, monospace; --fs: 14px; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: var(--fs) / 1.45 var(--font); display: flex; flex-direction: column; }
+  button { font: inherit; color: var(--text); background: var(--raised); border: 0; border-radius: 8px; height: 28px; padding: 0 11px; cursor: pointer; }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input, textarea, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: none; }
+  .bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; }
+  .bar .grow { flex: 1; }
+  .muted { color: var(--text3); font-size: 12px; }
+  .error { color: var(--danger); font-size: 12px; }
+</style>
+<script>
+  // The host calls this panel may make, and the theme it's sent. Messages only: no network, no app access.
+  const eaon = (() => {
+    let next = 1
+    const waiting = new Map()
+    const themeListeners = []
+    addEventListener('message', (event) => {
+      if (event.source !== parent) return
+      const m = event.data
+      if (!m || m.eaon !== 'mod') return
+      if (m.event === 'theme') {
+        const t = m.theme, r = document.documentElement.style
+        const set = (k, v) => v && r.setProperty(k, v)
+        set('--bg', t.background); set('--surface', t.surface); set('--raised', t.raised); set('--text', t.text); set('--text2', t.text2)
+        set('--text3', t.text3); set('--border', t.border); set('--accent', t.accent); set('--on-accent', t.onAccent); set('--danger', t.danger)
+        set('--font', t.font); set('--mono', t.mono); set('--fs', t.fontSize)
+        r.colorScheme = t.mode
+        themeListeners.forEach((f) => f(t))
+        return
+      }
+      const pending = waiting.get(m.id)
+      if (!pending) return
+      waiting.delete(m.id)
+      m.ok ? pending.resolve(m.result) : pending.reject(new Error(m.error))
+    })
+    const call = (name, ...args) => new Promise((resolve, reject) => {
+      const id = next++
+      waiting.set(id, { resolve, reject })
+      parent.postMessage({ eaon: 'mod', id, call: name, args }, '*')
+    })
+    return {
+      get: (key) => call('storage.get', key),
+      set: (key, value) => call('storage.set', key, value),
+      insert: (text) => call('composer.insert', text),
+      notify: (text) => call('notify', text),
+      onTheme: (f) => themeListeners.push(f)
+    }
+  })()
+</script>
+<title>JSON tools</title>
+<style>
+  textarea { flex: 1; margin: 0 12px; padding: 10px 12px; white-space: pre; }
+  .bar { flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button id="format">Format</button>
+    <button id="minify">Minify</button>
+    <button id="sort">Sort keys</button>
+    <span class="grow"></span>
+    <button id="send" class="primary">Add to message</button>
+  </div>
+  <textarea id="text" spellcheck="false" placeholder='Paste JSON here, like {"b": 1, "a": [1, 2]}'></textarea>
+  <div class="bar"><span id="status" class="muted">Paste JSON to check it.</span></div>
+<script>
+  const text = document.getElementById('text')
+  const status = document.getElementById('status')
+  const say = (message, bad) => { status.textContent = message; status.className = bad ? 'error' : 'muted' }
+  // Where a parse error is, as a line and column, from the position the engine reports.
+  const where = (error) => {
+    const at = /position (\d+)/.exec(error.message)
+    if (!at) return error.message
+    const before = text.value.slice(0, Number(at[1]))
+    const line = before.split('\n').length
+    return `${error.message.replace(/ in JSON at position \d+.*/, '')} at line ${line}, column ${before.length - before.lastIndexOf('\n')}`
+  }
+  const parse = () => {
+    if (!text.value.trim()) { say('Paste JSON to check it.'); return undefined }
+    try { const value = JSON.parse(text.value); return value } catch (e) { say(where(e), true); return undefined }
+  }
+  const sorted = (v) => Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v
+  const describe = (v) => Array.isArray(v) ? `a list of ${v.length}` : v && typeof v === 'object' ? `an object with ${Object.keys(v).length} keys` : `a ${typeof v}`
+  const apply = (f) => { const v = parse(); if (v === undefined) return; text.value = f(v); say(`Valid JSON: ${describe(v)}.`) }
+  document.getElementById('format').onclick = () => apply((v) => JSON.stringify(v, null, 2))
+  document.getElementById('minify').onclick = () => apply((v) => JSON.stringify(v))
+  document.getElementById('sort').onclick = () => apply((v) => JSON.stringify(sorted(v), null, 2))
+  document.getElementById('send').onclick = () => {
+    if (!text.value.trim()) return
+    eaon.insert('```json\n' + text.value + '\n```\n').then(() => say('Added to the message box.'), (e) => say(e.message, true))
+  }
+  let timer = null
+  text.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { const v = parse(); if (v !== undefined) say(`Valid JSON: ${describe(v)}.`) }, 250) })
+</script>
+</body>
+</html>

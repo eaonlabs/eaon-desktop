@@ -65,6 +65,7 @@ import { starApi } from './features/star'
 import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 import { enterpriseApi } from './features/enterprise'
+import { modsApi } from './features/mods'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -363,7 +364,8 @@ const fullApi = {
   star: starApi,
   freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi,
-  enterprise: enterpriseApi
+  enterprise: enterpriseApi,
+  mods: modsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

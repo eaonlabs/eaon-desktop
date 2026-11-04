@@ -35,7 +35,7 @@ import { useSkills } from './plugins/usePlugins'
 import { fileName, fileUrl, isImagePath } from '../lib/files'
 import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
-import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
+import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
@@ -425,7 +425,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
         { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
       )
-      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? [])] : items
+      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...modCommandItems('chat')] : [...items, ...modCommandItems('chat')]
     },
     ...(isAgent
       ? {
