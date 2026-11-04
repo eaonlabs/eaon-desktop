@@ -20,7 +20,7 @@ import type {
   Workspace
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
-import { isLastingIssue, type ProviderIssue } from '@shared/providers'
+import { isLastingIssue, isLongLimit, type ProviderIssue } from '@shared/providers'
 import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
@@ -586,10 +586,11 @@ function applyStreamEvent(event: StreamEvent): void {
   let nextChat: Partial<Chat> | null = null
   if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
   else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
+  else if (event.type === 'notice') nextMessage = { ...message, notice: event.text }
   else if (event.type === 'error') {
     nextMessage = { ...message, error: event.error, ...(event.issue ? { errorIssue: event.issue } : {}) }
-    // An expired sign-in or a rejected key marks the provider in main; show it in the picker too.
-    if (event.issue && isLastingIssue(event.issue.kind)) void state.refreshProviders()
+    // An expired sign-in, a rejected key or the gateway's limit for the day marks the provider in main; show it in the picker too.
+    if (event.issue && (isLastingIssue(event.issue.kind) || isLongLimit(event.issue))) void state.refreshProviders()
   }
   else if (event.type === 'usage') nextMessage = { ...message, usage: event.usage }
   else if (event.type === 'plan') nextMessage = { ...message, plan: event.plan }
@@ -639,6 +640,11 @@ function applyStreamEvent(event: StreamEvent): void {
 
   // Stamped once, when the turn ends, so its header can say how long it worked.
   if (finished && !nextMessage.finishedAt) nextMessage = { ...nextMessage, finishedAt: Date.now() }
+  // A notice (a retry's wait) lasts until the model answers again, or the turn ends.
+  if (nextMessage.notice && (finished || event.type === 'delta' || event.type === 'reasoning' || event.type === 'tool-call')) {
+    const { notice: _notice, ...rest } = nextMessage
+    nextMessage = rest
+  }
 
   if (nextMessage === message && !finished && !nextChat) return
 

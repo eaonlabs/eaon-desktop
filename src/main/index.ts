@@ -14,7 +14,7 @@ import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
 import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
 import { forgetLogo, noteBaseUrlChanged } from './providers/logos'
-import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
+import { clearProviderHealth, editModels, forgetOtherVersionsGatewayChecks, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { fileResponse } from './fileResponse'
 import { WALLPAPER_SCHEME } from '@shared/wallpaper'
@@ -1048,6 +1048,8 @@ app.whenReady().then(async () => {
   step('app icon', () => applyAppIcon(store.getSettings().appearance.appIcon, appWindows))
   // Migrations due, plus the repairs that run every launch; see migrations.ts.
   step('store', () => prepareStore())
+  // Eaon Lite refused an older copy of Eaon: not this one, until the gateway says so again.
+  step('gateway checks', forgetOtherVersionsGatewayChecks)
   step('launch mode', () => store.applyLaunchMode())
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.

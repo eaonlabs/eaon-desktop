@@ -18,6 +18,7 @@ import {
   Globe,
   Hammer,
   HeartPulse,
+  Hourglass,
   KeyRound,
   MoreHorizontal,
   PanelRight,
@@ -874,6 +875,18 @@ export const MessageRow = memo(function MessageRow({
         ) : message.error ? null : message.interrupted ? null : (
           <div className="msg__status" style={{ color: 'var(--text-3)' }}>
             No response
+          </div>
+        )}
+
+        {/* What the reply is waiting on (a retry after the provider was busy), said while it waits. */}
+        {streaming && message.notice && (
+          <div className="wl" role="status">
+            <div className="wl-row" data-static>
+              <span className="wl-row__icon" aria-hidden>
+                <Hourglass size={16} strokeWidth={1.8} />
+              </span>
+              <span className="wl-row__label">{message.notice}</span>
+            </div>
           </div>
         )}
 

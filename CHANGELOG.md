@@ -17,9 +17,19 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Files and folders dragged from VS Code's or Cursor's file tree** are attached, like files from Finder.
 - **A project's chats say which project** in the header: "tally / Add refunds".
 - **A chat waiting on you says so** in the sidebar ("Needs you") when its reply stopped for an approval.
+- **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
 
 ### Changed
 - **The message box keeps all its controls inside**, under what you type, in a conversation as on the start page: approvals, the model, the context meter, dictation and send.
+
+### Fixed
+- **`tokn autosync on` no longer opens Eaon.** Run with the tokn that comes with Eaon (or chosen in `tokn setup`), its background job started the Eaon app every 90 minutes, and whenever a CLI wrote a session, instead of running tokn. Eaon repairs such a job when it next starts, or when the job next runs.
+- **Eaon Lite no longer says "Needs attention" after an update.** When Eaon's gateway had turned an older copy of Eaon away, the warning stayed after updating until you pressed Refresh. Eaon now drops what the gateway said to an older copy when it starts, checks Eaon Lite and Eaon Event as soon as it opens, and checks a refusal again every ten minutes instead of leaving it alone.
+- **Eaon Lite says when a network has used up its free requests.** Eaon's gateway limits Eaon Lite per network, so at a busy venue the day's requests can run out before you send anything. Setup, Settings and the model picker said "Ready" anyway. They now say the requests are used up and when they start again, and suggest an event code or another model; Eaon waits until then before asking the gateway again.
+- **An event code the gateway turned off is forgotten as soon as Eaon notices**, from the background model list as well as from a chat.
+- **A day's rate limit says so at once.** A provider that answered "429, try again in 18 hours" was retried three times, a minute apart, behind "Thinking", before the reply failed. A wait longer than a retry would ever wait now fails straight away.
+- **Retries are visible while they wait.** "The provider is busy (429) — retrying in 60s." showed only once the turn had ended, inside the "Thinking" line. It now shows in the conversation while Eaon waits, until the model answers.
+- **Eaon Lite and Eaon Event say why they stopped.** When Eaon Lite's free requests for the day are used up on your network, it says so, with the wait in hours and how to keep going (an event code in Settings → Model providers → Eaon Event, or another model), instead of "limiting how fast requests can be made. Try again in 1086 min". An event code's limit gives the code's own reason. Short limits read as before.
 
 ## [2026.7.5] — 2026-10-31
 
@@ -34,9 +44,6 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Labs builds only:** a doorbell or camera in Home Assistant (Ring included) shows on its card as it is now, with Watch live for its live view. Import from Passwords opens Apple's Passwords app and brings your logins and 2FA codes in by itself the moment you export them, then moves the file to the Trash (Apple keeps passkeys in Passwords). Link Shortcuts to a worker and it can run your shortcuts, which reach the apps on your Mac: Home, Messages, Music, Focus and any app's own actions. A light's or plug's card switch flips it straight away through Hue or Home Assistant, without waiting on the worker. Workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
 - **Choose what each coding agent may do without asking.** Settings → Agent providers has a permission for all of the ADE's agents and one for each: its own settings, ask first, accept edits, approve for me, or full access. Each uses that agent's own switch, and an agent without one isn't offered it. Out of the box nothing changes: Claude Code keeps full access, the others their own settings.
 
-### Added
-- **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
-
 ### Changed
 - **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
 - **Eaon says its release's name.** Settings, About Eaon, update notices and the release-notes link say 2026.7.2.1 (its name on GitHub) instead of the 2026.7.3 that updates compare.
@@ -50,9 +57,6 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Payments suggests running in the background** when automatic purchases or a purchase schedule are on, so Eaon starts again after the computer restarts for an update.
 - **Agent providers no longer says "0 of 0 enabled"** while it is still looking for the coding CLIs on this computer.
 - **Claude's usage in the ADE keeps itself up to date.** The meter showed what Claude Code's /usage last fetched, so it went stale unless you typed /usage. Claude Code now reports its plan's 5-hour and weekly limits, and when each resets, to Eaon after every reply — in any terminal on your Mac, not only Eaon's, for each of your Claude accounts — and the meter follows within seconds. Eaon adds its status line to Claude Code's settings for that, as Orca does; Settings → Accounts → Track every Claude Code session turns it off and puts your own back. Your own Claude Code status line still shows. Eaon still never reads your Claude sign-in or asks Anthropic itself, as Anthropic's terms require. (macOS and Linux; on Windows the meter shows what /usage last fetched, as before.)
-
-### Fixed
-- **`tokn autosync on` no longer opens Eaon.** Run with the tokn that comes with Eaon (or chosen in `tokn setup`), its background job started the Eaon app every 90 minutes, and whenever a CLI wrote a session, instead of running tokn. Eaon repairs such a job when it next starts, or when the job next runs.
 
 ## [2026.7.2.1] — 2026-10-28
 

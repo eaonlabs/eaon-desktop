@@ -28,7 +28,7 @@ const toolNames = (body: Body): string[] => (body.tools ?? []).map((t) => t.func
 // The sub-agent's own brief, which the lead agent's swarm prompt does not contain.
 const isSubagent = (body: Body): boolean => String(body.messages[0]?.content ?? '').includes('report to the lead agent')
 
-async function setup(handler: (body: Body, index: number) => string[] | { status: number; body: string }) {
+async function setup(handler: (body: Body, index: number) => string[] | { status: number; body: string; headers?: Record<string, string> }) {
   let index = 0
   const server = await sseServer((body) => handler(body as unknown as Body, index++))
   store.saveProviderConfig({
@@ -717,6 +717,36 @@ test('a summary that fails leaves the conversation as it was and says so', async
   assert.equal(compacting(events).at(-1)?.state, 'failed')
   assert.ok(!events.some((e) => e.type === 'compacted'))
   assert.equal(outcome.text, 'answer', 'the turn went on with the full conversation')
+})
+
+test('a 429 that says to wait longer than a retry ever would fails at once, with the gateway’s reason', async () => {
+  const server = await setup(() => ({
+    status: 429,
+    body: JSON.stringify({ error: { message: 'Daily limit reached. This gateway allows 20 requests a day per user.', type: 'rate_limit_error', code: 'rate_limit_exceeded' } }),
+    headers: { 'retry-after': '65410' }
+  }))
+  const events: StreamEvent[] = []
+  const started = Date.now()
+  const outcome = await runAgent(request({ mode: 'chat' }), (e) => events.push(e))
+  server.server.close()
+  assert.equal(server.requests.length, 1, 'no retries: each would be refused for 18 hours')
+  assert.ok(Date.now() - started < 5000, `took ${Date.now() - started} ms`)
+  assert.match(outcome.error ?? '', /Daily limit reached|limiting how fast/)
+  assert.ok(!events.some((e) => e.type === 'notice'), 'nothing to wait for')
+})
+
+test('a retry’s wait is said in the conversation while it waits, and the reply follows it', async () => {
+  const server = await setup((_b, i) => (i === 0 ? { status: 429, body: JSON.stringify({ error: { message: 'Rate limit reached' } }), headers: { 'retry-after': '1' } } : say('back')))
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request({ mode: 'chat' }), (e) => events.push(e))
+  server.server.close()
+  assert.equal(server.requests.length, 2)
+  assert.equal(outcome.text, 'back')
+  const notice = events.findIndex((e) => e.type === 'notice')
+  assert.ok(notice !== -1, 'the wait was said as a notice')
+  assert.equal((events[notice] as Extract<StreamEvent, { type: 'notice' }>).text, 'The provider is busy (429) — retrying in 1s.')
+  const reply = events.findIndex((e) => e.type === 'delta')
+  assert.ok(notice < reply, 'before the reply, not once the turn had ended')
 })
 
 test('a repeated call id is made unique, so each result lands on its own call', async () => {

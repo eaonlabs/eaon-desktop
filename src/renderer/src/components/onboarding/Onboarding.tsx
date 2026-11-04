@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleAlert, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { LINK_TARGETS, type LinkMethod } from '@shared/linkAccounts'
-import { providerReadiness } from '@shared/modelSelection'
+import { isProviderUsable, providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
 import type { ToknAccount } from '@shared/usage'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
@@ -119,6 +119,8 @@ function Setup(): JSX.Element {
     void refreshProviders()
   }, [refreshProviders])
   const ready = providers.filter((p) => providerReadiness(p).state === 'ready')
+  // Eaon Lite on a network that has used up its day: still shown, with why, rather than gone or "Ready".
+  const eaonWaiting = providers.find((p) => wayOf(p) === 'eaon' && isProviderUsable(p) && providerReadiness(p).state === 'attention') ?? null
 
   const scene: Scene = step === 'welcome' ? PLACES[place].scene : step === 'tokn' ? 'tokn' : step === 'models' ? 'models' : 'home'
 
@@ -231,7 +233,7 @@ function Setup(): JSX.Element {
           <section key={step} className="onboarding__step" data-direction={direction}>
             {step === 'welcome' && <Welcome updated={updated} place={place} onPlace={setPlace} onNext={next} />}
             {step === 'tokn' && <ToknStep onBack={back} onNext={next} />}
-            {step === 'models' && <ModelsStep ready={ready} refresh={() => void refreshProviders()} onBack={back} onNext={next} />}
+            {step === 'models' && <ModelsStep ready={ready} eaonWaiting={eaonWaiting} refresh={() => void refreshProviders()} onBack={back} onNext={next} />}
             {step === 'look' && <LookStep onBack={back} onNext={next} />}
             {step === 'ready' && <Ready updated={updated} onBack={back} onTour={() => void finish('done', true)} onStart={() => void finish('done', false)} />}
           </section>
@@ -471,7 +473,19 @@ function useSigninNames(): string | null {
   return orList(names)
 }
 
-function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; refresh: () => void; onBack: () => void; onNext: () => void }): JSX.Element {
+function ModelsStep({
+  ready,
+  eaonWaiting,
+  refresh,
+  onBack,
+  onNext
+}: {
+  ready: Provider[]
+  eaonWaiting: Provider | null
+  refresh: () => void
+  onBack: () => void
+  onNext: () => void
+}): JSX.Element {
   const [linking, setLinking] = useState(false)
   const signinNames = useSigninNames()
   // Kept while the dialog closes, so its list doesn't change on the way out.
@@ -479,23 +493,24 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; ref
   const [codeOpen, setCodeOpen] = useState(false)
   const names = (way: LinkMethod | 'eaon'): string => ready.filter((p) => wayOf(p) === way).map((p) => p.name).join(', ')
   const eaon = names('eaon')
+  const waiting = !eaon && eaonWaiting ? providerReadiness(eaonWaiting) : null
   return (
     <>
       <Header title="Connect a model">Eaon works with whatever you have. Connect as many as you like; every chat can use a different one.</Header>
       <div className="onboarding__ways" style={stagger(2)}>
-        {eaon && (
+        {(eaon || waiting) && (
           <>
-            <div className="onboarding__way" data-static>
+            <div className="onboarding__way" data-static data-waiting={waiting ? true : undefined}>
               <span className="onboarding__way-icon">
                 <EaonSymbol size={15} />
               </span>
               <span className="onboarding__way-body">
-                <span className="onboarding__way-title">{eaon}</span>
-                <span className="onboarding__way-text">Free models from Eaon, already on</span>
+                <span className="onboarding__way-title">{eaon || eaonWaiting?.name}</span>
+                <span className="onboarding__way-text">{waiting?.reason ?? 'Free models from Eaon, already on'}</span>
               </span>
               <span className="onboarding__way-state">
-                <Check size={14} strokeWidth={2.4} />
-                Ready
+                {waiting ? <CircleAlert size={14} strokeWidth={2.2} /> : <Check size={14} strokeWidth={2.4} />}
+                {waiting ? waiting.label : 'Ready'}
               </span>
             </div>
             <div className="onboarding__ways-rule" role="presentation" />

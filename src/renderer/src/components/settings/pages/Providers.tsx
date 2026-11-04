@@ -598,8 +598,9 @@ function LogoSection({ provider }: { provider: Provider }): JSX.Element {
 
 /**
  * What the last check found wrong, at the top of the provider: an expired
- * sign-in, a rejected key, no credit, no models. Stored credentials alone
- * don't make a provider look connected after a check failed.
+ * sign-in, a rejected key, no credit, no models, Eaon's gateway's limit for
+ * the day. Stored credentials alone don't make a provider look connected
+ * after a check failed.
  */
 function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | null {
   const refreshProviders = useApp((s) => s.refreshProviders)
@@ -611,7 +612,7 @@ function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | nu
     <div className="provider-attention" role="status">
       <TriangleAlert size={15} strokeWidth={1.9} />
       <div className="provider-attention__body">
-        <span className="provider-attention__title">Needs attention</span>
+        <span className="provider-attention__title">{readiness.label}</span>
         <span>
           {readiness.reason}
           {checked ? ` Checked ${ago(checked)}.` : ''}

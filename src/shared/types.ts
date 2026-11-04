@@ -225,6 +225,8 @@ export interface ChatMessage {
    * quit or crashed before the reply finished.
    */
   interrupted?: boolean
+  /** What the reply is waiting on right now (a retry's wait), while it is written; never kept once it ends. */
+  notice?: string
   /** The user stopped this reply before it finished. */
   stopped?: boolean
   /** A coding reply whose file changes the user undid (its checkpoint, chatCheckpoints.ts); Redo puts them back. */
@@ -863,6 +865,11 @@ export interface StreamRequest {
 export type StreamEvent =
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'reasoning'; messageId: string; text: string }
+  /**
+   * Something the turn is waiting on, said while it waits: a retry after the
+   * provider was busy, the next saved key. Shown until the model answers again.
+   */
+  | { type: 'notice'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
   | {
