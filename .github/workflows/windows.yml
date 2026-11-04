@@ -21,7 +21,7 @@ on:
   push:
     branches: ['release/**']
   pull_request:
-    paths: ['src/**', 'package.json', 'package-lock.json', 'electron-builder.yml', 'scripts/**', '.github/workflows/windows.yml']
+    paths: ['src/**', 'resources/app-control/**', 'package.json', 'package-lock.json', 'electron-builder.yml', 'scripts/**', '.github/workflows/windows.yml']
   workflow_dispatch:
     inputs:
       sign:
@@ -240,3 +240,19 @@ jobs:
           }
           if ($LASTEXITCODE -eq 0) { throw 'Uninstalling Eaon left its background task for tokn' }
           $global:LASTEXITCODE = 0
+
+  # App control's Windows engine (resources/app-control/win32) on a real
+  # Windows desktop: it compiles under Windows PowerShell's Add-Type, then
+  # opens Notepad, writes into it through UI Automation and reads it back.
+  app-control:
+    name: App control engine
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Read and operate Notepad
+        run: node scripts/test-app-control-windows.mjs

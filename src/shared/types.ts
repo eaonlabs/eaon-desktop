@@ -1,5 +1,6 @@
 /** Types shared between the main and renderer processes. */
 
+import type { AppControlSettings } from './appControl'
 import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
@@ -744,6 +745,8 @@ export interface Settings {
     /** Sharper screenshots cost more tokens per step. */
     quality: 'balanced' | 'sharp'
   }
+  /** Agents operating desktop apps through the accessibility tree (main/features/appControl.ts). */
+  appControl: AppControlSettings
   /** The agent in the user's own browser, through Browser Use (main/features/browserUse.ts). */
   browserUse: {
     enabled: boolean

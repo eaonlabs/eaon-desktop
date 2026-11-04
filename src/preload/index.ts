@@ -30,6 +30,7 @@ import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
+import { appControlApi } from './features/appControl'
 import { browserControlApi } from './features/browserControl'
 import { inAppBrowserApi } from './features/inAppBrowser'
 import { eaonCodeApi } from './features/eaonCode'
@@ -355,6 +356,7 @@ const fullApi = {
   pluginAuth: pluginsApi,
   scheduler: schedulerApi,
   computerUse: computerUseApi,
+  appControl: appControlApi,
   browserControl: browserControlApi,
   inAppBrowser: inAppBrowserApi,
   eaonCode: eaonCodeApi,

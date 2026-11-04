@@ -23,7 +23,7 @@ import {
   Smartphone,
   SquarePlus,
   Sun,
-  Wand2, Gauge, Bot, Search, Puzzle } from 'lucide-react'
+  Wand2, Gauge, Bot, Search, Puzzle, MousePointerClick } from 'lucide-react'
 import { Brain } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
@@ -42,6 +42,7 @@ import { ArchivedPage } from './pages/Archived'
 import { MemoryPage } from './pages/Memory'
 import { BrowserSettingsPage } from './pages/Misc'
 import { ComputerUsePage } from './pages/ComputerUse'
+import { AppControlPage } from './pages/AppControl'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { RemoteDevicesPage } from './pages/RemoteDevices'
@@ -98,6 +99,7 @@ export const KEYWORDS: Record<string, string> = {
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
   'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority permissions full access yolo bypass skip permissions accept edits approve for me ask for approval',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',
+  'app-control': 'app control accessibility tree apps windows buttons menus automate operate desktop apps eaon-apps ui automation at-spi agent desktop',
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',
   plugins: 'skills mcp extensions',
@@ -133,6 +135,7 @@ const NAV: NavEntry[] = [
   { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'app-control', label: 'App control', icon: <MousePointerClick size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'mods', label: 'Mods', icon: <Puzzle size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -167,6 +170,7 @@ const POLICY_PAGES: Record<string, PolicyFeature> = {
   'remote-devices': 'remoteAccess',
   'local-server': 'localApiServer',
   'computer-use': 'computerUse',
+  'app-control': 'computerUse',
   payments: 'payments',
   'chat-apps': 'channels',
   email: 'email',
@@ -190,6 +194,7 @@ const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Ele
   engines: EnginesPage,
   'agent-providers': AgentProvidersPage,
   'computer-use': ComputerUsePage,
+  'app-control': AppControlPage,
   'browser-control': BrowserControlPage,
   'eaon-code': EaonCodePage,
   ade: AdePage,

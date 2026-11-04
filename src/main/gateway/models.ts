@@ -202,6 +202,28 @@ export function forgetClaudeCodeToken(): void {
   secrets.clear(CLAUDE_CODE_VAULT_ID)
 }
 
+const APP_CONTROL_VAULT_ID = 'local-api:app-control'
+let ephemeralAppControlToken: string | null = null
+
+/**
+ * The key ADE terminals get for `eaon-apps` (features/appControl.ts). It
+ * opens the control API's `app_control` tool and nothing else, so a coding
+ * agent that may operate apps may not also drive Eaon or spend through it.
+ * Created on first use; `create: false` only looks.
+ */
+export function appControlToken(create = true): string | null {
+  const saved = secrets.get(APP_CONTROL_VAULT_ID)
+  if (saved) return saved
+  if (ephemeralAppControlToken || !create) return ephemeralAppControlToken
+  const token = `eaonac-${randomBytes(24).toString('base64url')}`
+  try {
+    secrets.set(APP_CONTROL_VAULT_ID, token)
+  } catch {
+    ephemeralAppControlToken = token
+  }
+  return token
+}
+
 /** Constant time, and the same for every length: both sides are hashed first. */
 export function sameToken(sent: string, expected: string): boolean {
   if (!sent || !expected) return false

@@ -86,6 +86,9 @@ fi
 # Cua Driver, the computer-use engine: the pinned, checksummed release.
 node scripts/fetch-cua-driver.mjs darwin
 
+# App control's engine, compiled from native/app-control/mac.
+node scripts/build-app-control.mjs
+
 # The tokn command, which Eaon ships and puts on PATH: the pinned, checked package.
 node scripts/fetch-tokn-cli.mjs
 

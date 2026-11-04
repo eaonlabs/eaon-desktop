@@ -273,6 +273,8 @@ export function enforceSettings(settings: Settings): Settings {
   if (off('localApiServer') && out.localServer.autoStart) out.localServer = { ...out.localServer, autoStart: false }
   if (policy.localApi?.requireKey && !out.localServer.requireKey) out.localServer = { ...out.localServer, requireKey: true }
   if (off('computerUse') && out.computerUse.enabled) out.computerUse = { ...out.computerUse, enabled: false }
+  // App control operates the same apps without the screen: the same switch governs it.
+  if (off('computerUse') && out.appControl?.enabled) out.appControl = { ...out.appControl, enabled: false }
   if (off('browserUse') && out.browserUse.enabled) out.browserUse = { ...out.browserUse, enabled: false }
   if (off('discordPresence') && out.discord.enabled) out.discord = { ...out.discord, enabled: false }
   if (off('betaUpdates') && out.updates.beta) out.updates = { ...out.updates, beta: false }
