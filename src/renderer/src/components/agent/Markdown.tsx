@@ -203,7 +203,11 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
       return <CodeBlock lang={block.lang} code={block.code} streaming={block.streaming} />
     case 'heading': {
       const Tag = `h${Math.min(block.level + 2, 6)}` as 'h3'
-      return <Tag className="md__heading">{renderInline(block.text, id, mentions)}</Tag>
+      return (
+        <Tag className="md__heading" data-level={Math.min(block.level, 3)}>
+          {renderInline(block.text, id, mentions)}
+        </Tag>
+      )
     }
     case 'list': {
       const items = block.items.map((item, i) => <ListEntry key={i} item={item} id={`${id}-${i}`} />)

@@ -227,6 +227,8 @@ export interface ChatMessage {
   interrupted?: boolean
   /** The user stopped this reply before it finished. */
   stopped?: boolean
+  /** A coding reply whose file changes the user undid (its checkpoint, chatCheckpoints.ts); Redo puts them back. */
+  undone?: boolean
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
   /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */

@@ -6,6 +6,7 @@ import {
   ArrowDown,
   CalendarClock,
   Check,
+  Code2,
   ChevronDown,
   Compass,
   Copy,
@@ -63,10 +64,12 @@ import { CodeKeys } from './chatCode/CodeTools'
 import { useCardInline, WorkspaceCard, WorkspaceToggle } from './chatCode/WorkspaceCard'
 import { TerminalDrawer } from './chatCode/TerminalDrawer'
 import { ProjectSearch } from './chatCode/ProjectSearch'
+import { QuickOpen } from './chatCode/QuickOpen'
 import { FileLinks, type FileLinkHandler } from './agent/FileRef'
 import { joinPath } from './ide/paths'
 import { preferredTarget, useChatCode } from './chatCode/chatCodeStore'
-import { openInCode } from './ide/ideStore'
+import { openEditor, openInCode } from './ide/ideStore'
+import { isMac } from '../lib/platform'
 import { CHANNEL_LABEL } from '@shared/channels'
 import type { WorkerMail } from '@shared/workers'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
@@ -74,6 +77,8 @@ import { CLIPBOARD_FAILED, copyText } from '../lib/clipboard'
 import { FindBar } from './chat/FindBar'
 import { Minimap } from './chat/Minimap'
 import { QuoteSelection } from './chat/QuoteSelection'
+import { modelName, modelSwitches } from './chat/modelSwitch'
+import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
 
@@ -149,6 +154,7 @@ function Home(): JSX.Element {
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
       {coding && <ProjectSearch />}
+      {coding && <QuickOpen />}
     </>
   )
 }
@@ -185,9 +191,28 @@ function PanelToggles({ over = false }: { over?: boolean }): JSX.Element {
     <div className="panel-toggles">
       {coding && <CodeKeys />}
       {coding && <WorkspaceToggle over={over} />}
+      {coding && <EditorToggle />}
       {coding && !dockOpen && <DrawerToggle />}
       {!dockOpen && <DockToggle holds={coding ? undefined : 'the browser'} />}
     </div>
+  )
+}
+
+/** The editor beside the conversation: lit while a file is in front in the dock. */
+function EditorToggle(): JSX.Element {
+  const editing = useIde((s) => s.open && s.surfaces.find((x) => x.id === s.activeSurface)?.kind === 'file')
+  return (
+    <button
+      type="button"
+      className="dock-tool"
+      data-active={editing || undefined}
+      aria-pressed={editing}
+      aria-label="Editor"
+      title={editing ? 'Close the editor' : `Edit the project’s files beside the chat (${isMac ? '⌘P' : 'Ctrl+P'} opens a file)`}
+      onClick={() => (editing ? useIde.getState().setOpen(false) : void openEditor())}
+    >
+      <Code2 size={15} strokeWidth={1.8} />
+    </button>
   )
 }
 
@@ -261,6 +286,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   useEffect(() => setFinding(false), [chat.id])
 
   const streaming = streamingMessageId !== null
+  const switches = useMemo(() => modelSwitches(chat.messages), [chat.messages])
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -362,6 +388,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }, [])
 
   const workFolder = useApp((s) => codeFolder(s) ?? s.settings?.work.defaultFolder ?? '~/Eaon')
+  const projectName = useApp((s) => (chat.projectId ? (s.projects.find((p) => p.id === chat.projectId)?.name ?? null) : null))
   const coding = useCoding() && isWork
   // The workspace card beside the conversation: the thread and the message box move over for it.
   const cardInline = useCardInline() && coding
@@ -372,6 +399,17 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         className="chat-header--float"
         left={
           <>
+            {/* A project's chat says which project first: "tally / Add refunds". */}
+            {projectName && (
+              <>
+                <span className="chat-header__project" title={workFolder}>
+                  {projectName}
+                </span>
+                <span className="chat-header__crumb" aria-hidden>
+                  /
+                </span>
+              </>
+            )}
             <span className="chat-header__title" title={chat.title}>
               {chat.title}
             </span>
@@ -437,6 +475,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         <div className="thread__inner">
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
+              {/* The conversation moved to another model here. */}
+              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} />}
               {/* Compacting before this reply: said where the reply is about to appear. */}
               {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
@@ -474,6 +514,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
       {coding && <TerminalDrawer />}
       {coding && <ProjectSearch />}
+      {coding && <QuickOpen />}
 
       {menu && (
         <ContextMenu
@@ -865,7 +906,7 @@ export const MessageRow = memo(function MessageRow({
           <PlanRow todos={message.todos} />
         )}
 
-        {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} />}
+        {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} undone={message.undone === true} />}
 
         {message.stopped && !streaming && (
           <div className="msg__stopped" role="status">
@@ -963,14 +1004,49 @@ function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'star
             </button>
           )
         }
-        return (
-          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => open(path)}>
-            <FileText size={15} strokeWidth={1.8} />
-            <span>{name}</span>
-          </button>
-        )
+        return <FileCard key={path} path={path} name={name} onOpen={() => open(path)} />
       })}
     </div>
+  )
+}
+
+/** "812 B", "44 KB", "3.2 MB". */
+const fileSize = (bytes: number): string =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
+
+/** Pasted text saved as a file (the composer's long paste): its own card, not its timestamped name. */
+const PASTED_TEXT = /^Pasted text \d{4}-\d{2}-\d{2} [\d.]+ \w+\.txt$/
+
+/**
+ * A file sent with a message, as a card: its name, then what kind of file it
+ * is and how big. Pasted text says so. A file gone since says that instead.
+ */
+function FileCard({ path, name, onOpen }: { path: string; name: string; onOpen: () => void }): JSX.Element {
+  const [info, setInfo] = useState<{ exists: boolean; size: number } | null>(null)
+  useEffect(() => {
+    let live = true
+    void window.api.library
+      .stat([path])
+      .then(([stat]) => live && stat && setInfo({ exists: stat.exists, size: stat.size }))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [path])
+  const pasted = PASTED_TEXT.test(name)
+  const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : 'File'
+  const kind = pasted ? 'Text' : ext.length <= 5 ? ext : 'File'
+  const detail = info === null ? kind : info.exists ? `${kind} · ${fileSize(info.size)}` : 'No longer there'
+  return (
+    <button className="msg-attachment msg-attachment--file msg-attachment--card" title={path} onClick={onOpen} data-missing={info?.exists === false || undefined}>
+      <span className="msg-attachment__glyph" aria-hidden>
+        <FileText size={16} strokeWidth={1.8} />
+      </span>
+      <span className="msg-attachment__text">
+        <span className="msg-attachment__name">{pasted ? 'Pasted text' : name}</span>
+        <span className="msg-attachment__detail">{detail}</span>
+      </span>
+    </button>
   )
 }
 
@@ -994,13 +1070,45 @@ function UserText({ text }: { text: string }): JSX.Element {
   const long = text.length > FOLD_CHARS || text.split('\n').length > FOLD_LINES
   return (
     <div className="msg--user" data-folded={(long && !open) || undefined}>
-      <div className="msg-user__body">{text}</div>
+      <div className="msg-user__body">
+        <UserBody text={text} />
+      </div>
       {long && (
         <button type="button" className="msg-user__more" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? 'Show less' : 'Show more'}
         </button>
       )}
     </div>
+  )
+}
+
+/** What the user wrote, with its code as code: a fenced block under its `path:line`, and `inline` spans. */
+function UserBody({ text }: { text: string }): JSX.Element {
+  const segments = useMemo(() => userSegments(text), [text])
+  if (segments.length === 1 && segments[0].kind === 'text' && !segments[0].text.includes('`')) return <>{text}</>
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.kind === 'code' ? (
+          <div key={index} className="msg-user__block">
+            {(segment.ref || segment.lang) && <div className="msg-user__block-head">{segment.ref ?? segment.lang}</div>}
+            <pre className="msg-user__pre">{segment.text}</pre>
+          </div>
+        ) : (
+          <span key={index} className="msg-user__text">
+            {inlineCode(segment.text).map((piece, i) =>
+              i % 2 === 1 ? (
+                <code key={i} className="msg-user__code">
+                  {piece}
+                </code>
+              ) : (
+                piece
+              )
+            )}
+          </span>
+        )
+      )}
+    </>
   )
 }
 
@@ -1113,6 +1221,16 @@ function MailEvent({ event, text }: { event: NonNullable<WorkerMail['event']>; t
         <ChevronDown size={12} strokeWidth={2} className="msg__event-chevron" />
       </button>
       {open && <pre className="msg__event-text">{text}</pre>}
+    </div>
+  )
+}
+
+/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5". */
+function ModelSwitchLine({ model }: { model: string }): JSX.Element {
+  const name = useApp((s) => modelName(s.providers, model))
+  return (
+    <div className="model-switch" role="note">
+      <span className="model-switch__text">Switched to {name}</span>
     </div>
   )
 }

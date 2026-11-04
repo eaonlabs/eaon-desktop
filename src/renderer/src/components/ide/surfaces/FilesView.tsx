@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react'
+import type { FileGitState } from '@shared/chatCode'
 import { useShallow } from 'zustand/react/shallow'
 import { ChevronRight, ChevronsDownUp, RotateCw, Search, X } from 'lucide-react'
 import { useApp } from '../../../state/store'
@@ -10,16 +11,20 @@ import { joinPath, touchedFiles } from '../paths'
  * The folder the agent works in, as a tree: "Search files" finds any file in
  * it by name, the folders open one at a time, and a file opens in a tab of
  * its own. In Chat, files the agent changed in this chat carry a dot.
- * `compact` is the tree beside an open file.
+ * Files git sees as changed, new or untracked are coloured with a letter,
+ * and so are the folders they are in. `compact` is the tree beside an open
+ * file, the editor's project panel.
  */
 export function FilesView({ compact = false }: { compact?: boolean }): JSX.Element {
   const place = useDockPlace()
   const { root, refresh } = place.store(useShallow((s) => ({ root: s.root, refresh: s.refresh })))
   const touched = useTouched(root, place.id === 'chat')
+  const git = useGitStates()
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
 
   return (
+    <GitStates.Provider value={git}>
     <div className="files-view" data-compact={compact || undefined}>
       <div className="files-view__bar">
         <button type="button" className="files-view__tool" onClick={() => void refresh()} title="Read the folder again" aria-label="Refresh">
@@ -54,7 +59,61 @@ export function FilesView({ compact = false }: { compact?: boolean }): JSX.Eleme
         )}
       </nav>
     </div>
+    </GitStates.Provider>
   )
+}
+
+/** What git says of the folder's files, and of the folders they are in. */
+interface GitMarks {
+  files: Map<string, FileGitState>
+  dirs: Set<string>
+}
+const NO_MARKS: GitMarks = { files: new Map(), dirs: new Set() }
+const GitStates = createContext<GitMarks>(NO_MARKS)
+
+/** The letter beside a file, as editors show it. */
+const GIT_LETTER: Record<FileGitState, string> = { modified: 'M', added: 'A', untracked: 'U', deleted: 'D', conflict: '!' }
+const GIT_TITLE: Record<FileGitState, string> = {
+  modified: 'Changed since the last commit',
+  added: 'New, added to the next commit',
+  untracked: 'New, not tracked by git yet',
+  deleted: 'Deleted',
+  conflict: 'In conflict'
+}
+
+/** Read again whenever the tree is (the agent changed something, the window came back), and when git's status moves. */
+function useGitStates(): GitMarks {
+  const place = useDockPlace()
+  const listed = place.store((s) => s.entries)
+  const [marks, setMarks] = useState<GitMarks>(NO_MARKS)
+  const { folder, status } = place
+  const repo = Boolean(status?.repo)
+  useEffect(() => {
+    if (!folder || !repo) return setMarks(NO_MARKS)
+    let live = true
+    void window.api.chatCode
+      .fileStates(folder)
+      .then((states) => {
+        if (!live) return
+        const files = new Map(Object.entries(states))
+        const dirs = new Set<string>()
+        // Each changed file's folders, up to the top (either separator: git's paths are joined the system's way).
+        const cut = (path: string, from: number): number => Math.max(path.lastIndexOf('/', from), path.lastIndexOf('\\', from))
+        for (const path of files.keys()) {
+          for (let at = cut(path, path.length); at > 0; at = cut(path, at - 1)) {
+            const dir = path.slice(0, at)
+            if (dirs.has(dir)) break
+            dirs.add(dir)
+          }
+        }
+        setMarks({ files, dirs })
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [folder, repo, status, listed])
+  return marks
 }
 
 const NONE: string[] = []
@@ -96,9 +155,18 @@ function DirRow({ path, name, depth, touched }: { path: string; name: string; de
   const { store } = useDockPlace()
   const open = store((s) => s.expanded.has(path))
   const toggleDir = store((s) => s.toggleDir)
+  const changed = useContext(GitStates).dirs.has(path)
   return (
     <>
-      <button type="button" className="files-view__row" style={{ '--depth': depth } as CSSProperties} onClick={() => void toggleDir(path)} aria-expanded={open} title={path}>
+      <button
+        type="button"
+        className="files-view__row"
+        style={{ '--depth': depth } as CSSProperties}
+        onClick={() => void toggleDir(path)}
+        aria-expanded={open}
+        title={path}
+        data-git={changed ? 'modified' : undefined}
+      >
         <ChevronRight size={14} strokeWidth={2} className="files-view__chev" />
         <span className="files-view__name">{name}</span>
       </button>
@@ -110,13 +178,27 @@ function DirRow({ path, name, depth, touched }: { path: string; name: string; de
 function FileRow({ path, name, depth, touched }: { path: string; name: string; depth: number; touched: boolean }): JSX.Element {
   const active = useDockPlace().store((s) => s.surfaces.find((x) => x.id === s.activeSurface)?.path === path)
   const openFile = useOpenFile()
+  const git = useContext(GitStates).files.get(path)
   return (
-    <button type="button" className="files-view__row" style={{ '--depth': depth } as CSSProperties} data-active={active || undefined} onClick={() => openFile(path)} title={path}>
+    <button
+      type="button"
+      className="files-view__row"
+      style={{ '--depth': depth } as CSSProperties}
+      data-active={active || undefined}
+      data-git={git}
+      onClick={() => openFile(path)}
+      title={git ? `${path}\n${GIT_TITLE[git]}` : path}
+    >
       <span className="files-view__icon">
         <FileIcon file={name} size={16} />
       </span>
       <span className="files-view__name">{name}</span>
       {touched && <span className="files-view__touched" aria-label="Changed by Eaon" />}
+      {git && (
+        <span className="files-view__git" aria-label={GIT_TITLE[git]}>
+          {GIT_LETTER[git]}
+        </span>
+      )}
     </button>
   )
 }

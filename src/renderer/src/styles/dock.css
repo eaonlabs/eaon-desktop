@@ -618,21 +618,51 @@
   margin-left: 18px;
 }
 
-/* ---- A file ---- */
+/* ---- A file: an editor, with the project's files on its left ---- */
 
 .file-surface {
+  --ide-editor-bg: var(--canvas);
   flex: 1;
   min-height: 0;
   display: flex;
+}
+.file-surface__tree {
+  position: relative;
+  flex: none;
+  display: flex;
+  max-width: 45%;
+  border-right: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--canvas), var(--sink-color) 10%);
+}
+.file-surface__resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 2;
+  width: 6px;
+  cursor: col-resize;
+}
+.file-surface__resize:hover,
+.file-surface__resize:active {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  background-clip: content-box;
+  padding: 0 2px;
+}
+.file-surface__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
+  background: var(--ide-editor-bg);
 }
 .file-surface__bar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 6px 0 12px;
+  gap: 6px;
+  height: 34px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border-soft);
 }
 .file-surface__crumbs {
@@ -642,14 +672,14 @@
   align-items: center;
   overflow: hidden;
   color: var(--text-3);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 .file-surface__crumb {
   display: inline-flex;
   flex: none;
   align-items: center;
-  max-width: 220px;
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -657,11 +687,14 @@
   flex: 0 1 auto;
   min-width: 0;
   color: var(--text);
-  font-weight: 500;
+}
+.file-surface__crumb-icon {
+  display: inline-flex;
+  margin-right: 5px;
 }
 .file-surface__sep {
   flex: none;
-  margin: 0 4px;
+  margin: 0 3px;
   color: var(--text-4);
 }
 .file-surface__dirty {
@@ -679,13 +712,13 @@
   gap: 2px;
 }
 .file-surface__tools .split-btn {
-  margin-right: 4px;
+  margin-left: 2px;
 }
 .file-surface__tool {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--r-sm);
   color: var(--text-3);
   transition:
@@ -697,27 +730,14 @@
   color: var(--text);
 }
 .file-surface__tool[data-active] {
-  background: var(--hover);
   color: var(--text);
 }
 .file-surface__body {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
-}
-.file-surface__main {
-  --ide-editor-bg: var(--canvas);
-  flex: 1;
-  min-width: 0;
-  display: flex;
   flex-direction: column;
-}
-.file-surface__tree {
-  flex: none;
-  display: flex;
-  width: clamp(170px, 32%, 240px);
-  border-left: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--canvas), var(--sink-color) 10%);
 }
 .file-surface__loading {
   flex: 1;
@@ -728,6 +748,65 @@
     display: none;
   }
 }
+
+/* The status bar under the editor. */
+.file-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 8px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.file-status__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+}
+.file-status__dim {
+  color: var(--text-4, var(--text-3));
+}
+.file-status__spacer {
+  flex: 1;
+}
+
+/* Git's marks in the project's files: changed, new and untracked, and the folders they are in. */
+.files-view__row[data-git='modified'] .files-view__name,
+.files-view__git {
+  color: var(--git-modified);
+}
+.files-view__row[data-git='added'] .files-view__name,
+.files-view__row[data-git='untracked'] .files-view__name,
+.files-view__row[data-git='added'] .files-view__git,
+.files-view__row[data-git='untracked'] .files-view__git {
+  color: var(--git-added);
+}
+.files-view__row[data-git='deleted'] .files-view__name,
+.files-view__row[data-git='conflict'] .files-view__name,
+.files-view__row[data-git='deleted'] .files-view__git,
+.files-view__row[data-git='conflict'] .files-view__git {
+  color: var(--git-removed);
+}
+.files-view__git {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+}
+.files-view__git ~ .files-view__touched,
+.files-view__touched + .files-view__git {
+  margin-left: 6px;
+}
+
 .dock__frame {
   container: dock / inline-size;
 }

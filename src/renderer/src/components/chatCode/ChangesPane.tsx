@@ -11,6 +11,7 @@ import {
   FolderOpen,
   FolderTree,
   GitBranch,
+  GitCommitHorizontal,
   GitCompareArrows,
   History,
   ListTree,
@@ -22,7 +23,8 @@ import {
   SquareArrowOutUpRight,
   WrapText
 } from 'lucide-react'
-import type { ChatGitStatus } from '@shared/chatCode'
+import type { ChatCommit, ChatGitStatus } from '@shared/chatCode'
+import { ago } from '@shared/modelSelection'
 import type { ChatToolPart } from '@shared/types'
 import { anyRun, codeFolder, useApp } from '../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
@@ -157,12 +159,19 @@ function useScopeFiles(
     return () => window.removeEventListener('focus', onFocus)
   }, [])
   // A different scope shows its own files, not the last scope's while it loads.
-  const scopeKey = scope.kind === 'turn' ? `turn:${scope.turn}` : scope.kind
+  const scopeKey = scope.kind === 'turn' ? `turn:${scope.turn}` : scope.kind === 'commit' ? `commit:${scope.sha}` : scope.kind
   useEffect(() => setLoaded(null), [scopeKey])
 
   useEffect(() => {
     let live = true
     void (async () => {
+      if (scope.kind === 'commit') {
+        if (!folder) return live && setLoaded({ files: null, error: `${missing ?? 'Pick a folder first'}.` })
+        const res = await window.api.chatCode.commitDiff(folder, scope.sha).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
+        // A commit is fixed: its lines on disk may have moved since, so its folds stay closed.
+        if (live) setLoaded(res.ok ? { files: res.files.map((f) => gitFile(f, null)) } : { files: null, error: res.error })
+        return
+      }
       if (scope.kind === 'git') {
         if (!folder) return live && setLoaded({ files: null, error: `${missing ?? 'Pick a folder first'}.` })
         const res = await window.api.chatCode.diff(folder).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
@@ -234,7 +243,7 @@ export function ChangesPane(): JSX.Element {
   }, [ownReview])
   // A git scope with no repository (the folder changed) falls back to the chat.
   useEffect(() => {
-    if (chat && scope.kind === 'git' && !isRepo && status) setScope({ kind: 'chat' })
+    if (chat && (scope.kind === 'git' || scope.kind === 'commit') && !isRepo && status) setScope({ kind: 'chat' })
   }, [chat, scope, isRepo, status])
 
   const loaded = useScopeFiles(scope, edits, others, root, folder, status, nonce)
@@ -398,7 +407,15 @@ const FileCard = memo(function FileCard({
 })
 
 const scopeLabel = (scope: ReviewScope, last: number | undefined): string =>
-  scope.kind === 'git' ? 'Uncommitted' : scope.kind === 'chat' ? 'All changes' : scope.turn === last ? 'Last turn' : `Turn ${scope.turn}`
+  scope.kind === 'git'
+    ? 'Uncommitted'
+    : scope.kind === 'commit'
+      ? scope.subject || scope.short
+      : scope.kind === 'chat'
+        ? 'All changes'
+        : scope.turn === last
+          ? 'Last turn'
+          : `Turn ${scope.turn}`
 
 /** What the pane compares: the chat, a turn, or git's uncommitted changes. `gitOnly`: there is only the last to show (the ADE). */
 function ScopePicker({
@@ -427,7 +444,30 @@ function ScopePicker({
     onChange(next)
     menu.close()
   }
-  const icon = scope.kind === 'git' ? <GitBranch size={13} strokeWidth={2} /> : scope.kind === 'turn' ? <History size={13} strokeWidth={2} /> : <GitCompareArrows size={13} strokeWidth={2} />
+  const icon =
+    scope.kind === 'git' ? (
+      <GitBranch size={13} strokeWidth={2} />
+    ) : scope.kind === 'commit' ? (
+      <GitCommitHorizontal size={13} strokeWidth={2} />
+    ) : scope.kind === 'turn' ? (
+      <History size={13} strokeWidth={2} />
+    ) : (
+      <GitCompareArrows size={13} strokeWidth={2} />
+    )
+  // The branch's latest commits, read each time the menu opens.
+  const [commits, setCommits] = useState<ChatCommit[] | null>(null)
+  const folder = useDockPlace().folder
+  useEffect(() => {
+    if (!menu.open || !isRepo || !folder || gitOnly) return
+    let live = true
+    void window.api.chatCode
+      .commits(folder)
+      .then((res) => live && setCommits(res.ok ? res.commits : []))
+      .catch(() => live && setCommits([]))
+    return () => {
+      live = false
+    }
+  }, [menu.open, isRepo, folder, gitOnly])
   if (gitOnly) {
     return (
       <div className="cpane__scope" data-static>
@@ -447,7 +487,7 @@ function ScopePicker({
         <DiffStat added={added} removed={removed} className="cpane__stat" />
         <ChevronDown size={13} strokeWidth={2} className="cpane__scope-chev" />
       </button>
-      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={248}>
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={commits?.length ? 300 : 248}>
         <div className="menu__label">This chat</div>
         <MenuItem icon={<GitCompareArrows size={15} strokeWidth={1.8} />} title="All changes" description="Everything the agent changed here" checked={scope.kind === 'chat'} onClick={() => pick({ kind: 'chat' })} />
         {turns
@@ -468,6 +508,22 @@ function ScopePicker({
             <MenuSeparator />
             <div className="menu__label">Git</div>
             <MenuItem icon={<GitBranch size={15} strokeWidth={1.8} />} title="Uncommitted changes" description="Everything not committed yet" checked={scope.kind === 'git'} onClick={() => pick({ kind: 'git' })} />
+            {commits && commits.length > 0 && (
+              <>
+                <MenuSeparator />
+                <div className="menu__label">Commits</div>
+                {commits.map((c) => (
+                  <MenuItem
+                    key={c.sha}
+                    icon={<GitCommitHorizontal size={15} strokeWidth={1.8} />}
+                    title={c.subject || c.short}
+                    description={`${c.short} · ${ago(c.at)}${c.local ? ' · not pushed' : ''}`}
+                    checked={scope.kind === 'commit' && scope.sha === c.sha}
+                    onClick={() => pick({ kind: 'commit', sha: c.sha, short: c.short, subject: c.subject })}
+                  />
+                ))}
+              </>
+            )}
           </>
         )}
       </Popover>
@@ -725,10 +781,10 @@ function FileActions({ file }: { file: DiffFileModel }): JSX.Element {
 function Empty({ scope }: { scope: ReviewScope }): JSX.Element {
   return (
     <div className="cpane__empty">
-      <span className="cpane__empty-icon">{scope.kind === 'git' ? <GitBranch size={18} strokeWidth={1.6} /> : <GitCompareArrows size={18} strokeWidth={1.6} />}</span>
-      <p className="cpane__empty-title">{scope.kind === 'git' ? 'Nothing uncommitted' : 'No changes yet'}</p>
+      <span className="cpane__empty-icon">{scope.kind === 'git' || scope.kind === 'commit' ? <GitBranch size={18} strokeWidth={1.6} /> : <GitCompareArrows size={18} strokeWidth={1.6} />}</span>
+      <p className="cpane__empty-title">{scope.kind === 'git' ? 'Nothing uncommitted' : scope.kind === 'commit' ? 'No file changes in this commit' : 'No changes yet'}</p>
       <p className="cpane__empty-hint">
-        {scope.kind === 'git' ? 'Everything in this folder is committed.' : 'Files Eaon edits in this chat show up here, ready to review.'}
+        {scope.kind === 'git' ? 'Everything in this folder is committed.' : scope.kind === 'commit' ? 'It may only have changed what git tracks about files, like their mode.' : 'Files Eaon edits in this chat show up here, ready to review.'}
       </p>
     </div>
   )

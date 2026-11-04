@@ -74,6 +74,24 @@ export async function savePastedImage(data: unknown, type: unknown, folder = joi
   return path
 }
 
+/** Text pasted into a message box past this many characters is attached as a file rather than typed in (renderer: composer). */
+const PASTED_TEXT_MAX = 20 * 1024 * 1024
+
+/**
+ * A long paste (a log, a stack trace, a whole file) becomes an attachment,
+ * so the box stays usable and the agent reads it when it needs to. Saved
+ * beside pasted images, for the same reason.
+ */
+export async function savePastedText(text: unknown, folder = join(app.getPath('userData'), 'Pasted')): Promise<string> {
+  if (typeof text !== 'string' || !text.trim()) throw new Error('The pasted text was empty.')
+  if (text.length > PASTED_TEXT_MAX) throw new Error('The pasted text is too large to attach.')
+  await mkdir(folder, { recursive: true })
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.')
+  const path = join(folder, `Pasted text ${stamp} ${Math.random().toString(36).slice(2, 6)}.txt`)
+  await writeFile(path, text, 'utf8')
+  return path
+}
+
 export const libraryFeature: Feature = {
   id: 'library',
   register: ({ ipcMain }) => {
@@ -101,6 +119,7 @@ export const libraryFeature: Feature = {
       if (error) throw new Error(error)
     })
     ipcMain.handle('library:save-pasted', (_e, data: unknown, type: unknown) => savePastedImage(data, type))
+    ipcMain.handle('library:save-pasted-text', (_e, text: unknown) => savePastedText(text))
     ipcMain.handle('library:reveal', (_e, path: string) => {
       if (typeof path === 'string' && path) shell.showItemInFolder(path)
     })

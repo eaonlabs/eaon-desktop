@@ -22,6 +22,7 @@ import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
+import { capture as captureCheckpoint, captureBefore } from './features/chatCheckpoints'
 import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -831,6 +832,8 @@ function registerIpc(): void {
     sender.once('destroyed', abandon)
     sender.once('render-process-gone', abandon)
     const started = Date.now()
+    // A coding chat's folder is checkpointed around the reply, so its changes can be undone.
+    const checkpointed = request.cwd ? await captureBefore(request.cwd, request.messageId) : false
     try {
       const outcome = await runAgent(request, batch.emit, { signal })
       notifyIfAway(request, outcome.error, Date.now() - started)
@@ -838,6 +841,10 @@ function registerIpc(): void {
       sender.removeListener('destroyed', abandon)
       sender.removeListener('render-process-gone', abandon)
       batch.flush()
+      if (checkpointed && request.cwd) {
+        const ended = await captureCheckpoint(request.cwd, request.messageId, 'after').catch(() => false)
+        if (ended && !sender.isDestroyed()) sender.send('chat:checkpoint', { messageId: request.messageId })
+      }
     }
   }
   ipcMain.handle('chat:cancel', (_e, messageId: string) => {

@@ -146,6 +146,8 @@ interface AppState {
   approvePlan: (messageId: string) => void
   /** A reply's thumbs and emoji, from its action bar. */
   setMessageFeedback: (messageId: string, feedback: MessageFeedback) => void
+  /** Marks a coding reply's file changes undone (or redone) in the chat on screen. */
+  setMessageUndone: (messageId: string, undone: boolean) => void
   /** Asks the last question again, in place of its reply. */
   retryReply: (messageId: string) => void
   /** Opens a copy of the active chat up to `messageId`, to go another way from there. */
@@ -930,6 +932,11 @@ export const useApp = create<AppState>((set, get) => ({
   // its end never found the message, so every composer stayed on "Stop".
   deleteChat: (id) => {
     if (get().runs[id]) get().stop(id)
+    // A coding chat's checkpoints (refs in its project's repository) go with it.
+    const gone = get().chats.find((c) => c.id === id)
+    const folder = gone?.projectId ? get().projects.find((p) => p.id === gone.projectId)?.folder : null
+    const replies = gone?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
+    if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
@@ -1145,6 +1152,14 @@ export const useApp = create<AppState>((set, get) => ({
     const next = withFeedback(chat, messageId, feedback)
     if (next === chat) return
     set({ chats: get().chats.map((c) => (c.id === chat.id ? next : c)) })
+    persistChats()
+  },
+
+  setMessageUndone(messageId, undone) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const messages = chat.messages.map((m) => (m.id === messageId ? { ...m, undone: undone || undefined } : m))
+    set({ chats: get().chats.map((c) => (c.id === chat.id ? { ...c, messages } : c)) })
     persistChats()
   },
 

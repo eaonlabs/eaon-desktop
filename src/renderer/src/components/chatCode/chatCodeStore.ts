@@ -67,6 +67,9 @@ interface ChatCodeState {
 
   searchOpen: boolean
   setSearchOpen: (open: boolean) => void
+  /** ⌘P: find a file by name and open it in the editor. */
+  quickOpen: boolean
+  setQuickOpen: (open: boolean) => void
 
   /** The workspace card beside the conversation (WorkspaceCard): shown where there is room for it. */
   cardOpen: boolean
@@ -283,6 +286,8 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
 
   searchOpen: false,
   setSearchOpen: (open) => set({ searchOpen: open }),
+  quickOpen: false,
+  setQuickOpen: (open) => set({ quickOpen: open }),
 
   files: null,
   loadFiles: () => {

@@ -181,3 +181,132 @@ export function parseBranches(local: string, remote: string): ChatBranch[] {
     .filter((b) => !names.has(b.name))
   return [...mine, ...theirs].sort((a, b) => b.at - a.at)
 }
+
+/* ---------------------------------------------------------------- checkpoints */
+
+/** Where a coding chat's checkpoints live in its repository (main/features/chatCheckpoints.ts). */
+export const CHECKPOINT_REF_ROOT = 'refs/eaon/checkpoints'
+
+/** A reply's checkpoint ref: its folder before the reply started, or after it ended. */
+export const checkpointRef = (replyId: string, side: 'before' | 'after'): string =>
+  `${CHECKPOINT_REF_ROOT}/${replyId.replace(/[^\w-]/g, '_')}/${side}`
+
+/** What a reply changed in its folder, read from its checkpoints. */
+export interface TurnChanges {
+  /** Whether there is something to undo: a repository, both checkpoints, and a difference between them. */
+  available: boolean
+  reason?: 'not-git' | 'no-checkpoint'
+  /** Paths from the top of the repository. */
+  files: string[]
+}
+
+/** How an undo, redo or rewind went. `conflicts`: files changed since, left alone until confirmed. */
+export type TurnRestore = { ok: true; files: string[] } | { ok: false; error?: string; conflicts?: string[] }
+
+/** `git diff --name-status -z` output as paths with their status letter (renames are off, so one path each). */
+export function parseNameStatus(out: string): { path: string; status: string }[] {
+  const parts = out.split('\0')
+  const rows: { path: string; status: string }[] = []
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const status = parts[i].trim()
+    const path = parts[i + 1]
+    if (status && path) rows.push({ path, status: status[0] })
+  }
+  return rows
+}
+
+/* ---------------------------------------------------------------- commits */
+
+/** A recent commit on the folder's branch, for the Changes pane's scope menu. */
+export interface ChatCommit {
+  sha: string
+  short: string
+  subject: string
+  /** Committed at, in ms. */
+  at: number
+  author: string
+  /** Not on the upstream branch yet. False when there is no upstream to compare with. */
+  local: boolean
+}
+
+export type ChatCommits = { ok: true; commits: ChatCommit[] } | { ok: false; error: string }
+
+/** How many commits the scope menu offers. */
+export const COMMITS_SHOWN = 10
+
+/** `git log --format=%H%x00%h%x00%s%x00%ct%x00%an` rows as commits; `ahead` holds the shas not pushed. */
+export function parseCommits(out: string, ahead: Set<string>): ChatCommit[] {
+  const commits: ChatCommit[] = []
+  for (const row of out.split('\n')) {
+    const [sha, short, subject, at, author] = row.split('\0')
+    if (!sha || !short) continue
+    commits.push({ sha, short, subject: subject ?? '', at: (Number(at) || 0) * 1000, author: author ?? '', local: ahead.has(sha) })
+  }
+  return commits
+}
+
+/* ---------------------------------------------------------------- processes */
+
+/** A process the agent started in the background in a chat's folder (a dev server, a watcher). */
+export interface ChatProcess {
+  pid: number
+  command: string
+  startedAt: number
+  /** The first local address it printed, for opening it in the browser. */
+  url: string | null
+}
+
+/** The first local web address in a process's output: a dev server's "Local: http://localhost:5173/". */
+export function localUrl(output: string): string | null {
+  const match = /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|[\w-]+\.localhost)(?::\d{2,5})?(?:\/[^\s'"<>)\]]*)?/i.exec(output.replace(/\x1b\[[0-9;]*m/g, ''))
+  if (!match) return null
+  return match[0].replace('0.0.0.0', 'localhost').replace(/[.,;]+$/, '')
+}
+
+/** A command's first words, as a row's name: `npm run dev`, `node -e`, `PORT=3000 pnpm dev` → `pnpm dev`. */
+export function processName(command: string): string {
+  const first = command.trim().split(/\s*(?:&&|\|\||;|\|)\s*/).find((part) => !/^cd\s/.test(part)) ?? command
+  const words = first.split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w))
+  const kept: string[] = []
+  for (const word of words) {
+    if (/^['"`]/.test(word) || kept.length === 3) break
+    kept.push(word.includes('/') && kept.length === 0 ? word.split('/').pop()! : word)
+  }
+  return kept.join(' ') || command.slice(0, 24)
+}
+
+/* ---------------------------------------------------------------- the editor's git marks */
+
+/** How git sees a file, for the editor's tree: changed, new, not tracked yet, gone, or in conflict. */
+export type FileGitState = 'modified' | 'added' | 'untracked' | 'deleted' | 'conflict'
+
+/**
+ * `git status --porcelain=v1 -z` as each path's state, paths from the top of
+ * the repository. A rename counts as its new path, added.
+ */
+export function parsePorcelain(out: string): Record<string, FileGitState> {
+  const states: Record<string, FileGitState> = {}
+  const parts = out.split('\0')
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i]
+    if (entry.length < 4) continue
+    const x = entry[0]
+    const y = entry[1]
+    const path = entry.slice(3)
+    // A rename or copy is followed by the path it came from.
+    if (x === 'R' || x === 'C') i++
+    const code = `${x}${y}`
+    states[path] =
+      code === '??'
+        ? 'untracked'
+        : x === 'U' || y === 'U' || code === 'AA' || code === 'DD'
+          ? 'conflict'
+          : x === 'D' || y === 'D'
+            ? 'deleted'
+            : x === 'A' || x === 'R' || x === 'C'
+              ? 'added'
+              : 'modified'
+  }
+  return states
+}
+

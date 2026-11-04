@@ -259,6 +259,8 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}):
       const bound = useApp.getState().settings?.shortcuts['focus-browser-address-bar']
       if (!matchesBinding(bound, { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, isMac)) return
       if (!isMac && document.activeElement?.closest('.term-pane')) return
+      // The editor's own ⌘L adds the selection to the chat.
+      if (document.activeElement?.closest('.ide-editor-wrap')) return
       event.preventDefault()
       run('focus-address')
     }
