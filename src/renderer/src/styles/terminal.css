@@ -510,7 +510,11 @@ body[data-reduce-motion='on'] .term-pane__dot {
   width: min(440px, calc(100% - 20px));
   display: flex;
   flex-direction: column;
-  background: var(--surface-2);
+  /* Floats over live terminals: under See-through --surface-2 is nearly clear, so
+     the panes' text would run through the list. Menu glass blurs what is behind. */
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-modal);
