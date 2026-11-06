@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { ChatGitStatus } from '@shared/chatCode'
 import { useApp } from '../../state/store'
 import { notify } from '../Notice'
+import { enqueue } from '../../state/queue'
 import { useChatCode } from '../chatCode/chatCodeStore'
 import { useIde, type DockStore } from './ideStore'
 
@@ -33,6 +34,12 @@ export interface DockPlace {
   prompt: string
   /** Puts `text` where the user writes to the agent, without sending it, and says so naming `what`. */
   addToPrompt: (text: string, what: string) => void
+  /**
+   * Sends `text` to the agent as a message (the editor's ⌘K): Chat sends it,
+   * or queues it behind a reply still being written; the ADE puts it in the
+   * agent's prompt, where its own Enter sends it.
+   */
+  askAgent: (text: string) => void
 }
 
 const Place = createContext<DockPlace | null>(null)
@@ -68,6 +75,16 @@ export function useChatPlace(): DockPlace {
       addToPrompt: (text, what) => {
         useApp.getState().appendToComposer({ text, attachments: [] })
         notify(`Added ${what} to your message`)
+      },
+      askAgent: (text) => {
+        const app = useApp.getState()
+        const chatId = app.activeChatId
+        if (chatId && app.runs[chatId]) {
+          enqueue(chatId, text, [])
+          notify('Queued: it goes to Eaon when this reply finishes')
+          return
+        }
+        void app.send(text)
       }
     }),
     [folder, status, files, refresh, loadFiles]

@@ -693,6 +693,11 @@ const ChatRow = memo(function ChatRow({
   const { failed, pinned } = chat
   // Finished while another chat was on screen: a dot until it's opened.
   const unread = chat.unread && !active && !streaming
+  // Its reply stopped to ask something (an approval): it waits on the user, not working.
+  const asking = useApp((st) => {
+    const run = st.runs[chat.id]
+    return Boolean(run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run)))
+  })
 
   const commitRename = (): void => {
     setRenaming(false)
@@ -751,7 +756,11 @@ const ChatRow = memo(function ChatRow({
           <span className="nav-item__label">{chat.title}</span>
         )}
         <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
-          {streaming ? (
+          {streaming && asking ? (
+            <span className="nav-item__asking" title="Waiting for your answer">
+              Needs you
+            </span>
+          ) : streaming ? (
             <Loader2 size={14} strokeWidth={2} className="spinner" role="img" aria-label="Replying" />
           ) : unread && !failed ? (
             <span className="nav-item__unread" role="img" aria-label="New reply" />

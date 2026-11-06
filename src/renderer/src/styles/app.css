@@ -909,3 +909,14 @@ a:hover {
 .sidebar .sidebar__empty {
   font-size: var(--fs-xs);
 }
+/* A chat whose reply stopped to ask the user something. */
+.nav-item__asking {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  line-height: 17px;
+  white-space: nowrap;
+}

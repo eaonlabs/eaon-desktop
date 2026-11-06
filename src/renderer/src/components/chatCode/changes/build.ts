@@ -9,9 +9,15 @@ import { blocksFromHunks, countChanges, diffLines, splitLines, toBlocks, unwindE
  * whole chat, one turn, or what git says is uncommitted.
  */
 
-export type ReviewScope = { kind: 'chat' } | { kind: 'turn'; turn: number } | { kind: 'git' }
+export type ReviewScope =
+  | { kind: 'chat' }
+  | { kind: 'turn'; turn: number }
+  | { kind: 'git' }
+  /** One commit on the branch, against its parent. */
+  | { kind: 'commit'; sha: string; short: string; subject: string }
 
-export const sameScope = (a: ReviewScope, b: ReviewScope): boolean => a.kind === b.kind && (a.kind !== 'turn' || (b.kind === 'turn' && a.turn === b.turn))
+export const sameScope = (a: ReviewScope, b: ReviewScope): boolean =>
+  a.kind === b.kind && (a.kind !== 'turn' || (b.kind === 'turn' && a.turn === b.turn)) && (a.kind !== 'commit' || (b.kind === 'commit' && a.sha === b.sha))
 
 /** One file edit the agent made, and the turn it made it in (1-based, counting the chat's replies). */
 export interface AgentEdit extends EditStep {

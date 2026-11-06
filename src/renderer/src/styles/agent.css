@@ -11,26 +11,40 @@
 /* ---------- Markdown ---------- */
 
 .md__p {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
 }
 .md__p:last-child {
   margin-bottom: 0;
 }
+/* Headings step down in size, # to ###, with room above them that sets each
+   section apart; deeper ones read as ###. */
 .md__heading {
-  margin: 16px 0 8px;
+  margin: 22px 0 10px;
+  color: var(--text);
   font-size: var(--fs-h2);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+}
+.md__heading[data-level='1'] {
+  margin-top: 28px;
+  font-size: calc(var(--fs-base) + 7px);
+  letter-spacing: -0.015em;
+}
+.md__heading[data-level='2'] {
+  font-size: calc(var(--fs-base) + 3px);
+  letter-spacing: -0.01em;
 }
 .md__heading:first-child {
   margin-top: 0;
 }
 .md__list {
-  margin: 0 0 10px;
+  margin: 0 0 14px;
   padding-left: 22px;
 }
 .md__list li {
-  margin: 3px 0;
+  margin: 6px 0;
+  padding-left: 2px;
 }
 .md__list li::marker {
   color: var(--text-3);
@@ -551,11 +565,6 @@
 .loading-state__label {
   font-size: var(--fs-base);
 }
-.loading-state__clock {
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .dot-matrix circle {
@@ -1025,11 +1034,11 @@ body[data-reduce-motion='on'] .step-shimmer {
 .turn-head {
   display: flex;
   align-items: center;
-  margin: 0 0 10px;
-  padding: 0 0 9px 1px;
+  margin: 0 0 14px;
+  padding: 0 0 12px 1px;
   border-bottom: 1px solid var(--border-soft);
   color: var(--text-3);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-variant-numeric: tabular-nums;
 }
 

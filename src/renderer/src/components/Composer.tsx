@@ -32,7 +32,7 @@ import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
 import { useMcpStatuses } from './plugins/usePlugins'
 import { useSkills } from './plugins/usePlugins'
-import { fileName, fileUrl, isImagePath } from '../lib/files'
+import { droppedFilePaths, editorDrag, fileName, fileUrl, isImagePath } from '../lib/files'
 import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
 import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
@@ -53,6 +53,9 @@ import { useChatCode, watchChatCode } from './chatCode/chatCodeStore'
 import { notify } from './Notice'
 import { errorText } from '../lib/errors'
 import { sentPrompts } from '../state/chatEdits'
+import { rewindFiles } from './chatCode/turnUndo'
+import { dropStashed, stashPrompt, stashTitle, takeStashed, useStash } from '../state/stash'
+import { ago } from '@shared/modelSelection'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
@@ -76,6 +79,11 @@ const drafts = new Map<string, { text: string; attachments: string[] }>()
 
 /** Image types a pasted image can be saved as (main/features/library.ts). */
 const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+/** Pasted text this long (32 KB) is attached as a file rather than typed into the box. */
+const LARGE_PASTE = 32 * 1024
+/** A context window as the model chip shows it: 200000 → "200k", 1048576 → "1M". */
+const windowLabel = (tokens: number): string =>
+  tokens >= 1_000_000 ? `${+(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}k`
 
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
@@ -136,6 +144,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // Edit from here: the user message being rewritten. Sending puts the new
   // text in its place and drops everything after it.
   const [editing, setEditing] = useState<string | null>(null)
+  // Edit from here in a coding chat: also put back the files the replies after it changed.
+  const [rewindToo, setRewindToo] = useState(false)
+  const [rewindError, setRewindError] = useState<string | null>(null)
   // ↑ and ↓ through what was sent in this chat. `draft` is what was in the
   // box before the first ↑, put back after the newest; `recalled` is what ↑
   // put there, so typing over it ends the walk.
@@ -161,6 +172,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       return Boolean(box && box.offsetParent !== null) && !typingElsewhere(box)
     }
   })
+
+  const stashAnchor = useRef<HTMLDivElement>(null)
+  const stashMenu = useDisclosure()
+  const stashed = useStash((s) => s.list)
+  // ⇧⌘V: the next paste stays in the box however long it is.
+  const pasteInline = useRef(false)
 
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const modelAnchor = useRef<HTMLButtonElement>(null)
@@ -277,6 +294,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     }
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
+    if (editing && rewindToo && cwd) {
+      // The files go back first; if they can't, nothing is resent and the edit stays open.
+      const chat = useApp.getState().activeChat()
+      const messageId = editing
+      void rewindFiles(cwd, chat?.messages ?? [], messageId).then((result) => {
+        if (!result.ok) {
+          setRewindError(result.error ?? 'The files couldn’t be put back.')
+          return
+        }
+        resendFrom(messageId, text, options)
+        clearBox()
+      })
+      return
+    }
     if (editing) resendFrom(editing, text, options)
     else void send(text, options)
     clearBox()
@@ -292,6 +323,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const clearBox = (): void => {
     history.current = null
     setEditing(null)
+    setRewindToo(false)
+    setRewindError(null)
     setText('')
     setAttachments([])
     setMentions([])
@@ -307,7 +340,22 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
    */
   const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = [...event.clipboardData.files]
-    if (files.length === 0) return
+    const inline = pasteInline.current
+    pasteInline.current = false
+    if (files.length === 0) {
+      // A long paste (a log, a whole file) is attached as a text file instead of filling the box.
+      const pasted = event.clipboardData.getData('text/plain')
+      if (inline || pasted.length < LARGE_PASTE) return
+      event.preventDefault()
+      void window.api.app
+        .savePastedText(pasted)
+        .then((path) => {
+          addAttachments([path])
+          notify(`Long paste attached as a text file (${Math.round(pasted.length / 1024)} KB). ${isMac ? '⇧⌘V' : 'Ctrl+Shift+V'} pastes it into the box instead.`)
+        })
+        .catch((error: unknown) => notify(`Couldn't attach the pasted text: ${errorText(error)}`, 'error'))
+      return
+    }
     const paths = files.map((file) => window.api.app.pathForFile(file)).filter(Boolean)
     if (paths.length > 0) {
       event.preventDefault()
@@ -371,8 +419,37 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     return true
   }
 
+  /** ⌘S: puts what is in the box aside, or brings a stashed prompt back into an empty one. */
+  const stashOrRestore = (): void => {
+    if (text.trim() || attachments.length > 0) {
+      if (editing) return
+      stashPrompt(text, attachments)
+      clearBox()
+      notify(`Prompt saved for later. ${isMac ? '⌘S' : 'Ctrl+S'} in an empty box brings it back.`)
+      return
+    }
+    const list = useStash.getState().list
+    if (list.length === 0) notify(`Nothing saved for later. ${isMac ? '⌘S' : 'Ctrl+S'} puts what you've typed aside.`)
+    else if (list.length === 1) restoreStashed(list[0].id)
+    else stashMenu.setOpen(true)
+  }
+  const restoreStashed = (id: string): void => {
+    const prompt = takeStashed(id)
+    stashMenu.close()
+    if (!prompt) return
+    setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${prompt.text}` : prompt.text))
+    setAttachments((current) => [...new Set([...current, ...prompt.attachments])].slice(0, 12))
+    requestAnimationFrame(() => {
+      const node = textarea.current
+      node?.focus()
+      node?.setSelectionRange(node.value.length, node.value.length)
+    })
+  }
+
   const cancelEdit = (): void => {
     setEditing(null)
+    setRewindToo(false)
+    setRewindError(null)
     setText('')
     setAttachments([])
   }
@@ -489,6 +566,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       onPaste={onPaste}
       onKeyDown={(e) => {
         if (suggest.onKeyDown(e)) return
+        const mod = isMac ? e.metaKey : e.ctrlKey
+        if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'v') pasteInline.current = true
+        if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+          e.preventDefault()
+          stashOrRestore()
+          return
+        }
         if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && recall(e.key === 'ArrowUp' ? -1 : 1, e)) return
         if (e.key === 'Escape' && editing) {
           e.preventDefault()
@@ -570,6 +654,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
       <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
       {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
+      {variant === 'chat' && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
       <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
     </button>
   )
@@ -623,13 +708,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       className={`composer-stack ${variant === 'chat' ? 'composer-stack--chat' : ''}`}
       data-dragging={dragging || undefined}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes('Files')) return
+        if (!e.dataTransfer.types.includes('Files') && !editorDrag(e.dataTransfer.types)) return
         e.preventDefault()
         setDragging(true)
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
         setDragging(false)
+        // Files and folders from an editor's file tree (VS Code, Cursor) come as file:// links, not files.
+        const fromEditor = droppedFilePaths(e.dataTransfer)
+        if (fromEditor.length > 0) {
+          e.preventDefault()
+          addAttachments(fromEditor)
+          return
+        }
         // Dragged text drops into the box as text, the browser's own way;
         // only files are taken over and attached.
         if (!e.dataTransfer.types.includes('Files')) return
@@ -657,13 +749,28 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {editing && (
         <div className="composer-editing" role="status">
           <PencilLine size={13} strokeWidth={2} />
-          <span>Editing a message — sending it replaces that message and everything after it</span>
+          <span className="composer-editing__text">Editing a message — sending it replaces that message and everything after it</span>
+          {cwd && (
+            <label className="composer-editing__files" title="Puts the files the replies after this message changed back as they were before it">
+              <input type="checkbox" checked={rewindToo} onChange={(e) => {
+                setRewindToo(e.target.checked)
+                setRewindError(null)
+              }} />
+              <span>Undo file changes too</span>
+            </label>
+          )}
           <button type="button" className="composer-editing__cancel" onClick={cancelEdit}>
             Cancel
           </button>
+          {rewindError && (
+            <span className="composer-editing__error" role="alert">
+              {rewindError}
+            </span>
+          )}
         </div>
       )}
       <div className="composer" data-variant={variant} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+        <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
             {attachments.map((path) => (
@@ -695,6 +802,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )}
 
         {variant === 'chat' ? (
+          // In a conversation: one pill, + at one end and send at the other; its settings sit under it.
           <div className="composer__row">
             {plusButton}
             {input}
@@ -723,8 +831,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           {isAgent && <PermissionPicker />}
           {chips}
           <div className="composer__spacer" />
-          {!engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
           {modelButton}
+          {!engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
         </div>
       )}
 
@@ -741,6 +849,21 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         }}
       />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
+      <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
+        <div className="menu__label">Saved for later</div>
+        {stashed.map((prompt) => (
+          <div key={prompt.id} className="stash-row">
+            <MenuItem
+              title={stashTitle(prompt)}
+              hint={ago(prompt.at)}
+              onClick={() => restoreStashed(prompt.id)}
+            />
+            <button type="button" className="stash-row__drop" aria-label="Delete this saved prompt" title="Delete" onClick={() => dropStashed(prompt.id)}>
+              <X size={12} strokeWidth={2.2} />
+            </button>
+          </div>
+        ))}
+      </Popover>
     </div>
   )
 })

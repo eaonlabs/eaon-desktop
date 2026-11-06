@@ -20,7 +20,7 @@ import type {
   Workspace
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
-import { isLastingIssue, type ProviderIssue } from '@shared/providers'
+import { isLastingIssue, isLongLimit, type ProviderIssue } from '@shared/providers'
 import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
@@ -146,6 +146,8 @@ interface AppState {
   approvePlan: (messageId: string) => void
   /** A reply's thumbs and emoji, from its action bar. */
   setMessageFeedback: (messageId: string, feedback: MessageFeedback) => void
+  /** Marks a coding reply's file changes undone (or redone) in the chat on screen. */
+  setMessageUndone: (messageId: string, undone: boolean) => void
   /** Asks the last question again, in place of its reply. */
   retryReply: (messageId: string) => void
   /** Opens a copy of the active chat up to `messageId`, to go another way from there. */
@@ -584,10 +586,11 @@ function applyStreamEvent(event: StreamEvent): void {
   let nextChat: Partial<Chat> | null = null
   if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
   else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
+  else if (event.type === 'notice') nextMessage = { ...message, notice: event.text }
   else if (event.type === 'error') {
     nextMessage = { ...message, error: event.error, ...(event.issue ? { errorIssue: event.issue } : {}) }
-    // An expired sign-in or a rejected key marks the provider in main; show it in the picker too.
-    if (event.issue && isLastingIssue(event.issue.kind)) void state.refreshProviders()
+    // An expired sign-in, a rejected key or the gateway's limit for the day marks the provider in main; show it in the picker too.
+    if (event.issue && (isLastingIssue(event.issue.kind) || isLongLimit(event.issue))) void state.refreshProviders()
   }
   else if (event.type === 'usage') nextMessage = { ...message, usage: event.usage }
   else if (event.type === 'plan') nextMessage = { ...message, plan: event.plan }
@@ -637,6 +640,11 @@ function applyStreamEvent(event: StreamEvent): void {
 
   // Stamped once, when the turn ends, so its header can say how long it worked.
   if (finished && !nextMessage.finishedAt) nextMessage = { ...nextMessage, finishedAt: Date.now() }
+  // A notice (a retry's wait) lasts until the model answers again, or the turn ends.
+  if (nextMessage.notice && (finished || event.type === 'delta' || event.type === 'reasoning' || event.type === 'tool-call')) {
+    const { notice: _notice, ...rest } = nextMessage
+    nextMessage = rest
+  }
 
   if (nextMessage === message && !finished && !nextChat) return
 
@@ -930,6 +938,11 @@ export const useApp = create<AppState>((set, get) => ({
   // its end never found the message, so every composer stayed on "Stop".
   deleteChat: (id) => {
     if (get().runs[id]) get().stop(id)
+    // A coding chat's checkpoints (refs in its project's repository) go with it.
+    const gone = get().chats.find((c) => c.id === id)
+    const folder = gone?.projectId ? get().projects.find((p) => p.id === gone.projectId)?.folder : null
+    const replies = gone?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
+    if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
@@ -1145,6 +1158,14 @@ export const useApp = create<AppState>((set, get) => ({
     const next = withFeedback(chat, messageId, feedback)
     if (next === chat) return
     set({ chats: get().chats.map((c) => (c.id === chat.id ? next : c)) })
+    persistChats()
+  },
+
+  setMessageUndone(messageId, undone) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const messages = chat.messages.map((m) => (m.id === messageId ? { ...m, undone: undone || undefined } : m))
+    set({ chats: get().chats.map((c) => (c.id === chat.id ? { ...c, messages } : c)) })
     persistChats()
   },
 

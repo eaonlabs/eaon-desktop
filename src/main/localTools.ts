@@ -192,7 +192,33 @@ const display = (cwd: string, path: string): string => {
 
 /* ------------------------------------------------------------------ shell */
 
-const background = new Map<number, { command: string; log: string; exit: Promise<number | null> }>()
+const background = new Map<number, { command: string; log: string; cwd: string; startedAt: number; exit: Promise<number | null> }>()
+const backgroundListeners = new Set<() => void>()
+const backgroundChanged = (): void => {
+  for (const listener of backgroundListeners) listener()
+}
+
+/** The background processes run_command started (dev servers, watchers), oldest first: Chat lists them to stop. */
+export function backgroundProcesses(): { pid: number; command: string; log: string; cwd: string; startedAt: number }[] {
+  return [...background].map(([pid, p]) => ({ pid, command: p.command, log: p.log, cwd: p.cwd, startedAt: p.startedAt }))
+}
+
+/** Stops one of them, and whatever it started. False when it isn't one of them (or has already gone). */
+export function stopBackgroundProcess(pid: number): boolean {
+  if (!background.has(pid)) return false
+  try {
+    killTree(pid, 'SIGTERM')
+  } catch {
+    // Already exited; its exit event forgets it.
+  }
+  return true
+}
+
+/** Told when one starts or ends. Returns the way to stop listening. */
+export function onBackgroundChange(listener: () => void): () => void {
+  backgroundListeners.add(listener)
+  return () => backgroundListeners.delete(listener)
+}
 
 /**
  * Calls `onExit` once the process `pid` has exited — straight from the exit
@@ -468,9 +494,13 @@ async function runBackground(command: string, cwd: string): Promise<string> {
   child.unref()
   const pid = child.pid
   if (pid) {
-    background.set(pid, { command, log, exit: new Promise((resolveExit) => child.once('exit', (code) => resolveExit(code))) })
+    background.set(pid, { command, log, cwd, startedAt: Date.now(), exit: new Promise((resolveExit) => child.once('exit', (code) => resolveExit(code))) })
+    backgroundChanged()
     // Forgotten once it exits, so quitting never signals a pid the system has since reused.
-    child.on('exit', () => background.delete(pid))
+    child.on('exit', () => {
+      background.delete(pid)
+      backgroundChanged()
+    })
   }
   await started
   if (failed) {

@@ -29,8 +29,9 @@ export function CodeKeys(): null {
 }
 
 /**
- * ⌘J shows and hides the terminal; ⇧⌘F finds across the project. Not over a
- * dialog, and not from the in-app browser, which keeps its own keys.
+ * ⌘J shows and hides the terminal; ⇧⌘F finds across the project; ⌘P opens a
+ * file by name. Not over a dialog, and not from the in-app browser, which
+ * keeps its own keys.
  */
 function useCodeKeys(): void {
   useEffect(() => {
@@ -45,6 +46,9 @@ function useCodeKeys(): void {
       } else if (key === 'f' && event.shiftKey) {
         event.preventDefault()
         useChatCode.getState().setSearchOpen(true)
+      } else if (key === 'p' && !event.shiftKey) {
+        event.preventDefault()
+        useChatCode.getState().setQuickOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)

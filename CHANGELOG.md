@@ -3,6 +3,34 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## Unreleased
+
+### Added
+- **An editor beside the chat.** In a project, the header's Editor button (or ⌘P, to open a file by name) opens the project's code next to the conversation: the files on the left, coloured by what git sees (changed, new, untracked) and opened to the file you're on; the file with its place in the project; and a status bar with the line and column, what's selected, the indent, the line ending, the language and the branch. Lines changed since the last commit are marked in the gutter, and the line the caret is on is lit.
+- **Talk to Eaon about the code you're looking at.** Select some code: ⌘L adds it to your message with where it came from, and ⌘K opens a box under it to say what to change; the request goes to the chat (or waits its turn behind a reply still being written) and the file updates as Eaon edits it. Code in your own messages now shows as code.
+- **Undo a reply's changes.** In a project that's a git repository, Eaon saves the folder before and after each reply, and the reply's "changed files" card has Undo, which puts those files back as they were, and Redo. If you've changed one of them since, Undo names it and asks first. Edit from here can undo the file changes of the replies after that message too. Your own index, branch and stash are never touched.
+- **See and stop what the agent left running.** Dev servers and watchers the agent started in a project are listed on the workspace card, with the address each printed (opened in the browser beside the chat) and Stop.
+- **Review a commit.** The Diff pane's menu lists the branch's latest commits, the ones not pushed yet marked, and shows what each changed.
+- **Save a prompt for later.** ⌘S (Ctrl+S) in the message box puts what you've typed aside; ⌘S in an empty box brings it back, or lets you choose when there are several.
+- **A long paste is attached as a text file** (32 KB or more), so the box stays usable. ⇧⌘V (Ctrl+Shift+V) pastes it into the box instead. Files sent with a message show as cards with their kind and size; pasted text says "Pasted text".
+- **The conversation says when it moved to another model**, with a quiet line where it changed.
+- **Files and folders dragged from VS Code's or Cursor's file tree** are attached, like files from Finder.
+- **A project's chats say which project** in the header: "tally / Add refunds".
+- **A chat waiting on you says so** in the sidebar ("Needs you") when its reply stopped for an approval.
+- **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
+
+### Changed
+- **The message box keeps all its controls inside**, under what you type, in a conversation as on the start page: approvals, the model, the context meter, dictation and send.
+
+### Fixed
+- **`tokn autosync on` no longer opens Eaon.** Run with the tokn that comes with Eaon (or chosen in `tokn setup`), its background job started the Eaon app every 90 minutes, and whenever a CLI wrote a session, instead of running tokn. Eaon repairs such a job when it next starts, or when the job next runs.
+- **Eaon Lite no longer says "Needs attention" after an update.** When Eaon's gateway had turned an older copy of Eaon away, the warning stayed after updating until you pressed Refresh. Eaon now drops what the gateway said to an older copy when it starts, checks Eaon Lite and Eaon Event as soon as it opens, and checks a refusal again every ten minutes instead of leaving it alone.
+- **Eaon Lite says when a network has used up its free requests.** Eaon's gateway limits Eaon Lite per network, so at a busy venue the day's requests can run out before you send anything. Setup, Settings and the model picker said "Ready" anyway. They now say the requests are used up and when they start again, and suggest an event code or another model; Eaon waits until then before asking the gateway again.
+- **An event code the gateway turned off is forgotten as soon as Eaon notices**, from the background model list as well as from a chat.
+- **A day's rate limit says so at once.** A provider that answered "429, try again in 18 hours" was retried three times, a minute apart, behind "Thinking", before the reply failed. A wait longer than a retry would ever wait now fails straight away.
+- **Retries are visible while they wait.** "The provider is busy (429) — retrying in 60s." showed only once the turn had ended, inside the "Thinking" line. It now shows in the conversation while Eaon waits, until the model answers.
+- **Eaon Lite and Eaon Event say why they stopped.** When Eaon Lite's free requests for the day are used up on your network, it says so, with the wait in hours and how to keep going (an event code in Settings → Model providers → Eaon Event, or another model), instead of "limiting how fast requests can be made. Try again in 1086 min". An event code's limit gives the code's own reason. Short limits read as before.
+
 ## [2026.7.5] — 2026-10-31
 
 ### Added

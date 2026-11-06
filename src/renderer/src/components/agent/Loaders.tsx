@@ -201,22 +201,14 @@ export function useElapsed(since: number, running = true, every = 1000): number 
   return Math.max(0, now - since)
 }
 
-/** A clock that counts up from `since` in whole seconds. Its own component, so a tick re-renders only it. */
-export function Elapsed({ since, className }: { since: number; className: string }): JSX.Element | null {
-  const elapsed = formatElapsed(useElapsed(since))
-  return elapsed ? <span className={className}>{elapsed}</span> : null
-}
-
-/** A reply that has started but shows nothing yet: what it is doing and for how long. */
+/** A reply that has started but shows nothing yet: what it is doing. Its time is on the turn's "Working for" line, once. */
 export function LoadingState({ label }: { label: string }): JSX.Element {
-  const [since] = useState(() => Date.now())
   return (
     <div className="loading-state" role="status">
       <span className="loading-state__icon" aria-hidden>
         <Brain size={14} strokeWidth={1.8} />
       </span>
       <span className="loading-state__label step-shimmer">{label}</span>
-      <Elapsed since={since} className="loading-state__clock" />
     </div>
   )
 }

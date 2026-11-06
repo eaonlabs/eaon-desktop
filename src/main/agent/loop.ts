@@ -279,6 +279,9 @@ export interface LoopOutcome {
   stopped: 'done' | 'plan' | 'rounds' | 'goal-limit'
 }
 
+/** The longest a request waits before it is tried again. */
+const RETRY_WAIT_CAP_MS = 60_000
+
 /**
  * One model request, trying each credential in turn and retrying overloads
  * with a visible status line. A request is only retried if nothing from it has
@@ -350,10 +353,12 @@ async function callModel(
           continue
         }
         if (!streamed && retry < 3 && isRetryable(error)) {
-          const wait = Math.min(
-            (error instanceof ProviderHttpError ? error.retryAfterMs : undefined) ?? [2000, 6000, 15000][retry],
-            60_000
-          )
+          const asked = error instanceof ProviderHttpError ? error.retryAfterMs : undefined
+          // Told to wait longer than a retry ever waits (a day's limit answers
+          // with hours): every retry would be refused too, so say so now
+          // instead of after three minutes of "Thinking".
+          if (asked !== undefined && asked > RETRY_WAIT_CAP_MS) throw error
+          const wait = Math.min(asked ?? [2000, 6000, 15000][retry], RETRY_WAIT_CAP_MS)
           const status = error instanceof ProviderHttpError ? ` (${error.status})` : ''
           const cutOff = error instanceof Error && /stream ended before/.test(error.message)
           const why = cutOff ? 'The reply was cut off' : refused ? `Couldn't connect to ${params.provider.name}` : `The provider is busy${status}`
@@ -530,7 +535,13 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
    * card while its own stayed "running", and was replayed as interrupted.
    */
   const callIds = new Set(messages.flatMap((m) => (m.role === 'assistant' ? m.calls.map((c) => c.id) : [])))
-  const note = (text: string): void => params.onReasoning(`\n${text}\n`)
+  // Kept in the turn's thoughts, and said in the conversation at once: while
+  // the turn runs its newest thought only reads "Thinking", so a retry's wait
+  // ("The provider is busy (429) — retrying in 60s.") showed only afterwards.
+  const note = (text: string): void => {
+    params.onReasoning(`\n${text}\n`)
+    if (params.depth === 0) emit({ type: 'notice', messageId: request.messageId, text })
+  }
   let text = ''
   let answer = ''
   let goalIterations = 0

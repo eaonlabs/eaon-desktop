@@ -31,7 +31,7 @@ test('a typical reply renders as Markdown, not as punctuation', () => {
     ].join('\n')
   )
   assert.match(html('plain'), /<p class="md__p">plain<\/p>/)
-  assert.match(out, /<h4 class="md__heading">Disk usage<\/h4>/)
+  assert.match(out, /<h4 class="md__heading" data-level="2">Disk usage<\/h4>/)
   assert.match(out, /<strong>41 GB<\/strong>/)
   assert.match(out, /<strong>mostly<\/strong>/)
   assert.match(out, /<code class="md__code">~\/Library\/Caches<\/code>/)

@@ -1,6 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
-import { joinPath } from './paths'
+import { joinPath, touchedFiles } from './paths'
 import { toDisk, toEditor, type LineEnding } from './lineEndings'
 import type { ReviewScope } from '../chatCode/changes/build'
 import { useChatCode } from '../chatCode/chatCodeStore'
@@ -386,3 +386,27 @@ export async function openInCode(path: string, line?: number, store: DockStore =
   await store.getState().openFile(full)
   if (line && line > 0) store.getState().revealLine(full, line)
 }
+
+/** The width the editor opens at: half the window or more, so code and the conversation both have room. */
+const EDITOR_SHARE = 0.5
+
+/**
+ * The editor beside the conversation (the header's Editor button): the file
+ * last open in it, else the file the agent changed last in this chat, else
+ * Quick Open to pick one. The dock widens to half the window if it is
+ * narrower.
+ */
+export async function openEditor(store: DockStore = useIde): Promise<void> {
+  const state = store.getState()
+  const room = Math.round(window.innerWidth * EDITOR_SHARE)
+  if (state.width < room) state.setWidth(room)
+  if (!state.open) state.setOpen(true)
+  const files = store.getState().surfaces.filter((s) => s.kind === 'file')
+  const active = store.getState().surfaces.find((s) => s.id === store.getState().activeSurface)
+  if (active?.kind === 'file') return
+  if (files.length > 0) return store.getState().setActiveSurface(files[files.length - 1].id)
+  const changed = touchedFiles(useApp.getState().activeChat()?.messages ?? [])
+  if (changed.length > 0) return openInCode(changed[changed.length - 1])
+  useChatCode.getState().setQuickOpen(true)
+}
+
