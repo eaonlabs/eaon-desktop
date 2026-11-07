@@ -86,6 +86,7 @@ import { modelName, modelSwitches } from './chat/modelSwitch'
 import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
+import { isKey } from '../lib/bindings'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
@@ -274,11 +275,12 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const moreButton = useRef<HTMLButtonElement>(null)
   // Before paint, so the app-wide dialog never flashes a question the transcript has taken.
 
-  // ⌘F finds in the conversation. Not from the browser panel, a terminal or
-  // the code editor, which have their own find; not over a dialog.
+  // ⌘F (or the key saved for it in Settings → Keyboard shortcuts) finds in
+  // the conversation. Not from the browser panel, a terminal or the code
+  // editor, which have their own find; not over a dialog.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return
+      if (!isKey('find-chat', event)) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('.browser, .term-pane, .xterm, .cm-editor, .monaco-editor, .ide')) return
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return

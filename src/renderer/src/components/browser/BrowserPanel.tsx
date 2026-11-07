@@ -23,7 +23,8 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { ANNOTATE_SHORTCUT, browserKey, matchesBinding, type BrowserKeyAction, type DesignNote, type PickedElement } from '@shared/browser'
+import { browserKey, type BrowserKeyAction, type DesignNote, type PickedElement } from '@shared/browser'
+import { bindingOf, isKey, useBinding } from '../../lib/bindings'
 import { useApp } from '../../state/store'
 import { BrandIcon } from '../../icons/brand'
 import { isMac, shortcutLabel } from '../../lib/platform'
@@ -66,10 +67,8 @@ function onPage<T>(page: Electron.WebviewTag | null | undefined, use: (page: Ele
 
 const accent = (): string => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#3b82f6'
 
-const annotateBinding = (): string | null => {
-  const bound = useApp.getState().settings?.shortcuts['annotate-page-element']
-  return bound === undefined ? ANNOTATE_SHORTCUT : bound
-}
+/** The Design Mode key now: the one saved in Settings → Keyboard shortcuts, or its default. */
+const annotateBinding = (): string | null => bindingOf('annotate-page-element')
 
 /**
  * `embedded`: inside Chat's dock, which shows the pages as its own tabs and
@@ -256,8 +255,7 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}):
   // ⌘L (Settings → Shortcuts) from anywhere while the panel is open.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      const bound = useApp.getState().settings?.shortcuts['focus-browser-address-bar']
-      if (!matchesBinding(bound, { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, isMac)) return
+      if (!isKey('focus-browser-address-bar', event)) return
       if (!isMac && document.activeElement?.closest('.term-pane')) return
       // The editor's own ⌘L adds the selection to the chat.
       if (document.activeElement?.closest('.ide-editor-wrap')) return
@@ -522,10 +520,7 @@ function Toolbar({
   const [draft, setDraft] = useState<string | null>(null)
   const menuAnchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
-  const annotate = useApp((s) => {
-    const bound = s.settings?.shortcuts['annotate-page-element']
-    return bound === undefined ? ANNOTATE_SHORTCUT : bound
-  })
+  const annotate = useBinding('annotate-page-element')
 
   // Another tab, or the page went somewhere: the field shows where it is now.
   useEffect(() => setDraft(null), [tab.id, tab.url])
@@ -847,7 +842,7 @@ function ResizeHandle({ panel }: { panel: React.RefObject<HTMLElement> }): JSX.E
 export function BrowserKeys(): null {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (!matchesBinding(annotateBinding(), { key: event.key, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, isMac)) return
+      if (!isKey('annotate-page-element', event)) return
       // Ctrl+Shift+C copies in a terminal off the Mac.
       if (!isMac && document.activeElement?.closest('.term-pane')) return
       event.preventDefault()

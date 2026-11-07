@@ -10,7 +10,7 @@ import { NewTerminalButton } from './terminal/TerminalWorkspace'
 import { UsagePlacement } from '../UsagePlacement'
 import { ReviewButton } from './ReviewPanel'
 import { revealLabel } from '../../lib/files'
-import { shortcutLabel } from '../../lib/platform'
+import { useBindingLabel } from '../../lib/bindings'
 import { DockToggle } from '../ide/Dock'
 import { useAdeDock } from '../ide/adeDock'
 import { ModWidgets } from '../mods/ModWidgets'
@@ -22,6 +22,7 @@ export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
   // Open, the dock has its own switch in the same corner.
   const dockOpen = useAdeDock((s) => s.open)
+  const browserKey = useBindingLabel('toggle-browser')
   return (
     <TopBar
       className="code-header"
@@ -32,7 +33,7 @@ export function CodeHeader(): JSX.Element {
           <UsagePlacement />
           <ReviewButton />
           <NewTerminalButton />
-          {cwd && !dockOpen && <DockToggle store={useAdeDock} holds={`browser (${shortcutLabel('⇧⌘B')}), files, diff, pull request`} />}
+          {cwd && !dockOpen && <DockToggle store={useAdeDock} holds={`browser${browserKey ? ` (${browserKey})` : ''}, files, diff, pull request`} />}
         </div>
       }
     />

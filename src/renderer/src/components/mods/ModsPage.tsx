@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import { MOD_CATEGORIES, modSurfaces, needsReview, type ModCategory, type ModInfo } from '@shared/mods'
 import { useMods } from '../../state/mods'
-import { formatShortcut, SHORTCUTS } from '../../lib/keys'
+import { useBindingLabel } from '../../lib/bindings'
 import { MenuItem, MenuSeparator, Modal, Popover, SearchField, Segmented, Switch, useDisclosure } from '../ui'
 import { notify } from '../Notice'
 import { errorText } from '../../lib/errors'
@@ -94,8 +94,7 @@ export function ModsPage(): JSX.Element {
   const moreAnchor = useRef<HTMLButtonElement>(null)
   const addMenu = useDisclosure()
   const moreMenu = useDisclosure()
-  const mac = window.api.platform === 'darwin'
-  const shortcut = SHORTCUTS.find((s) => s.id === 'mods')
+  const shortcut = useBindingLabel('mods')
 
   const mods = useMemo(() => list?.mods ?? [], [list])
   const installedCount = mods.filter((m) => m.installed).length
@@ -176,7 +175,7 @@ export function ModsPage(): JSX.Element {
           </h1>
           <p className="settings__lede">
             Themes, commands, panels, worker templates and add-ons for Chat, Workers, the ADE and the coding CLIs Eaon starts.
-            {shortcut && <kbd className="mods__kbd">{formatShortcut(shortcut, mac)}</kbd>}
+            {shortcut && <kbd className="mods__kbd">{shortcut}</kbd>}
           </p>
         </div>
         <div className="mods__actions">

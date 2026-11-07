@@ -697,6 +697,46 @@ body[data-see-through='on'] .glass-preview__menu {
   align-items: center;
   gap: 8px;
 }
+/* A key that can be changed: Reset beside it once it differs from the default. */
+.shortcut-row__edit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.keycap--button {
+  cursor: pointer;
+}
+.keycap--button:hover {
+  border-color: var(--text-3);
+}
+.keycap--button[data-listening] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.shortcut-row__warn {
+  color: var(--danger, #e5484d);
+}
+/* A key another command has: the question under its row. */
+.shortcut-row__clash {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.shortcut-row__clash-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+.link-btn:disabled {
+  color: var(--text-3);
+  text-decoration: none;
+  cursor: default;
+}
 
 .kv {
   font-size: var(--fs-sm);

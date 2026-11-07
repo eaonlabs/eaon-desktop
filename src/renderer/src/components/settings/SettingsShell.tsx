@@ -83,7 +83,7 @@ const stroke = 1.9
  * in any order (shared/searchWords.ts). Keep these to what the page really has: a word that leads
  * to a page without it is worse than no match.
  */
-const KEYWORDS: Record<string, string> = {
+export const KEYWORDS: Record<string, string> = {
   general:
     'custom instructions system prompt personalize speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
   appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),

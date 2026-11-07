@@ -41,7 +41,11 @@ import { ModsIntro } from './components/mods/ModsIntro'
 import { GLASS_DEFAULT, glassFactors } from '@shared/glass'
 import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
-import { modKey } from './lib/platform'
+import { isMac } from './lib/platform'
+import { matchesChord } from '@shared/keybindings'
+import { bindingOf, keyOf } from './lib/bindings'
+import { CommandPalette } from './components/palette/CommandPalette'
+import { togglePalette } from './components/palette/paletteStore'
 import { usePresence } from './lib/presence'
 import { SeeThrough } from './components/SeeThrough'
 import { installControl } from './lib/control'
@@ -262,7 +266,7 @@ export default function App(): JSX.Element {
           </ErrorBoundary>
         </div>
       )}
-      {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
+      {/* Outside the view switch, so ⌘1–3, ⇧⌘P and the palette's key work from Settings too. */}
       <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
       {browserHere && view !== 'settings' && <BrowserKeys />}
       {/* Once, outside the view switch: a run asks wherever the user is
@@ -272,6 +276,10 @@ export default function App(): JSX.Element {
       </ErrorBoundary>
       {/* Pictures from any conversation, chats' and workers' alike. */}
       <ImageViewer />
+      {/* Opened by its key from anywhere, Settings included. */}
+      <ErrorBoundary area="command palette" fallback={() => null}>
+        <CommandPalette />
+      </ErrorBoundary>
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />
@@ -294,35 +302,43 @@ export default function App(): JSX.Element {
 function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugins: () => void }): null {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      // ⌘ on macOS, Ctrl on Windows and Linux (but never AltGr; see modKey).
       // A held key repeats; toggling the sidebar ten times a second helps nobody.
-      if (!modKey(event) || event.repeat) return
+      if (event.repeat || !(event.metaKey || event.ctrlKey)) return
       // Not under the setup or a tour: ⌘3 moved the app out from under the
       // tour's highlight, and the setup ended on whatever page ⌘, opened.
       if (onboardingShowing()) return
-      if (event.key === ',') {
+      // Each command's key is the one saved for it in Settings → Keyboard
+      // shortcuts, or its default (lib/bindings.ts). ⌘ on macOS, Ctrl on
+      // Windows and Linux, matched exactly, and never AltGr (shared/keybindings.ts).
+      const key = keyOf(event)
+      const is = (id: string): boolean => matchesChord(bindingOf(id), key, isMac)
+      if (is('settings')) {
         event.preventDefault()
         onSettings()
       }
-      if (event.key === 'b') {
+      if (is('toggle-sidebar')) {
         event.preventDefault()
         useApp.getState().toggleSidebar()
       }
-      if (event.shiftKey && event.key.toLowerCase() === 'p') {
+      if (is('plugins')) {
         event.preventDefault()
         onPlugins()
       }
-      if (event.shiftKey && event.key.toLowerCase() === 'm') {
+      if (is('mods')) {
         event.preventDefault()
         useApp.getState().setSettingsPage('mods')
       }
+      if (is('command-palette')) {
+        event.preventDefault()
+        togglePalette()
+      }
       // ⌘1 / ⌘2 / ⌘3 (Ctrl elsewhere): Chat, Workers, ADE — the top bar's switch, from the keyboard.
-      const kind = ({ '1': 'chat', '2': 'workers', '3': 'code' } as const)[event.key as '1' | '2' | '3']
+      const kind = is('tab-chat') ? 'chat' : is('tab-workers') ? 'workers' : is('tab-ade') ? 'code' : null
       // Not when what has the keyboard took it already (the model pickers'
       // ⌘1–⌘9), nor from inside a dialog or an open list, where switching
       // views would throw away what's being filled in.
       const inside = document.activeElement instanceof Element && document.activeElement.closest('[role="dialog"], [aria-modal="true"], [role="listbox"], [role="menu"]')
-      if (kind && !event.shiftKey && !event.altKey && !event.defaultPrevented && !inside) {
+      if (kind && !event.defaultPrevented && !inside) {
         const app = useApp.getState()
         const target = app.workspaces.find((w) => w.kind === kind)
         if (!target) return
