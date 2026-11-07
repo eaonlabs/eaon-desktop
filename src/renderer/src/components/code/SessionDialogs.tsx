@@ -368,6 +368,51 @@ export function RenameSessionDialog({ session, onClose }: { session: AdeSession;
   )
 }
 
+/** Archive: out of the list, terminals ended, nothing deleted; the Archived group at the foot of the sidebar brings it back. */
+export function ArchiveSessionDialog({ session, onClose }: { session: AdeSession; onClose: () => void }): JSX.Element {
+  const archive = useAdeSessions((s) => s.archive)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const confirm = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    const failed = await archive(session)
+    setBusy(false)
+    if (failed) setError(failed)
+    else onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={() => !busy && onClose()}
+      title={`Archive “${sessionTitle(session)}”?`}
+      width={460}
+      actions={
+        <>
+          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--primary" onClick={() => void confirm()} disabled={busy}>
+            {busy ? 'Archiving…' : 'Archive'}
+          </button>
+        </>
+      }
+    >
+      <div className="ade-dialog">
+        <p className="ade-dialog__lede">
+          It moves to Archived at the foot of the sidebar and its terminals close. {session.worktree ? `Its worktree folder (${tidy(session.cwd)})${session.branch ? ` and the branch ${session.branch}` : ''} stay` : 'Its folder stays where it is'}, and so do the Claude Code and Codex conversations.
+          Restoring it opens its terminals again, each on the conversation it was in.
+        </p>
+        {error && (
+          <p className="ade-dialog__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 export function RemoveSessionDialog({ session, onClose }: { session: AdeSession; onClose: () => void }): JSX.Element {
   const remove = useAdeSessions((s) => s.remove)
   const [deleteWorktree, setDeleteWorktree] = useState(false)

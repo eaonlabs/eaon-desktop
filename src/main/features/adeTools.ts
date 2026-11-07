@@ -1,4 +1,6 @@
+import path from 'node:path'
 import { isRemote } from '@shared/adeRemote'
+import type { AdeSession } from '@shared/adeSessions'
 import { cleanCopySettings, type CopyPlan, type CopyReport, type WorktreeCopySettings } from '@shared/worktreeCopy'
 import type { Feature } from './types'
 import { adeSessions } from './ade'
@@ -43,5 +45,19 @@ export const adeToolsFeature: Feature = {
       if (!session?.worktree || isRemote(session.cwd)) throw new Error('Files are only copied into a worktree Eaon made for a session.')
       return copyIgnored(session.project, session.cwd, copySettings().patterns)
     })
+
+    /* ------------------------------------------------------------ archive */
+
+    // Out of the list into the Archived group; nothing on disk changes. The window ends the session's terminals.
+    ipcMain.handle('ade-tools:archive', (_e, id: unknown): AdeSession | null => {
+      const session = adeSessions().archive(text(id, 'a session'))
+      // The ADE reopens its last folder at launch, which would show an archived session again.
+      const settings = store.getSettings().eaonCode
+      if (session && settings.lastCwd && path.resolve(settings.lastCwd) === path.resolve(session.cwd)) {
+        store.patchSettings({ eaonCode: { ...settings, lastCwd: null } })
+      }
+      return session
+    })
+    ipcMain.handle('ade-tools:restore', (_e, id: unknown): AdeSession | null => adeSessions().restore(text(id, 'a session')))
   }
 }
