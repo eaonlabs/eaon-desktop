@@ -12,6 +12,7 @@ import { errorText, explainUpdateError } from '../../../lib/errors'
 import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
 import { SpeechModelRow } from './SpeechModelRow'
+import { CustomInstructions } from './CustomInstructions'
 import { versionLabel } from '@shared/version'
 
 export function GeneralPage(): JSX.Element {
@@ -137,6 +138,8 @@ export function GeneralPage(): JSX.Element {
         </Card>
       </Section>
       <LinkAccounts open={linking} onClose={() => setLinking(false)} />
+
+      <CustomInstructions />
 
       <Section label="Speech to text">
         <Card>

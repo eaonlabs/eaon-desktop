@@ -53,6 +53,7 @@ import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
+import { personalizeApi } from './features/personalize'
 import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
@@ -357,6 +358,7 @@ const fullApi = {
   linkAccounts: linkAccountsApi,
   providerLogos: providerLogosApi,
   usage: usageApi,
+  personalize: personalizeApi,
   toknCli: toknCliApi,
   payments: paymentsApi,
   engines: enginesApi,

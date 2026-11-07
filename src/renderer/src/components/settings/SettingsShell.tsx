@@ -24,6 +24,7 @@ import {
   SquarePlus,
   Sun,
   Wand2, Gauge, Bot, Search, Puzzle } from 'lucide-react'
+import { Brain } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { THEMES } from '../../lib/themes'
@@ -38,6 +39,7 @@ import { ConfigurationPage } from './pages/Configuration'
 import { ShortcutsPage } from './pages/Shortcuts'
 import { ProvidersPage } from './pages/Providers'
 import { ArchivedPage } from './pages/Archived'
+import { MemoryPage } from './pages/Memory'
 import { BrowserSettingsPage } from './pages/Misc'
 import { ComputerUsePage } from './pages/ComputerUse'
 import { PluginsSettingsPage } from './pages/Plugins'
@@ -83,13 +85,14 @@ const stroke = 1.9
  */
 const KEYWORDS: Record<string, string> = {
   general:
-    'speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
+    'custom instructions system prompt personalize speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
   appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),
   configuration: 'web search search engine internet',
   shortcuts: 'keyboard hotkey hotkeys keys key bindings',
   usage: 'tokens cost spend limits tokn activity streak',
   'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
   accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
+  memory: 'remember remembers memories facts preferences personalize forget saved across chats',
   providers:
     'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free event code hackathon workshop eaon event eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
@@ -124,6 +127,7 @@ const NAV: NavEntry[] = [
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'usage-limits', label: 'Usage & limits', icon: <Gauge size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'memory', label: 'Memory', icon: <Brain size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -181,6 +185,7 @@ const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Ele
   usage: UsagePage,
   'usage-limits': UsageLimitsPage,
   accounts: AccountsPage,
+  memory: MemoryPage,
   providers: ProvidersPage,
   engines: EnginesPage,
   'agent-providers': AgentProvidersPage,
