@@ -203,3 +203,20 @@
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--diff-del-fg, #f85149) 70%, transparent);
 }
+
+/* Who last changed the caret's line, in the editor's status bar. */
+.file-status__blame {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  border-radius: var(--r-xs);
+}
+.file-status__blame:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}

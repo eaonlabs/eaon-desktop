@@ -43,6 +43,7 @@ import { enterpriseFeature } from './enterprise'
 import { modsFeature } from './mods'
 import { gitAssistFeature } from './gitAssist'
 import { searchReplaceFeature } from './searchReplace'
+import { gitHistoryFeature } from './gitHistory'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -102,5 +103,6 @@ export const FEATURES: Feature[] = [
   discordPresenceFeature,
   // After the ADE, whose sessions' folders it may work in.
   gitAssistFeature,
-  searchReplaceFeature
+  searchReplaceFeature,
+  gitHistoryFeature
 ]

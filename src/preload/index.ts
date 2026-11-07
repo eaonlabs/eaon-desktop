@@ -39,6 +39,7 @@ import { workspaceFilesApi } from './features/workspaceFiles'
 import { chatCodeApi } from './features/chatCode'
 import { gitAssistApi } from './features/gitAssist'
 import { searchReplaceApi } from './features/searchReplace'
+import { gitHistoryApi } from './features/gitHistory'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
@@ -373,7 +374,8 @@ const fullApi = {
   enterprise: enterpriseApi,
   mods: modsApi,
   gitAssist: gitAssistApi,
-  searchReplace: searchReplaceApi
+  searchReplace: searchReplaceApi,
+  gitHistory: gitHistoryApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)
