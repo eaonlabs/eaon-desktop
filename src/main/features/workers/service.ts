@@ -17,6 +17,7 @@ import {
 import { engine as engineAdapter } from '../../engines'
 import { withUsageSource } from '../usage/attribution'
 import { recordUsage } from '../usage/ledger'
+import { estimateCostUsd } from '../usage'
 import { trackAgentRun } from '../usage/agentRuns'
 import { setLeaseNames } from '../computer/tool'
 import { EngineError } from '../../engines/types'
@@ -30,7 +31,7 @@ import { tradingEngine } from '../trading'
 import { setWorkerTradingLookup, type TradingVenue } from '../trading/access'
 import { store } from '../../store'
 import type { FeatureContext } from '../types'
-import { WorkersEngine, type TeamDraft } from './engine'
+import { WorkersEngine, type TeamDraft, type WorkersDeps } from './engine'
 import { createWorkersHub, type WorkersHub } from './hub'
 import { teamToolSource } from './team'
 import type { RunAgent, RunEngineTurn } from './runner'
@@ -105,6 +106,8 @@ export interface WorkersOverrides {
   startDelayMs?: number
   jobs?: JobHost
   look?: (worker: Worker, watch: WorkerWatch) => Promise<WatchReading>
+  /** What a run cost in dollars (usage's published rates); tests give their own prices. */
+  costOf?: WorkersDeps['costOf']
   /**
    * Where a worker's news goes instead of a notification on this computer:
    * the worker host sends it to the desktop that is watching (see
@@ -395,6 +398,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     jobs,
     look: overrides.look ?? lookAt,
     keepAwake,
+    costOf: overrides.costOf ?? estimateCostUsd,
     now: overrides.now,
     stallMs: overrides.stallMs,
     maxTurnsPerHour: overrides.maxTurnsPerHour,

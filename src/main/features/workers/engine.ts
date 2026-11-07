@@ -89,6 +89,23 @@ import { weakerAccess } from '@shared/channels'
 import { currentZone } from '../../timezone'
 import { DEFAULT_SHAPE, isWorkerShape, WORKER_SHAPES } from '@shared/workerLook'
 import { workerApp, type WorkerAppLink } from '@shared/workerApps'
+import {
+  addSpend,
+  budgetHit,
+  budgetReason,
+  isTransientError,
+  normalizeBudget,
+  normalizeRetry,
+  normalizeSites,
+  normalizeToolRules,
+  retryDelayMs,
+  retryLabel,
+  seedSpend,
+  spendNow,
+  usageTokens,
+  waitText,
+  type WorkerSpend
+} from '@shared/workerLimits'
 
 /** How a tool follows a file transfer: its stop button, and a line of progress. */
 export interface TransferWatch {
@@ -194,6 +211,12 @@ export interface WorkersDeps {
   routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string, asked?: boolean) => RoutineTurn | null
   /** That routine's run ended (after it was recorded): its follow-up. */
   routineEnded?: (worker: Worker, routine: WorkerRoutine, messageId: string, outcome: TurnOutcome) => void
+  /**
+   * What a run cost in dollars at published rates, for a worker's money cap;
+   * null when it isn't billed per token or has no known price. Without it, a
+   * dollar cap never counts anything.
+   */
+  costOf?: (providerId: string, modelId: string, usage: TokenUsage) => number | null
 }
 
 /** How a routine's run differs from its task as written (see `WorkersDeps.routineTurn`). */
@@ -473,6 +496,21 @@ function normalizeThreadInfo(raw: unknown, now: number): WorkerThreadInfo | null
  * colleagues had handed this worker before delegations existed come back in
  * `legacyHandoffs`, for load() to turn into delegations.
  */
+/** The owner's limits as saved (workerLimits.ts), repaired: a spend only while there is a cap, a hold only while paused. */
+function limitsOf(raw: Partial<Worker>, paused: boolean): Pick<Worker, 'budget' | 'spend' | 'budgetHold' | 'retry' | 'sites' | 'toolRules'> {
+  const budget = normalizeBudget(raw.budget)
+  const spend = raw.spend && typeof raw.spend === 'object' ? raw.spend : null
+  const hold = raw.budgetHold && typeof raw.budgetHold === 'object' ? raw.budgetHold : null
+  return {
+    budget,
+    spend: budget && spend && finite(spend.since) !== null ? { since: finite(spend.since)!, tokens: finite(spend.tokens) ?? 0, usd: finite(spend.usd) ?? 0 } : null,
+    budgetHold: budget && paused && hold && finite(hold.at) !== null && typeof hold.reason === 'string' ? { at: finite(hold.at)!, reason: hold.reason } : null,
+    retry: normalizeRetry(raw.retry),
+    sites: normalizeSites(raw.sites),
+    toolRules: normalizeToolRules(raw.toolRules)
+  }
+}
+
 function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?: WorkerHandoff[] }, now: number): Worker & { legacyHandoffs?: WorkerHandoff[] } {
   const heartbeat = normalizeHeartbeat(raw.heartbeat)
   const seenThreads = new Set<string>()
@@ -503,6 +541,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     paused: raw.paused === true,
     access: raw.access === 'read-only' || raw.access === 'autonomous' ? raw.access : 'safe',
     trading: normalizeTrading(raw.trading),
+    ...limitsOf(raw, raw.paused === true),
     heartbeat,
     routines: Array.isArray(raw.routines)
       ? raw.routines
@@ -983,6 +1022,11 @@ export class WorkersEngine {
         : Array.isArray(draft.plugins)
           ? [...new Set(draft.plugins.filter((p): p is string => typeof p === 'string' && p.length > 0))]
           : null
+    // The owner's limits (workerLimits.ts): left out keeps what is set, null clears it.
+    const budget = draft.budget === undefined ? (existing?.budget ?? null) : normalizeBudget(draft.budget)
+    const retry = draft.retry === undefined ? (existing?.retry ?? null) : normalizeRetry(draft.retry)
+    const sites = draft.sites === undefined ? (existing?.sites ?? null) : normalizeSites(draft.sites)
+    const toolRules = draft.toolRules === undefined ? (existing?.toolRules ?? null) : normalizeToolRules(draft.toolRules)
     // Linking keeps what an app already knew (its sign-in); unlinking drops it.
     const apps =
       draft.apps === undefined
@@ -991,6 +1035,7 @@ export class WorkersEngine {
             .map((id) => existing?.apps.find((a) => a.id === id) ?? newAppLink(String(id), this.now()))
             .filter((a): a is WorkerAppLink => a !== null)
 
+    let released = false
     if (existing) {
       // Another engine can't continue this one's sessions.
       if (existing.engine !== engine) {
@@ -998,7 +1043,12 @@ export class WorkersEngine {
         for (const t of existing.threads) t.engineSession = null
       }
       const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
-      Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading })
+      const budgetBefore = existing.budget
+      Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading, budget, retry, sites, toolRules })
+      // A cap just set counts what the worker already used in the period; one removed forgets the count.
+      if (!budget) existing.spend = null
+      else if (!budgetBefore || budgetBefore.period !== budget.period) existing.spend = this.seedSpend(existing, budget)
+      released = this.releaseSpendHold(existing)
       // Another model or engine is a fresh start: the old one's error ("Couldn't
       // reach LM Studio") no longer says how the worker is, so it stops showing
       // it, and its X eyes, until a turn on the new one says otherwise.
@@ -1012,6 +1062,8 @@ export class WorkersEngine {
       }
       this.syncTradingRoutine(existing)
       this.commit()
+      // Let go of its cap, it reads what waited while it was held.
+      if (released) this.tick()
       return clone(existing)
     }
 
@@ -1037,6 +1089,12 @@ export class WorkersEngine {
       paused: false,
       access,
       trading,
+      budget,
+      spend: budget ? { since: spendNow(null, budget.period, now).since, tokens: 0, usd: 0 } : null,
+      budgetHold: null,
+      retry,
+      sites,
+      toolRules,
       heartbeat: { nextAt: null, everyMs: null, note: '' },
       routines: [],
       goal: '',
@@ -1285,6 +1343,11 @@ export class WorkersEngine {
 
   setPaused(id: string, paused: boolean): Worker {
     const worker = this.require(id)
+    if (!paused && worker.budgetHold) {
+      // Resuming would pause it again at once; say what to change instead.
+      if (budgetHit(worker.budget, worker.spend, this.now())) throw new Error(`${worker.name} is paused because it reached its spend cap. Raise the cap in Edit, or wait until it starts again.`)
+      worker.budgetHold = null
+    }
     worker.paused = paused
     if (paused) {
       for (const run of this.running.values()) {
@@ -2746,6 +2809,7 @@ export class WorkersEngine {
     const now = this.now()
     this.checkWatches(now)
     let changed = this.rezoneRoutines(now)
+    changed = this.checkSpend(now) || changed
     changed = this.expireDelegations(now) || changed
     changed = this.skipOverlappingRoutines(now) || changed
     const concurrency = this.deps.concurrency ?? WORKER_CONCURRENCY
@@ -3126,6 +3190,74 @@ export class WorkersEngine {
       const when = new Date(delegation.deadlineAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       this.endDelegation(delegation, 'failed', `${delegation.recipient.name} didn’t finish by the deadline (${when}).`)
       changed = true
+    }
+    return changed
+  }
+
+  /** What a receipt's run cost in dollars, where the app knows a price for it; null otherwise. */
+  private usdOf(run: Pick<WorkerExecution, 'providerId' | 'modelId' | 'usage' | 'billing'>): number | null {
+    if (!run.providerId || !run.modelId || !run.usage || run.billing === 'plan' || run.billing === 'local') return null
+    try {
+      // An agent engine on the user's own API key is recorded under "<engine>:api" (service.ts).
+      return this.deps.costOf?.(run.billing === 'api' ? `${run.providerId}:api` : run.providerId, run.modelId, run.usage) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** The worker's earlier runs this period, for a cap that was just set (so "used so far" is right straight away). */
+  private seedSpend(worker: Worker, budget: NonNullable<Worker['budget']>): WorkerSpend {
+    return seedSpend(
+      this.runs.list(worker.id).map((run) => ({ endedAt: run.endedAt, tokens: usageTokens(run.usage), usd: this.usdOf(run) })),
+      budget.period,
+      this.now()
+    )
+  }
+
+  /** Adds a finished run's tokens and dollars to the worker's count for the period (only while it has a cap). */
+  private chargeSpend(worker: Worker, run: Pick<WorkerExecution, 'providerId' | 'modelId' | 'usage' | 'billing'>, now: number): void {
+    if (!worker.budget) return
+    const tokens = usageTokens(run.usage)
+    const usd = this.usdOf(run) ?? 0
+    if (tokens === 0 && usd === 0) return
+    worker.spend = addSpend(worker.spend, worker.budget.period, now, { tokens, usd })
+  }
+
+  /**
+   * Pauses a worker that has reached its cap, with the reason on it. Checked
+   * before each run starts (tick) and right after one ends, so the run that
+   * crossed the line is the last. A run already going finishes: the cap stops
+   * new runs rather than cutting one off halfway. True when it paused.
+   */
+  private holdForSpend(worker: Worker, now: number): boolean {
+    if (worker.paused) return false
+    const hit = budgetHit(worker.budget, worker.spend, now)
+    if (!hit || !worker.budget) return false
+    const reason = budgetReason(hit, worker.budget.period)
+    worker.paused = true
+    worker.budgetHold = { at: now, reason }
+    worker.status = this.isRunning(worker.id) ? 'working' : 'paused'
+    for (const { threadId } of this.slotsOf(worker, true)) this.dropWaiting(worker.id, threadId, 'It reached its spend cap.')
+    this.deps.reachOut?.(clone(worker), { title: `${worker.name} paused: spend cap reached`, body: reason })
+    return true
+  }
+
+  /** Lets a worker that was paused for its cap carry on once it is under it again (a new period, a higher cap, no cap). True when it did. */
+  private releaseSpendHold(worker: Worker): boolean {
+    if (!worker.budgetHold) return false
+    if (budgetHit(worker.budget, worker.spend, this.now())) return false
+    worker.budgetHold = null
+    worker.paused = false
+    if (worker.status === 'paused') worker.status = this.restingStatus(worker)
+    return true
+  }
+
+  /** Every worker's cap, looked at before runs are chosen: one that reached it is paused, one that is under it again carries on. */
+  private checkSpend(now: number): boolean {
+    let changed = false
+    for (const worker of this.workers) {
+      if (worker.budgetHold) changed = this.releaseSpendHold(worker) || changed
+      else if (worker.budget) changed = this.holdForSpend(worker, now) || changed
     }
     return changed
   }
@@ -3534,6 +3666,9 @@ export class WorkersEngine {
       this.tick()
       return
     }
+    // What the run used counts against the worker's cap, whatever became of it; the run that crosses the cap is the last.
+    this.chargeSpend(worker, ended, now)
+    this.holdForSpend(worker, now)
     const info = this.info(worker, run.threadId)
     const slot = this.slot(worker, run.threadId)
     if (!slot) {

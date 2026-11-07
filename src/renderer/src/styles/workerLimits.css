@@ -1,0 +1,68 @@
+/* A worker's limits and safety settings (spend cap, retries, websites, tool rules), its version history,
+   its insights and the import preview. */
+
+.worker-limits {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.worker-limits__summary {
+  padding: 9px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.worker-limits__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 12px 12px;
+}
+.worker-limits__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.worker-limits__number {
+  width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+.worker-limits__unit {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin-right: 6px;
+}
+.worker-limits__used {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Why a worker is paused, on its page: the cap it reached, and the way to raise it. */
+.worker-hold {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 560px;
+  margin: 8px auto 0;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.worker-hold svg {
+  flex: none;
+  color: var(--danger);
+}
+.worker-hold__text {
+  flex: 1;
+  min-width: 0;
+}
+.worker-hold .btn {
+  flex: none;
+}

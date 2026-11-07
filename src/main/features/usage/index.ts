@@ -4,6 +4,7 @@ import type { Billing, CursorImport, UsageAccountState, UsageDay, UsageRange, Us
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
+import type { TokenUsage } from '@shared/types'
 import type { Feature, FeatureContext } from '../types'
 import { afterToknSignIn, onToknCliSynced, syncToknCli, toknCliLastSync, toknCliStatus } from '../toknCli'
 import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
@@ -13,7 +14,9 @@ import {
   activity,
   agentStats,
   calendar,
+  costOf,
   dailyTotals,
+  priceOf,
   rangeDays,
   summarize,
   summarizeSources,
@@ -179,6 +182,19 @@ function billingLookup(): BillingOf {
     }
     return billing
   }
+}
+
+/**
+ * What one run cost at published rates, for a worker's dollar cap: null when
+ * it isn't billed per token (a plan, or a model on this computer) or Tokn's
+ * rates have no price for the model (not read yet, or not listed). A cap
+ * counts only what the app can really price.
+ */
+export function estimateCostUsd(providerId: string, modelId: string, usage: TokenUsage): number | null {
+  if (billingLookup()(providerId) !== 'api') return null
+  const priced = priceOf(modelId, pricing.models)
+  if (!priced) return null
+  return costOf({ requests: 1, input: usage.input, output: usage.output, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite }, priced.price)
 }
 
 /** Picks Cursor's usage export (one or more CSVs) and imports it; null when the picker was closed. */

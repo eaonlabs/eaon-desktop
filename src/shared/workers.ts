@@ -4,6 +4,7 @@ import type { EngineId } from './engines'
 import { nextRunAfter, WEEKDAYS, type OrderWatch, type PurchasePlan } from './scheduler'
 import type { WorkerShape } from './workerLook'
 import type { WorkerAppLink } from './workerApps'
+import type { SiteRules, ToolRules, WorkerBudget, WorkerRetry, WorkerSpend } from './workerLimits'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -330,6 +331,12 @@ export interface WorkerExecution {
   error: string | null
   /** The run this one retries. */
   retryOf: string | null
+  /**
+   * For a run Eaon retried on its own after a passing error (the worker's
+   * retry setting): which retry this is, 1 for the first. Absent for a run
+   * that is not one, and for a retry the user asked for.
+   */
+  attempt?: number
 }
 
 /** Receipts kept per worker; older ones are dropped. */
@@ -943,6 +950,18 @@ export interface Worker {
    * already working"), so a waiting worker never just looks idle.
    */
   queued: string | null
+  /** A token (and dollar) cap per day or month, checked before each run; see workerLimits.ts. Null or absent: no cap. */
+  budget?: WorkerBudget | null
+  /** What it has used since the current budget period began; only kept while there is a budget. */
+  spend?: WorkerSpend | null
+  /** Set while it is paused because it reached its budget: when, and why in words. Cleared when the cap is raised or the period starts again. */
+  budgetHold?: { at: number; reason: string } | null
+  /** Retry a run that failed for a passing reason, this many times; null or absent: never. */
+  retry?: WorkerRetry | null
+  /** Sites its browser may and may not open. Null or absent: any site. */
+  sites?: SiteRules | null
+  /** Tools it has to ask about, or never gets. Null or absent: its freedom level decides. */
+  toolRules?: ToolRules | null
 }
 
 export interface WorkerThread {
@@ -974,6 +993,14 @@ export interface WorkerDraft {
   access?: WorkerAccess
   /** Undefined keeps what is set; null stops the worker trading. */
   trading?: WorkerTrading | null
+  /** Undefined keeps what is set; null removes the cap. */
+  budget?: WorkerBudget | null
+  /** Undefined keeps what is set; null stops retries. */
+  retry?: WorkerRetry | null
+  /** Undefined keeps what is set; null allows any site. */
+  sites?: SiteRules | null
+  /** Undefined keeps what is set; null clears every rule. */
+  toolRules?: ToolRules | null
 }
 
 /** `workers:event` — a stream event from one worker's running turn. */
@@ -1148,7 +1175,7 @@ export function runningThreads(worker: Pick<Worker, 'runningMessageId' | 'thread
 
 /** One line under a worker's name: what it is up to, or when it wakes next. */
 export function describeWorker(worker: Worker, now = Date.now()): string {
-  if (worker.paused) return 'Paused'
+  if (worker.paused) return worker.budgetHold ? 'Paused: spend cap reached' : 'Paused'
   const running = runningThreads(worker)
   if (worker.status === 'working' || running > 0) {
     const line = worker.activity || 'Working…'

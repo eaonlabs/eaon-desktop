@@ -46,6 +46,7 @@ import { useChannels } from '../channels/channelsStore'
 import { WorkerCreate } from './WorkerCreate'
 import { VaultPage } from './WorkerVault'
 import { SignInSheet, WorkerThreadContext } from './WorkerCards'
+import { WorkerHoldBanner } from './WorkerLimits'
 import { AppFacts, WorkerAppsSheet } from './WorkerApps'
 import { MentionContext, mentionValue } from '../agent/Markdown'
 import { workerAppsEnabled } from '@shared/workerApps'
@@ -573,6 +574,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
       />
       <h1 className="worker-profile__name">{worker.name}</h1>
       <p className="worker-profile__purpose">{worker.purpose}</p>
+      <WorkerHoldBanner worker={worker} />
       <div className="worker-profile__facts">
         <span className="worker-fact" data-status={worker.paused ? 'paused' : worker.status} title={statusLine(worker)}>
           <span className="status-dot" />
@@ -674,7 +676,7 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
  * beside it, so unlike `describeWorker` this never falls back to the schedule.
  */
 function statusLine(worker: Worker): string {
-  if (worker.paused) return 'Paused'
+  if (worker.paused) return worker.budgetHold ? 'Paused: spend cap reached' : 'Paused'
   if (worker.status === 'working') return runningThreads(worker) > 1 ? `${worker.activity || 'Working…'} · ${runningThreads(worker)} tasks running` : worker.activity || 'Working…'
   if (worker.queued) return `Queued — ${worker.queued}`
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
@@ -749,8 +751,8 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
       <button
         className="header-btn"
         aria-label={worker.paused ? 'Resume' : 'Pause'}
-        onClick={() => void setPaused(worker.id, !worker.paused)}
-        title={worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
+        onClick={() => (worker.budgetHold ? openEditor(worker.id) : void setPaused(worker.id, !worker.paused))}
+        title={worker.budgetHold ? `${worker.name} reached its spend cap: raise it to let it work again` : worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
       >
         {worker.paused ? <Play size={14} strokeWidth={1.9} /> : <Pause size={14} strokeWidth={1.9} />}
         <span>{worker.paused ? 'Resume' : 'Pause'}</span>
