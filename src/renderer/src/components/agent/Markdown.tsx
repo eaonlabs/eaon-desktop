@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useMemo, useRef, type JSX, type ReactN
 import { WorkerFace } from '../workers/WorkerFace'
 import type { WorkerShape } from '@shared/workerLook'
 import { CodeBlock } from './CodeBlock'
+import { MathView } from './MathView'
 import { MarkdownTable } from './MarkdownTables'
 import { FileRef, parseFileRef } from './FileRef'
 import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from './markdownBlocks'
@@ -16,8 +17,9 @@ import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from '.
  * is small, so this parses that subset instead of pulling in a parser and a
  * sanitiser.
  *
- * Nothing here is ever handed to `dangerouslySetInnerHTML`: every node is a
+ * A reply's text is never handed to `dangerouslySetInnerHTML`: every node is a
  * real React element, so a reply containing markup renders as the text it is.
+ * The one exception is a formula, which KaTeX draws (MathView.tsx).
  */
 
 // Code spans are matched first and consume their contents, so `**` inside
@@ -28,6 +30,13 @@ import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from '.
 const INLINE = new RegExp(
   [
     '(?<tick>`+)(?<code>[\\s\\S]*?)\\k<tick>',
+    // Maths, after code so `$` in backticks stays literal. `$$x$$` and `\(x\)`
+    // anywhere; `$x$` only where it can't be money, as pandoc reads it: nothing
+    // but a space-free edge inside, and no digit straight after the closing `$`
+    // ("$5 and $10", "$5-$10" are prices).
+    '\\$\\$(?<dmath>[^$\\n]+?)\\$\\$',
+    '\\\\\\((?<pmath>[\\s\\S]+?)\\\\\\)',
+    '(?<![\\\\$\\w])\\$(?!\\s)(?<imath>(?:\\\\[\\s\\S]|[^$\\n\\\\])+?)(?<![\\s\\\\])\\$(?!\\d)',
     '\\*\\*(?<bold>[\\s\\S]+?)\\*\\*',
     '(?<![\\w_])__(?<boldU>[^_\\s](?:[\\s\\S]*?[^_\\s])?)__(?![\\w_])',
     '~~(?<strike>[^~\\n]+?)~~',
@@ -143,6 +152,8 @@ function renderInline(text: string, keyPrefix: string, mentions: Mentions = null
           </code>
         )
       )
+    } else if (g.dmath !== undefined || g.pmath !== undefined || g.imath !== undefined) {
+      out.push(<MathView key={`${keyPrefix}-${key++}`} src={(g.dmath ?? g.pmath ?? g.imath).trim()} display={g.dmath !== undefined} raw={match[0]} />)
     } else if (g.bold !== undefined || g.boldU !== undefined) {
       out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`, mentions)}</strong>)
     } else if (g.strike !== undefined) {
@@ -240,6 +251,8 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
       }
       return <blockquote className="md__quote">{renderInline(block.lines.join('\n'), id, mentions)}</blockquote>
     }
+    case 'math':
+      return <MathView src={block.src} display raw={`$$\n${block.src}\n$$`} />
     case 'rule':
       return <hr className="md__rule" />
     default:

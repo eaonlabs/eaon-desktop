@@ -196,6 +196,37 @@
   overflow-wrap: anywhere;
 }
 
+/* A formula (MathView.tsx). KaTeX's own sheet sets the faces and layout; this
+   only sizes it to the reply's text and keeps a wide one inside the column. */
+.md__math .katex {
+  font-size: 1.08em;
+}
+.md__math[data-display] {
+  display: block;
+  margin: 6px 0 12px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.md__math[data-display] .katex-display {
+  margin: 0;
+}
+/* A formula KaTeX could not read, or one still loading: the LaTeX as written. */
+.md__math-src code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.md__math-src[data-display] {
+  display: block;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+}
+
 /* ---------- Code block ---------- */
 
 .code-block {
