@@ -39,6 +39,8 @@ const RETRYABLE = new Set<TaskRun['status']>(['failed', 'cancelled', 'missed', '
 
 /** The line under a run: why it ran late or didn't run, else its error or its reply's first line. */
 function runDetail(run: TaskRun): string | undefined {
+  // A failure Eaon will try again (or has given up on) says so before its error.
+  if (run.status === 'failed' && run.retryNote) return run.retryNote
   if (run.status === 'failed' || run.status === 'cancelled') return run.error
   return runReason(run, MACHINE) ?? run.summary ?? run.error
 }
@@ -111,7 +113,9 @@ function RunRow({
             : run.trigger === 'catch-up'
               ? ' · caught up'
               : run.trigger === 'retry'
-                ? ' · retry'
+                ? run.attempt !== undefined && run.attempts !== undefined
+                  ? ` · retry ${run.attempt} of ${run.attempts}`
+                  : ' · retry'
                 : run.trigger === 'email'
                   ? ' · email'
                   : run.trigger === 'webhook'
@@ -150,7 +154,7 @@ function RunRow({
               </>
             )}
             <dt>Started by</dt>
-            <dd>{run.input ? `${TRIGGER_LABEL[run.trigger] ?? run.trigger}: ${run.input}` : (TRIGGER_LABEL[run.trigger] ?? run.trigger)}</dd>
+            <dd>{run.attempt !== undefined && run.attempts !== undefined ? `Retry ${run.attempt} of ${run.attempts}` : run.input ? `${TRIGGER_LABEL[run.trigger] ?? run.trigger}: ${run.input}` : (TRIGGER_LABEL[run.trigger] ?? run.trigger)}</dd>
             {tokens && (
               <>
                 <dt>Tokens</dt>

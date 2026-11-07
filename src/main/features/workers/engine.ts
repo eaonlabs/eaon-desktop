@@ -79,7 +79,7 @@ import { resolveWorkPath } from '../../localTools'
 import { hoursText, type JobHost } from './jobs'
 import { judge, newLines, type WatchReading } from './watch'
 import { workerPersona } from './prompt'
-import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
+import { AUTO_RETRY_NOTE, buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
 import { ExecutionLog, isEnded } from './executions'
 import { delegationRefusal, isOpenDelegation, normalizeDelegations, pruneDelegations } from './delegations'
 import { watchFor, type WakeCondition } from './watch'
@@ -89,6 +89,32 @@ import { weakerAccess } from '@shared/channels'
 import { currentZone } from '../../timezone'
 import { DEFAULT_SHAPE, isWorkerShape, WORKER_SHAPES } from '@shared/workerLook'
 import { workerApp, type WorkerAppLink } from '@shared/workerApps'
+import {
+  importAccess,
+  settingsDraft,
+  settingsOf,
+  uniqueName,
+  type SetupPlaybook,
+  type SetupRoutine,
+  type WorkerSettings,
+  type WorkerSetup
+} from '@shared/workerSetup'
+import {
+  addSpend,
+  budgetHit,
+  budgetReason,
+  normalizeBudget,
+  normalizeRetry,
+  normalizeSites,
+  normalizeToolRules,
+  retryDecision,
+  retryLabel,
+  seedSpend,
+  spendNow,
+  usageTokens,
+  waitText,
+  type WorkerSpend
+} from '@shared/workerLimits'
 
 /** How a tool follows a file transfer: its stop button, and a line of progress. */
 export interface TransferWatch {
@@ -194,6 +220,12 @@ export interface WorkersDeps {
   routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string, asked?: boolean) => RoutineTurn | null
   /** That routine's run ended (after it was recorded): its follow-up. */
   routineEnded?: (worker: Worker, routine: WorkerRoutine, messageId: string, outcome: TurnOutcome) => void
+  /**
+   * What a run cost in dollars at published rates, for a worker's money cap;
+   * null when it isn't billed per token or has no known price. Without it, a
+   * dollar cap never counts anything.
+   */
+  costOf?: (providerId: string, modelId: string, usage: TokenUsage) => number | null
 }
 
 /** How a routine's run differs from its task as written (see `WorkersDeps.routineTurn`). */
@@ -239,6 +271,21 @@ export interface TeamDraft {
   access?: Worker['access']
 }
 
+/**
+ * A retry Eaon set for a run that failed for a passing reason (the worker's
+ * retry setting): the failed receipt it picks up from, when, which retry it
+ * is, whether the chain began with something the user asked for (so its end
+ * is worth a banner), and the routine it belongs to, for a failure notice.
+ */
+interface AutoRetry {
+  execution: WorkerExecution
+  at: number
+  attempt: number
+  max: number
+  notify: boolean
+  routine: string | null
+}
+
 interface Running {
   workerId: string
   /** MAIN_THREAD or a WorkerThreadInfo id. */
@@ -280,6 +327,8 @@ interface Running {
   asked: boolean
   /** The user's mail woke it (for the stale wake-up count). */
   fromUser: boolean
+  /** Set when this run is one of Eaon's own retries of a run that failed for a passing reason. */
+  auto: AutoRetry | null
 }
 
 /** What a thread needs to run. The main thread's live on the Worker itself. */
@@ -473,6 +522,21 @@ function normalizeThreadInfo(raw: unknown, now: number): WorkerThreadInfo | null
  * colleagues had handed this worker before delegations existed come back in
  * `legacyHandoffs`, for load() to turn into delegations.
  */
+/** The owner's limits as saved (workerLimits.ts), repaired: a spend only while there is a cap, a hold only while paused. */
+function limitsOf(raw: Partial<Worker>, paused: boolean): Pick<Worker, 'budget' | 'spend' | 'budgetHold' | 'retry' | 'sites' | 'toolRules'> {
+  const budget = normalizeBudget(raw.budget)
+  const spend = raw.spend && typeof raw.spend === 'object' ? raw.spend : null
+  const hold = raw.budgetHold && typeof raw.budgetHold === 'object' ? raw.budgetHold : null
+  return {
+    budget,
+    spend: budget && spend && finite(spend.since) !== null ? { since: finite(spend.since)!, tokens: finite(spend.tokens) ?? 0, usd: finite(spend.usd) ?? 0 } : null,
+    budgetHold: budget && paused && hold && finite(hold.at) !== null && typeof hold.reason === 'string' ? { at: finite(hold.at)!, reason: hold.reason } : null,
+    retry: normalizeRetry(raw.retry),
+    sites: normalizeSites(raw.sites),
+    toolRules: normalizeToolRules(raw.toolRules)
+  }
+}
+
 function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?: WorkerHandoff[] }, now: number): Worker & { legacyHandoffs?: WorkerHandoff[] } {
   const heartbeat = normalizeHeartbeat(raw.heartbeat)
   const seenThreads = new Set<string>()
@@ -503,6 +567,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     paused: raw.paused === true,
     access: raw.access === 'read-only' || raw.access === 'autonomous' ? raw.access : 'safe',
     trading: normalizeTrading(raw.trading),
+    ...limitsOf(raw, raw.paused === true),
     heartbeat,
     routines: Array.isArray(raw.routines)
       ? raw.routines
@@ -672,6 +737,8 @@ export class WorkersEngine {
   private purchaseResumes: { key: string; execution: WorkerExecution; chatId: string; routineId: string }[] = []
   /** Retries the user asked for: slotKey → the receipt being retried. */
   private readonly retries = new Map<string, WorkerExecution>()
+  /** Retries Eaon set for itself after a passing error (workerLimits.ts), by thread; a due one moves to `retries`. */
+  private readonly autoRetries = new Map<string, AutoRetry>()
   /** Start times of budgeted turns, per worker. */
   private readonly turnLog = new Map<string, number[]>()
   /** When each worker sent mail, for the per-hour cap. */
@@ -983,6 +1050,11 @@ export class WorkersEngine {
         : Array.isArray(draft.plugins)
           ? [...new Set(draft.plugins.filter((p): p is string => typeof p === 'string' && p.length > 0))]
           : null
+    // The owner's limits (workerLimits.ts): left out keeps what is set, null clears it.
+    const budget = draft.budget === undefined ? (existing?.budget ?? null) : normalizeBudget(draft.budget)
+    const retry = draft.retry === undefined ? (existing?.retry ?? null) : normalizeRetry(draft.retry)
+    const sites = draft.sites === undefined ? (existing?.sites ?? null) : normalizeSites(draft.sites)
+    const toolRules = draft.toolRules === undefined ? (existing?.toolRules ?? null) : normalizeToolRules(draft.toolRules)
     // Linking keeps what an app already knew (its sign-in); unlinking drops it.
     const apps =
       draft.apps === undefined
@@ -991,6 +1063,7 @@ export class WorkersEngine {
             .map((id) => existing?.apps.find((a) => a.id === id) ?? newAppLink(String(id), this.now()))
             .filter((a): a is WorkerAppLink => a !== null)
 
+    let released = false
     if (existing) {
       // Another engine can't continue this one's sessions.
       if (existing.engine !== engine) {
@@ -998,7 +1071,12 @@ export class WorkersEngine {
         for (const t of existing.threads) t.engineSession = null
       }
       const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
-      Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading })
+      const budgetBefore = existing.budget
+      Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading, budget, retry, sites, toolRules })
+      // A cap just set counts what the worker already used in the period; one removed forgets the count.
+      if (!budget) existing.spend = null
+      else if (!budgetBefore || budgetBefore.period !== budget.period) existing.spend = this.seedSpend(existing, budget)
+      released = this.releaseSpendHold(existing)
       // Another model or engine is a fresh start: the old one's error ("Couldn't
       // reach LM Studio") no longer says how the worker is, so it stops showing
       // it, and its X eyes, until a turn on the new one says otherwise.
@@ -1012,6 +1090,8 @@ export class WorkersEngine {
       }
       this.syncTradingRoutine(existing)
       this.commit()
+      // Let go of its cap, it reads what waited while it was held.
+      if (released) this.tick()
       return clone(existing)
     }
 
@@ -1037,6 +1117,12 @@ export class WorkersEngine {
       paused: false,
       access,
       trading,
+      budget,
+      spend: budget ? { since: spendNow(null, budget.period, now).since, tokens: 0, usd: 0 } : null,
+      budgetHold: null,
+      retry,
+      sites,
+      toolRules,
       heartbeat: { nextAt: null, everyMs: null, note: '' },
       routines: [],
       goal: '',
@@ -1072,6 +1158,62 @@ export class WorkersEngine {
   }
 
   /**
+   * A new worker made from settings, the routines it runs and the playbooks
+   * it follows. Nothing else comes with it: it has no sign-ins, linked apps,
+   * notes, goal or messages, and starts with no browser history of its own.
+   * A routine or playbook that doesn't fit (past the limits) is left out.
+   */
+  private createFrom(draft: ReturnType<typeof settingsDraft>, routines: SetupRoutine[], playbooks: SetupPlaybook[]): Worker {
+    const worker = this.save(draft)
+    for (const routine of routines) {
+      try {
+        this.addRoutine(worker.id, {
+          name: routine.name,
+          task: routine.task,
+          marketHours: routine.marketHours,
+          ...(routine.daily ? { daily: routine.daily } : { everyMinutes: (routine.everyMs ?? MIN_HEARTBEAT_MS) / 60_000 })
+        })
+      } catch {
+        /* the worker has too many routines already, or this one is malformed: the rest still come */
+      }
+    }
+    for (const playbook of playbooks) {
+      try {
+        this.savePlaybook(worker.id, playbook)
+      } catch {
+        /* too many, or too long */
+      }
+    }
+    return clone(this.require(worker.id))
+  }
+
+  /** A copy of a worker under a new name and its own colour: its settings, routines and playbooks, and nothing it was signed in to. */
+  duplicate(id: string): Worker {
+    const source = this.require(id)
+    const name = uniqueName(source.name, this.workers.map((w) => w.name))
+    const routines: SetupRoutine[] = source.routines
+      .filter((r) => !r.purchase && !r.watch)
+      .map((r) => ({ name: r.name, task: r.task, everyMs: r.daily ? null : r.everyMs, daily: r.daily, marketHours: r.marketHours === true }))
+    const playbooks: SetupPlaybook[] = source.playbooks.map((p) => ({ name: p.name, summary: p.summary, steps: p.steps }))
+    // A colour and a shape that are free, so the two are told apart on the team page.
+    return this.createFrom({ ...settingsDraft(settingsOf(source)), name, color: '', shape: undefined }, routines, playbooks)
+  }
+
+  /**
+   * A worker from a setup file (shared/workerSetup.ts), already read through
+   * its whitelist. `pluginIds` are the plugins connected here that stand for
+   * the ones the file names. Its freedom level starts no higher than Careful
+   * unless the caller says otherwise: a file's author shouldn't decide how
+   * freely something runs on this computer.
+   */
+  importSetup(setup: WorkerSetup, options: { name?: string; access?: WorkerAccess; pluginIds: string[] | null; model?: null }): Worker {
+    const { plugins: _named, routines, playbooks, ...rest } = setup
+    // `model: null`: the one the file names isn't here, so the worker follows Chat's.
+    const settings: WorkerSettings = { ...rest, plugins: options.pluginIds, access: options.access ?? importAccess(setup.access), ...(options.model === null ? { model: null } : {}) }
+    return this.createFrom({ ...settingsDraft(settings), name: str(options.name) || setup.name }, routines, playbooks)
+  }
+
+  /**
    * Stops the worker's runs and forgets it: its threads, receipts and the
    * delegations it was part of (each other side is told). Its folder stays on
    * disk, and nothing of any other worker's is touched.
@@ -1092,6 +1234,7 @@ export class WorkersEngine {
       this.waiting.delete(key)
       this.resumes.delete(key)
       this.retries.delete(key)
+      this.autoRetries.delete(key)
       this.unattendedWakes.delete(key)
     }
     for (const delegation of this.delegationList) {
@@ -1289,6 +1432,11 @@ export class WorkersEngine {
 
   setPaused(id: string, paused: boolean): Worker {
     const worker = this.require(id)
+    if (!paused && worker.budgetHold) {
+      // Resuming would pause it again at once; say what to change instead.
+      if (budgetHit(worker.budget, worker.spend, this.now())) throw new Error(`${worker.name} is paused because it reached its spend cap. Raise the cap in Edit, or wait until it starts again.`)
+      worker.budgetHold = null
+    }
     worker.paused = paused
     if (paused) {
       for (const run of this.running.values()) {
@@ -1335,6 +1483,8 @@ export class WorkersEngine {
     if (execution.threadId !== MAIN_THREAD && !this.info(worker, execution.threadId)) throw new Error('The thread that run was in no longer exists.')
     const info = this.info(worker, execution.threadId)
     if (info?.closedAt) info.closedAt = null
+    // The user's own Retry takes the place of one Eaon set for later.
+    this.autoRetries.delete(slotKey(id, execution.threadId))
     this.retries.set(slotKey(id, execution.threadId), execution)
     this.commit()
     this.tick()
@@ -2786,6 +2936,8 @@ export class WorkersEngine {
     const now = this.now()
     this.checkWatches(now)
     let changed = this.rezoneRoutines(now)
+    changed = this.checkSpend(now) || changed
+    this.releaseRetries(now)
     changed = this.expireDelegations(now) || changed
     changed = this.skipOverlappingRoutines(now) || changed
     const concurrency = this.deps.concurrency ?? WORKER_CONCURRENCY
@@ -2919,6 +3071,13 @@ export class WorkersEngine {
   /** Ends a thread's queued receipt, if it has one. */
   private dropWaiting(workerId: string, threadId: string, reason: string): void {
     const key = slotKey(workerId, threadId)
+    // A retry Eaon was waiting to make goes with it, and its failed receipt says so.
+    const pending = this.autoRetries.get(key)
+    if (pending) {
+      this.autoRetries.delete(key)
+      this.retries.delete(key)
+      this.runs.update(pending.execution, { reason: `Not retried. ${reason}` })
+    }
     const execution = this.waiting.get(key)
     if (!execution) return
     this.waiting.delete(key)
@@ -3040,6 +3199,8 @@ export class WorkersEngine {
       }
     }
     for (const d of this.delegationList) if (isOpenDelegation(d) && d.deadlineAt !== null) soonest = Math.min(soonest, Math.max(d.deadlineAt, now))
+    // A retry waiting for its time (one due now is already handed to its thread by tick).
+    for (const auto of this.autoRetries.values()) if (auto.at > now) soonest = Math.min(soonest, auto.at)
     if (soonest === Infinity) return
     const delay = Math.min(Math.max(soonest - now, 0), MAX_DELAY)
     this.timer = setTimeout(() => {
@@ -3170,6 +3331,91 @@ export class WorkersEngine {
     return changed
   }
 
+  /** What a receipt's run cost in dollars, where the app knows a price for it; null otherwise. */
+  private usdOf(run: Pick<WorkerExecution, 'providerId' | 'modelId' | 'usage' | 'billing'>): number | null {
+    if (!run.providerId || !run.modelId || !run.usage || run.billing === 'plan' || run.billing === 'local') return null
+    try {
+      // An agent engine on the user's own API key is recorded under "<engine>:api" (service.ts).
+      return this.deps.costOf?.(run.billing === 'api' ? `${run.providerId}:api` : run.providerId, run.modelId, run.usage) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** The worker's earlier runs this period, for a cap that was just set (so "used so far" is right straight away). */
+  private seedSpend(worker: Worker, budget: NonNullable<Worker['budget']>): WorkerSpend {
+    return seedSpend(
+      this.runs.list(worker.id).map((run) => ({ endedAt: run.endedAt, tokens: usageTokens(run.usage), usd: this.usdOf(run) })),
+      budget.period,
+      this.now()
+    )
+  }
+
+  /** Adds a finished run's tokens and dollars to the worker's count for the period (only while it has a cap). */
+  private chargeSpend(worker: Worker, run: Pick<WorkerExecution, 'providerId' | 'modelId' | 'usage' | 'billing'>, now: number): void {
+    if (!worker.budget) return
+    const tokens = usageTokens(run.usage)
+    const usd = this.usdOf(run) ?? 0
+    if (tokens === 0 && usd === 0) return
+    worker.spend = addSpend(worker.spend, worker.budget.period, now, { tokens, usd })
+  }
+
+  /**
+   * Pauses a worker that has reached its cap, with the reason on it. Checked
+   * before each run starts (tick) and right after one ends, so the run that
+   * crossed the line is the last. A run already going finishes: the cap stops
+   * new runs rather than cutting one off halfway. True when it paused.
+   */
+  private holdForSpend(worker: Worker, now: number): boolean {
+    if (worker.paused) return false
+    const hit = budgetHit(worker.budget, worker.spend, now)
+    if (!hit || !worker.budget) return false
+    const reason = budgetReason(hit, worker.budget.period)
+    worker.paused = true
+    worker.budgetHold = { at: now, reason }
+    worker.status = this.isRunning(worker.id) ? 'working' : 'paused'
+    for (const { threadId } of this.slotsOf(worker, true)) this.dropWaiting(worker.id, threadId, 'It reached its spend cap.')
+    this.deps.reachOut?.(clone(worker), { title: `${worker.name} paused: spend cap reached`, body: reason })
+    return true
+  }
+
+  /** Lets a worker that was paused for its cap carry on once it is under it again (a new period, a higher cap, no cap). True when it did. */
+  private releaseSpendHold(worker: Worker): boolean {
+    if (!worker.budgetHold) return false
+    if (budgetHit(worker.budget, worker.spend, this.now())) return false
+    worker.budgetHold = null
+    worker.paused = false
+    if (worker.status === 'paused') worker.status = this.restingStatus(worker)
+    return true
+  }
+
+  /**
+   * A retry whose time has come is handed to its thread's next run (the
+   * `retries` the Retry button uses); one whose worker or thread is gone, or
+   * that waited a day, is dropped. A paused worker's waits until it resumes.
+   */
+  private releaseRetries(now: number): void {
+    for (const [key, auto] of this.autoRetries) {
+      const worker = this.find(auto.execution.workerId)
+      if (!worker || now - auto.at > DAY || !this.slotsOf(worker, true).some(({ threadId }) => slotKey(worker.id, threadId) === key)) {
+        this.autoRetries.delete(key)
+        this.retries.delete(key)
+        continue
+      }
+      if (auto.at <= now && !worker.paused && !this.retries.has(key)) this.retries.set(key, auto.execution)
+    }
+  }
+
+  /** Every worker's cap, looked at before runs are chosen: one that reached it is paused, one that is under it again carries on. */
+  private checkSpend(now: number): boolean {
+    let changed = false
+    for (const worker of this.workers) {
+      if (worker.budgetHold) changed = this.releaseSpendHold(worker) || changed
+      else if (worker.budget) changed = this.holdForSpend(worker, now) || changed
+    }
+    return changed
+  }
+
   private overBudget(id: string, now: number): boolean {
     const log = (this.turnLog.get(id) ?? []).filter((at) => at > now - HOUR)
     this.turnLog.set(id, log)
@@ -3182,6 +3428,7 @@ export class WorkersEngine {
       worker.routines.length > 0 ||
       this.slotsOf(worker).some(({ threadId, slot }) => slot.inbox.length > 0 || this.nextWake(worker, threadId, slot) !== null) ||
       this.wakes.has(worker.id) ||
+      [...this.autoRetries.values()].some((a) => a.execution.workerId === worker.id) ||
       keepsWatch(worker)
     return scheduled ? 'idle' : 'asleep'
   }
@@ -3338,6 +3585,8 @@ export class WorkersEngine {
     const woke = isMain && this.wakes.has(worker.id)
     const resume = this.resumes.get(key)
     const retry = this.retries.get(key)
+    // One of Eaon's own retries (not the user's Retry button): it knows which attempt it is.
+    const auto = retry && this.autoRetries.get(key)?.execution === retry ? (this.autoRetries.get(key) ?? null) : null
 
     // A repeating wake-up the worker set for itself that has gone off again
     // and again with nobody writing in that thread is watching something no
@@ -3369,11 +3618,13 @@ export class WorkersEngine {
     if (woke) this.wakes.delete(worker.id)
     this.resumes.delete(key)
     this.retries.delete(key)
+    // Any new run in this thread takes the place of a retry still waiting for its time.
+    this.autoRetries.delete(key)
     const fired = heartbeatDue ? { ...slot.heartbeat } : null
     const note = woke
       ? CHECK_IN_NOTE
       : retry
-        ? `${RETRY_NOTE} ("${retry.trigger.label}", which ${retry.state === 'failed' ? `failed${retry.error ? `: ${clip(retry.error, 200)}` : ''}` : retry.state}). Have another go at it${retry.sideEffects ? '; it may already have changed things, so check what was done before repeating anything' : ''}.`
+        ? `${auto ? AUTO_RETRY_NOTE : RETRY_NOTE} ("${retry.trigger.label}", which ${retry.state === 'failed' ? `failed${retry.error ? `: ${clip(retry.error, 200)}` : ''}` : retry.state}). Have another go at it${retry.sideEffects ? '; it may already have changed things, so check what was done before repeating anything' : ''}.`
         : resume
           ? RESUME_NOTE
           : heartbeatDue
@@ -3419,7 +3670,7 @@ export class WorkersEngine {
     const fromUser = mail.some((m) => m.from === 'user')
     const handoffMail = mail.find((m) => m.handoff)
     const trigger: ExecutionTrigger = retry
-      ? { kind: 'retry', label: `Retry: ${retry.trigger.label}` }
+      ? { kind: 'retry', label: auto ? retryLabel(auto.attempt, auto.max, retry.trigger.label) : `Retry: ${retry.trigger.label}` }
       : resume
         ? { kind: 'resume', label: 'Picked up after Eaon quit' }
         : woke
@@ -3445,7 +3696,7 @@ export class WorkersEngine {
     let execution = this.waiting.get(key)
     this.waiting.delete(key)
     if (!execution) execution = this.runs.create({ workerId: worker.id, threadId, trigger, engine: worker.engine, retryOf: retry?.id ?? null })
-    this.runs.update(execution, { state: 'running', trigger, reason, threadId, messageId: assistant.id, engine: worker.engine, retryOf: retry?.id ?? null })
+    this.runs.update(execution, { state: 'running', trigger, reason, threadId, messageId: assistant.id, engine: worker.engine, retryOf: retry?.id ?? null, ...(auto ? { attempt: auto.attempt } : {}) })
 
     const run: Running = {
       workerId: worker.id,
@@ -3462,7 +3713,7 @@ export class WorkersEngine {
       heartbeatSet: false,
       // Not for chat-app mail: the reply goes back to the chat it came from.
       // A timed goal's closing report is news too: the user left it working for hours.
-      userTriggered: woke || !!retry || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal' || m.event?.kind === 'app'),
+      userTriggered: woke || (retry ? (auto ? auto.notify : true) : false) || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal' || m.event?.kind === 'app'),
       stoppedByUser: false,
       postedRooms: new Set(),
       access,
@@ -3472,7 +3723,8 @@ export class WorkersEngine {
       delegationId: delegation?.id ?? null,
       reported: false,
       asked: false,
-      fromUser
+      fromUser,
+      auto
     }
     this.running.set(key, run)
     slot.runningMessageId = assistant.id
@@ -3574,6 +3826,9 @@ export class WorkersEngine {
       this.tick()
       return
     }
+    // What the run used counts against the worker's cap, whatever became of it; the run that crosses the cap is the last.
+    this.chargeSpend(worker, ended, now)
+    this.holdForSpend(worker, now)
     const info = this.info(worker, run.threadId)
     const slot = this.slot(worker, run.threadId)
     if (!slot) {
@@ -3652,6 +3907,33 @@ export class WorkersEngine {
       }
     }
 
+    // A run that failed for a passing reason is tried again on its own when the worker is set to (workerLimits.ts):
+    // after a wait that doubles each time, never a goal run (it tries again by itself) and never one that may
+    // already have acted. Each attempt is a receipt of its own, and the failed one says what happens next.
+    let retrying = false
+    if (outcome.error && !outcome.cancelled && !run.goalTurn) {
+      const decision = retryDecision(worker.retry, run.auto?.attempt ?? 0, outcome.error, ended.sideEffects)
+      if (decision?.kind === 'again') {
+        const max = worker.retry!.attempts
+        const at = now + decision.delayMs
+        this.autoRetries.set(key, {
+          execution,
+          at,
+          attempt: decision.attempt,
+          max,
+          notify: run.auto ? run.auto.notify : run.userTriggered,
+          routine: (run.routineId ? worker.routines.find((r) => r.id === run.routineId)?.name : run.auto?.routine) ?? null
+        })
+        ended.reason = `Hit a passing error. Retry ${decision.attempt} of ${max} in ${waitText(decision.delayMs)}.`
+        if (retryAt === null) retryAt = at
+        retrying = true
+      } else if (decision?.kind === 'spent') {
+        ended.reason = `Gave up after ${decision.retries} ${decision.retries === 1 ? 'retry' : 'retries'}.`
+      } else if (decision?.kind === 'acted') {
+        ended.reason = 'It may already have changed things, so it wasn’t retried on its own.'
+      }
+    }
+
     // How it went, on the thread and (for the main thread) the worker.
     // What it ended on, not what it said before its work ("Writing it.").
     const summary = outcome.text ? summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) : ''
@@ -3723,14 +4005,16 @@ export class WorkersEngine {
     this.tell((o) =>
       o.turnEnded?.(clone(worker), { mail: clone(run.mail), reply: clone(assistant), ...(outcome.error ? { error: outcome.error } : {}), cancelled: outcome.cancelled })
     )
-    if (run.userTriggered && !outcome.cancelled) {
+    if (retrying) {
+      // Not news yet: it is tried again first, and the last attempt's outcome is what the user hears.
+    } else if (run.userTriggered && !outcome.cancelled) {
       this.deps.notify?.(clone(worker), {
         ok: !outcome.error,
         text: outcome.error ?? (summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || 'Finished.')
       })
-    } else if (run.routineId && outcome.error) {
-      const routine = worker.routines.find((r) => r.id === run.routineId)
-      this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${routine?.name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
+    } else if ((run.routineId || run.auto?.routine) && outcome.error) {
+      const name = run.routineId ? worker.routines.find((r) => r.id === run.routineId)?.name : run.auto?.routine
+      this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
     }
     const turned = run.routineTurned && run.routineId ? worker.routines.find((r) => r.id === run.routineId) : undefined
     if (turned) {

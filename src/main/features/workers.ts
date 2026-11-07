@@ -1,5 +1,6 @@
 import type { Feature } from './types'
 import { createWorkersService, type WorkersService } from './workers/service'
+import { registerSetupFileDialogs } from './workers/files'
 
 /**
  * Eaon Workers: always-on agents with one endless thread each, that wake on
@@ -25,6 +26,7 @@ export const workersFeature: Feature = {
     // Load before the IPC exists, so the renderer's first `workers:list` sees them.
     service.start()
     service.registerIpc()
+    registerSetupFileDialogs(ctx)
   },
   dispose: () => service?.stop()
 }

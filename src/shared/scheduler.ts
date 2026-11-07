@@ -1,5 +1,6 @@
 import { cronNext, cronPrev, describeCron, parseCron, validZone } from './cron'
 import type { AgentMode, Chat, TokenUsage } from './types'
+import type { WorkerRetry } from './workerLimits'
 
 /**
  * Scheduled tasks: the data model and the schedule arithmetic.
@@ -140,6 +141,19 @@ export interface TaskRun {
   input?: string
   /** For a skipped record: the run that was still going. */
   blockedBy?: string
+  /**
+   * A retry Eaon made on its own after a passing error (the task's retry
+   * setting): which one (1 is the first) and how many the setting allowed.
+   * Absent on a run that isn't one, and on a retry the user asked for.
+   */
+  attempt?: number
+  attempts?: number
+  /** For a failed run Eaon will try again: when. Cleared once the retry starts or is no longer wanted. */
+  retryAt?: number
+  /** What the retry setting did about a failed run, in words: "Retry 1 of 2 at 3:04 PM", "Gave up after 2 retries", "wasn't retried: it may have changed things". */
+  retryNote?: string
+  /** Something that changes things outside the chat ran, so the run is never retried on its own: it may already have acted. */
+  sideEffects?: boolean
 }
 
 export interface TaskModel {
@@ -237,6 +251,8 @@ export interface ScheduledTask {
    * schedule keeps its orders and their tracking in one conversation.
    */
   thread?: string
+  /** Try a run that failed for a passing reason again, this many times (workerLimits.ts); absent: never. */
+  retries?: WorkerRetry
 }
 
 /** What the editor (or the `schedule` tool) sends to create or update a task. */
@@ -254,6 +270,8 @@ export interface TaskDraft {
   purchase?: PurchasePlan | null
   watch?: OrderWatch | null
   thread?: string | null
+  /** Left out, an existing task keeps what it had; null stops retries. */
+  retries?: WorkerRetry | null
 }
 
 /** Runs kept per task, newest first. */
@@ -460,6 +478,8 @@ const defaultClock: Clock = (at) => new Date(at).toLocaleTimeString([], { hour: 
 export function runReason(run: TaskRun, machine = 'computer', clock: Clock = defaultClock): string | null {
   const slot = run.slotAt ?? run.startedAt
   const slots = run.slots ?? 1
+  if (run.retryNote) return run.retryNote
+  if (run.attempt !== undefined && run.attempts !== undefined) return `Retry ${run.attempt} of ${run.attempts}, after a passing error in the run before it.`
   if (run.status === 'skipped') {
     const times = slots > 1 ? ` (${slots} times)` : ''
     return `Skipped${times}: the previous run was still going.`

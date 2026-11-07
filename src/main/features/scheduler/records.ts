@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { HISTORY_LIMIT, nextRunAfter, scheduleError, type RunStatus, type ScheduledTask, type TaskRun } from '@shared/scheduler'
+import { normalizeRetry } from '@shared/workerLimits'
 
 /**
  * Reading `scheduled-tasks.json` and `scheduled-runs.json` back safely. Pure,
@@ -69,6 +70,11 @@ export function repairTasks(raw: unknown, now: number, zone: string): LoadedTask
     if (!STATUSES.has(task.lastStatus as RunStatus)) task.lastStatus = null
     if (typeof task.zone !== 'string' || !task.zone) task.zone = zone
     task.enabled = task.enabled === true
+    if (task.retries !== undefined) {
+      const retries = normalizeRetry(task.retries)
+      if (retries) task.retries = retries
+      else delete task.retries
+    }
 
     // A schedule that can't produce a time (an interval of zero, a time of
     // day that isn't one) can't run. Off, with the task kept to be edited.
