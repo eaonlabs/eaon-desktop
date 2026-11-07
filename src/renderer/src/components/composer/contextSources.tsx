@@ -1,7 +1,8 @@
-import { FileDiff, GitBranch, GitCommitHorizontal, MessageSquareText, TerminalSquare } from 'lucide-react'
+import { FileDiff, FolderOpen, GitBranch, GitCommitHorizontal, MessageSquareText, SquareSlash, TerminalSquare } from 'lucide-react'
 import type { Chat } from '@shared/types'
 import { MENTION_BRANCHES, TERMINAL_LINES, type GitMention, type GitRefs } from '@shared/chatContext'
 import { ago } from '@shared/modelSelection'
+import { expandPrompt, type PromptCommand } from '@shared/promptCommands'
 import type { SuggestItem } from './SuggestMenu'
 
 /**
@@ -133,4 +134,37 @@ export function chatMentionItems(chats: readonly Chat[], activeId: string | null
         run: () => onPick(chat)
       }
     })
+}
+
+/**
+ * Prompt-file commands as "/" rows. Picking one puts its prompt in the box in
+ * place of the typed "/name", for the user to finish and send, as a mod's
+ * command does; `$ARGUMENTS` is left out of what is put there, and what is
+ * typed after the name is filled in when the message is sent instead
+ * (expandCommandMessage). With none yet, a row says where to add one.
+ */
+export function promptCommandItems(commands: readonly PromptCommand[], query: string, onAdd: () => void): SuggestItem[] {
+  const items: SuggestItem[] = commands.map((command) => ({
+    id: `prompt:${command.source}:${command.name}`,
+    title: command.name,
+    keywords: `${command.source === 'project' ? 'project' : ''} prompt command`,
+    section: 'Prompt files',
+    description: [command.description, command.argumentHint].filter(Boolean).join(' ') || undefined,
+    icon: <SquareSlash {...ICON} />,
+    hint: command.source === 'project' ? 'Project' : command.source === 'mine' ? 'Yours' : undefined,
+    insert: expandPrompt(command.prompt, '')
+  }))
+  // Shown when there are none to find, and to anyone who types for it.
+  if (!commands.some((c) => c.source !== 'builtin') || query.trim()) {
+    items.push({
+      id: 'prompt:add',
+      title: 'Add a command',
+      keywords: 'new create custom prompt file folder commands',
+      section: 'Prompt files',
+      description: 'Opens your commands folder: each .md file in it becomes a / command. A project can keep its own in .eaon/commands',
+      icon: <FolderOpen {...ICON} />,
+      run: onAdd
+    })
+  }
+  return items
 }

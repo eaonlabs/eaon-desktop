@@ -1,10 +1,15 @@
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { app, shell } from 'electron'
 import { isBranchName, isCommitId, type GitMention, type MentionAttachment } from '@shared/chatContext'
 import type { ProjectRules } from '@shared/projectRules'
+import type { PromptCommand } from '@shared/promptCommands'
 import type { Feature } from '../types'
 import { allowed } from '../workspaceFiles'
 import { makeRunner } from '../ade/runner'
 import { sshHosts } from '../ade'
 import { gitMentionText, gitRefs } from './git'
+import { loadPromptCommands } from './commands'
 import { loadProjectRules, withProjectRules } from './rules'
 import { saveMention } from './save'
 
@@ -14,13 +19,16 @@ import { saveMention } from './save'
  * menu offers (shared/chatContext.ts), the project's rules files and
  * prompt-file commands, and what a chat's tokens cost.
  *
- * Channels (all `chat-context:`): `refs`, `git`, `save`, `rules`.
+ * Channels (all `chat-context:`): `refs`, `git`, `save`, `rules`, `commands`, `commands-folder`.
  */
 
 const run = makeRunner(sshHosts)
 
 /** A Chat turn's instructions with the project's rules files added (rules.ts), as main/index.ts's `chat:stream` sends them. */
 export const instructionsWithRules = (request: Parameters<typeof withProjectRules>[1]): Promise<string> => withProjectRules(run, request)
+
+/** Eaon's own folder of prompt files: under its data folder, so no other app's settings are read. */
+const userCommandsFolder = (): string => join(app.getPath('userData'), 'commands')
 
 /** A mention as the renderer sent it, checked: a git mention names a branch or a commit git would accept. */
 function gitMention(value: unknown): GitMention {
@@ -53,6 +61,18 @@ export const chatContextFeature: Feature = {
     ipcMain.handle('chat-context:rules', async (_e, cwd: unknown): Promise<Pick<ProjectRules, 'files' | 'skipped'>> => {
       const { files, skipped } = await loadProjectRules(run, await allowed(cwd))
       return { files, skipped }
+    })
+    // The "/" commands made from prompt files: the project's (when there is a folder) and the user's own.
+    ipcMain.handle('chat-context:commands', async (_e, cwd: unknown): Promise<PromptCommand[]> =>
+      loadPromptCommands(typeof cwd === 'string' && cwd ? await allowed(cwd) : null, userCommandsFolder())
+    )
+    // Opens the user's commands folder (made if it isn't there yet) for adding a prompt file.
+    ipcMain.handle('chat-context:commands-folder', async (): Promise<string> => {
+      const folder = userCommandsFolder()
+      await mkdir(folder, { recursive: true })
+      const problem = await shell.openPath(folder)
+      if (problem) throw new Error(problem)
+      return folder
     })
     // Text the renderer read itself (a terminal's screen, an earlier chat), saved to attach.
     ipcMain.handle('chat-context:save', async (_e, label: unknown, text: unknown): Promise<string> => {

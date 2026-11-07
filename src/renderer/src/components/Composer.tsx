@@ -304,20 +304,22 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           setRewindError(result.error ?? 'The files couldn’t be put back.')
           return
         }
-        resendFrom(messageId, text, options)
+        resendFrom(messageId, context.expand(text), options)
         clearBox()
       })
       return
     }
-    if (editing) resendFrom(editing, text, options)
-    else void send(text, options)
+    // "/name args" for a prompt file goes as the file's prompt, filled in.
+    const sent = context.expand(text)
+    if (editing) resendFrom(editing, sent, options)
+    else void send(sent, options)
     clearBox()
   }
 
   /** While a reply is being written: the message waits, under the conversation, to go after it. */
   const queueMessage = (): void => {
     if (!activeChatId || noModel || editing || (!text.trim() && attachments.length === 0)) return
-    enqueue(activeChatId, text, attachments)
+    enqueue(activeChatId, context.expand(text), attachments)
     clearBox()
   }
 
@@ -465,7 +467,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // Git changes, terminal output and earlier chats, attached to the message when picked.
   const context = useChatContext({ cwd, addAttachments })
   const sources: SuggestSources = {
-    '/': () => {
+    '/': (query: string) => {
       const items: SuggestItem[] = [
         { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles }
       ]
@@ -505,7 +507,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
         { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
       )
-      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...modCommandItems('chat')] : [...items, ...modCommandItems('chat')]
+      return isAgent
+        ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query), ...modCommandItems('chat')]
+        : [...items, ...context.commandItems(query), ...modCommandItems('chat')]
     },
     ...(isAgent
       ? {
