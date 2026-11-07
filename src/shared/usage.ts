@@ -97,6 +97,25 @@ export interface ToknAccount {
 
 export type UsageRange = 7 | 30 | 90
 
+/** A start and end day picked by hand (local calendar days, `YYYY-MM-DD`), both included. */
+export interface UsageCustomRange {
+  from: string
+  to: string
+}
+
+/** What Settings → Usage asks for: one of the presets (the last n days, today included) or a custom range. */
+export type UsageSpan = UsageRange | UsageCustomRange
+
+/** This month so far, or the whole of last month, as a custom range of local days. */
+export function monthRange(which: 'this' | 'last', now: Date = new Date()): UsageCustomRange {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const day = (at: Date): string => `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
+  // Built at noon, so no daylight-saving change can move a day.
+  const first = new Date(now.getFullYear(), now.getMonth() - (which === 'last' ? 1 : 0), 1, 12)
+  const last = which === 'last' ? new Date(now.getFullYear(), now.getMonth(), 0, 12) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  return { from: day(first), to: day(last) }
+}
+
 /**
  * Where use happened: Eaon itself, or Claude Code and Codex in a terminal
  * (read from their own logs on this computer, shown here and never uploaded;
@@ -216,7 +235,10 @@ export interface UsageSummary {
   account: ToknAccount | null
   signIn: UsageSignIn
   sync: UsageSync
-  range: UsageRange
+  /** How many days the range covers: 7, 30 or 90 for a preset, whatever was picked for a custom range. */
+  range: number
+  /** The range's first and last day as asked for (a custom range is trimmed to the days Eaon keeps), and whether it was picked by hand. */
+  span: { from: string; to: string; custom: boolean }
   /** Every day in the range, oldest first, including empty ones. */
   days: UsageDay[]
   /** The range's models, most expensive first; unpriced ones last by requests. */
@@ -252,4 +274,85 @@ export interface UsageSummary {
    */
   activityFrom: { source: 'tokn'; at: number } | { source: 'local' }
   agents: UsageAgents
+  /** The range by project folder, busiest first; see `UsageProjectRow`. Only Eaon's own requests. */
+  projects: UsageProjectRow[]
+}
+
+/**
+ * One project's share of the range. Eaon started noting which project folder
+ * a request was made for in this version, so older requests, and ones made
+ * outside a chat or a task (a chat title, say), can't be placed: they are
+ * the `unattributed` row. `none` is a request that ran with no project
+ * folder (a plain chat, or Work in its default folder).
+ */
+export interface UsageProjectRow {
+  kind: 'folder' | 'none' | 'unattributed'
+  /** The project folder; empty for the other two kinds. */
+  path: string
+  requests: number
+  tokens: number
+  costUsd: number
+  planUsd: number
+}
+
+/** The range's tokens split the way providers bill them. `cacheWrite` includes one-hour writes. */
+export interface TokenSplit {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite: number
+  total: number
+  /**
+   * Cache reads as a share of the prompt (uncached input, cache reads and
+   * cache writes), 0 to 1; null when nothing was sent as a prompt.
+   */
+  cacheHitRate: number | null
+}
+
+/** The token split of any counts, summed. */
+export function tokenSplit(rows: Pick<UsageCounts, 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'cacheWrite1h'>[]): TokenSplit {
+  const split = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+  for (const row of rows) {
+    split.input += row.input
+    split.output += row.output
+    split.cacheRead += row.cacheRead
+    split.cacheWrite += row.cacheWrite + (row.cacheWrite1h ?? 0)
+  }
+  const prompt = split.input + split.cacheRead + split.cacheWrite
+  return { ...split, total: prompt + split.output, cacheHitRate: prompt > 0 ? split.cacheRead / prompt : null }
+}
+
+/**
+ * The monthly budget in Settings → Usage. It counts pay-per-token requests
+ * only (a plan's use and local models are never charged per token), over the
+ * local calendar month, from the same estimate the Usage page shows.
+ */
+export interface UsageBudget {
+  enabled: boolean
+  /** `usd`: Tokn's published rates times what was used. `tokens`: every token of a pay-per-token request. */
+  unit: 'usd' | 'tokens'
+  limit: number
+  /** Percent of the limit at which Eaon says so (1 to 99). */
+  warnAt: number
+  /** At the limit, refuse further pay-per-token requests, with a message, instead of only saying so. */
+  hardCap: boolean
+}
+
+export type UsageBudgetLevel = 'off' | 'ok' | 'warn' | 'over'
+
+export interface UsageBudgetState {
+  budget: UsageBudget
+  /** The month counted, `YYYY-MM`. */
+  month: string
+  /** Dollars or tokens, by the budget's unit. */
+  spent: number
+  /** 0 to 100 and past it when over; 0 while the budget is off. */
+  percent: number
+  level: UsageBudgetLevel
+  /** Further pay-per-token requests are being refused. */
+  blocked: boolean
+  /** Requests this month that couldn't be priced (no price yet, or no token counts) and so aren't in a dollar total. */
+  uncounted: number
+  /** Tokn's price table hasn't loaded yet, so a dollar total reads low. */
+  priced: boolean
 }

@@ -197,7 +197,7 @@ body[data-see-through='on']
     .plugin-list, .skills__list, .card, .worker-card, .worker-memory, .worker-trading, .worker-fact,
     .tasks, .tr-panel, .tr-strip, .ca-feature, .ca-app, .plan-card, .code-stats, .code-queue, .code-checks,
     .code-failure, .code-dialog__option, .mlib-card, .mlib-banner, .model-card, .provider-detail__section,
-    .provider-signin, .usage-hero, .usage-tile, .usage-chart, .usage-heat, .usage-table, .la-row, .la__note,
+    .provider-signin, .usage-hero, .usage-tile, .usage-chart, .usage-heat, .usage-table, .usage-split, .la-row, .la__note,
     .template-card, .suggestion-card, .term-agent-card, .imggen__tile, .ch-app, .purchase__receipt,
     .browser__banner, .team-hint, .bx-status, .credits-hero, .credits-project, .model-notice
   ) {

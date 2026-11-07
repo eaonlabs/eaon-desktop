@@ -1,21 +1,30 @@
-import { readFile } from 'node:fs/promises'
-import { app, dialog, shell } from 'electron'
-import type { Billing, CursorImport, UsageAccountState, UsageDay, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
-import { getProvider, onModelUsage } from '../../providers'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { app, dialog, Notification, shell } from 'electron'
+import type { Billing, CursorImport, UsageAccountState, UsageBudget, UsageBudgetState, UsageDay, UsageSignIn, UsageSpan, UsageSummary, UsageSync } from '@shared/usage'
+import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
+import { getProvider, onBeforeModelRequest, onModelUsage } from '../../providers'
+import { ProviderIssueError } from '../../providers/errors'
+import { shownProviderId } from '../../eaonAddress'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
 import type { Feature, FeatureContext } from '../types'
 import { afterToknSignIn, onToknCliSynced, syncToknCli, toknCliLastSync, toknCliStatus } from '../toknCli'
 import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
-import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
+import { flushLedger, ledgerDays, ledgerProjects, ledgerSources, onLedgerChange, recordUsage } from './ledger'
+import { budgetBlockMessage, budgetNotice, budgetState, monthOf, monthUse, nextAlert, normalizeAlerts, normalizeBudget, type BudgetAlerts } from './budget'
+import { usageCsv, usageCsvName } from './exportCsv'
 import { cliLogs, flushCliLogs, importCursorCsv, onCliLogsChange } from './cliLogs'
 import {
   activity,
   agentStats,
   calendar,
   dailyTotals,
+  normalizeSpan,
   rangeDays,
+  spanDays,
   summarize,
+  summarizeProjects,
   summarizeSources,
   summarizeTools,
   syncAgents,
@@ -34,11 +43,18 @@ import { fetchPricing, fetchProfileDays, refreshAccount, signIn, signOut, submit
  * tool, a few minutes after new usage and whenever the user asks.
  *
  * Channels (all `usage:`): `summary`, `account`, `sign-in`, `cancel-sign-in`,
- * `submit-code`, `sign-out`, `sync`, `open-profile`, and the `changed` event.
+ * `submit-code`, `sign-out`, `sync`, `open-profile`, `export-csv`, `budget`,
+ * `set-budget`, and the `changed` event.
+ *
+ * The monthly budget (budget.ts) warns from the ledger and can refuse
+ * pay-per-token requests before they are sent: it registers a gate on the
+ * provider adapters (`onBeforeModelRequest`).
  */
 
 const PRICING_FILE = 'tokn-pricing.json'
 const SYNC_FILE = 'tokn-sync.json'
+const BUDGET_FILE = 'usage-budget.json'
+const BUDGET_ALERTS_FILE = 'usage-budget-alerts.json'
 const PROFILE_FILE = 'tokn-profile.json'
 /** The profile is read again when Settings → Usage asks and the last copy is older than this. */
 const PROFILE_MAX_AGE_MS = 5 * 60_000
@@ -62,6 +78,12 @@ let changedTimer: ReturnType<typeof setTimeout> | null = null
 let profile: SavedProfile | null = savedProfile()
 let profileLoad: Promise<void> | null = null
 let profileTriedAt = 0
+let budget: UsageBudget = normalizeBudget(store.getJson(BUDGET_FILE, {}))
+let budgetAlerts: BudgetAlerts = normalizeAlerts(store.getJson(BUDGET_ALERTS_FILE, {}))
+/** Bumped on every recorded request, so the budget's month total is worked out once per change, not once per request. */
+let ledgerVersion = 0
+let budgetCache: { key: string; state: UsageBudgetState } | null = null
+const budgetNotifications = new Set<Notification>()
 
 /** The signed-in profile's days as last read from Tokn, and whose they are. */
 interface SavedProfile {
@@ -195,6 +217,25 @@ async function chooseCursorCsv(): Promise<CursorImport | null> {
   return result
 }
 
+/** Saves what the Usage page shows for `range` as a CSV, where the person says; null when the dialog was closed. */
+async function exportCsv(range: UsageSpan): Promise<{ path: string } | null> {
+  const shaped = summary(range)
+  const win = ctx?.getWindow()
+  const options = {
+    title: 'Save usage as CSV',
+    defaultPath: join(app.getPath('downloads'), usageCsvName(shaped)),
+    filters: [{ name: 'CSV', extensions: ['csv'] }]
+  }
+  const picked = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options)
+  if (picked.canceled || !picked.filePath) return null
+  try {
+    await writeFile(picked.filePath, usageCsv(shaped), 'utf8')
+  } catch (error) {
+    throw new Error(`Couldn’t save the file: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return { path: picked.filePath }
+}
+
 /** Tells every window to read the summary again; coalesced, since a busy agent records many requests a second. */
 function changed(): void {
   if (changedTimer) return
@@ -221,11 +262,76 @@ function loadPricing(force = false): Promise<void> {
   return pricingLoad
 }
 
-function summary(range: UsageRange): UsageSummary {
+/**
+ * The pay-per-token requests the budget counts and can refuse: a provider
+ * paid by the token with a key of the user's. Plans, local models and Eaon's
+ * own free tiers (Eaon Lite, Eaon Event) are never charged per token.
+ */
+function countsTowardBudget(billingOf: BillingOf): (providerId: string) => boolean {
+  return (providerId) => {
+    const shown = shownProviderId(providerId)
+    return billingOf(providerId) === 'api' && shown !== GATEWAY_PROVIDER_ID && shown !== FREE_PROVIDER_ID
+  }
+}
+
+/** The budget and this month's use of it. */
+function budgetNow(now: Date = new Date()): UsageBudgetState {
+  const month = monthOf(now)
+  const key = `${month} ${ledgerVersion} ${pricing.fetchedAt} ${JSON.stringify(budget)}`
+  if (budgetCache?.key === key) return budgetCache.state
+  const billingOf = billingLookup()
+  const use = monthUse(ledgerDays(), ledgerSources(), month, budget.unit, pricing.models, billingOf, countsTowardBudget(billingOf))
+  const state = budgetState(budget, month, use, pricing.fetchedAt > 0)
+  budgetCache = { key, state }
+  return state
+}
+
+/**
+ * Says so, once, when the month's use reaches the warning or the limit. With
+ * `quiet` (the person just changed the budget and can see the meter) it only
+ * brings what was said up to date.
+ */
+function checkBudget(quiet = false): void {
+  if (!budget.enabled) return
+  const state = budgetNow()
+  const { alert, alerts } = nextAlert(state, budgetAlerts)
+  if (JSON.stringify(alerts) !== JSON.stringify(budgetAlerts)) {
+    budgetAlerts = alerts
+    store.setJson(BUDGET_ALERTS_FILE, alerts)
+  }
+  const notice = alert && !quiet ? budgetNotice(state) : null
+  if (!notice || !Notification.isSupported()) return
+  const notification = new Notification(notice)
+  // Held until clicked or closed: a notification that is garbage-collected loses its click handler.
+  budgetNotifications.add(notification)
+  notification.on('click', () => {
+    budgetNotifications.delete(notification)
+    const win = ctx?.getWindow()
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+  })
+  notification.on('close', () => budgetNotifications.delete(notification))
+  notification.show()
+}
+
+/** Refuses a pay-per-token request once the budget's hard cap is reached, saying why. */
+function budgetGate(providerId: string): void {
+  if (!budget.enabled || !budget.hardCap) return
+  void loadPricing()
+  if (!countsTowardBudget(billingLookup())(providerId)) return
+  const state = budgetNow()
+  if (state.blocked) throw new ProviderIssueError({ kind: 'other', message: budgetBlockMessage(state), action: 'choose-model', providerId })
+}
+
+function summary(range: UsageSpan): UsageSummary {
   void loadPricing()
   const days = ledgerDays()
   const billingOf = billingLookup()
   const shaped = summarize(days, range, pricing.models, billingOf)
+  const shown = spanDays(range)
   // The chart, the calendar and the streaks count Claude Code and Codex too;
   // the tiles, the models and the upload stay Eaon's own.
   const cli = cliLogs()
@@ -242,10 +348,12 @@ function summary(range: UsageRange): UsageSummary {
     account,
     signIn: signInState,
     sync: shownSync(),
-    range,
+    range: shown.length,
+    span: { from: shown[0], to: shown[shown.length - 1], custom: typeof range !== 'number' },
     priced: pricing.fetchedAt > 0,
     ...shaped,
     sources: summarizeSources(ledgerSources(), range, pricing.models, billingOf),
+    projects: summarizeProjects(days, ledgerProjects(), range, pricing.models, billingOf),
     chart: rangeDays(byDay, range),
     tools: summarizeTools(everything, range, pricing.models, billingOf),
     cliLogs: { reading: cli.reading, found: cli.found, cursorImported: cli.cursorImported },
@@ -348,7 +456,10 @@ export const usageFeature: Feature = {
     ctx = context
     const { ipcMain } = context
     onModelUsage((providerId, modelId, usage) => recordUsage(providerId, modelId, usage))
+    onBeforeModelRequest((provider) => budgetGate(provider.id))
     onLedgerChange((source) => {
+      ledgerVersion++
+      checkBudget()
       changed()
       // Other apps' requests are never uploaded, so they are no reason to sync.
       if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
@@ -361,7 +472,22 @@ export const usageFeature: Feature = {
       scheduleSync(SYNC_AFTER_USAGE_MS)
     })
 
-    ipcMain.handle('usage:summary', (_e, range: UsageRange) => summary(range === 7 || range === 90 ? range : 30))
+    ipcMain.handle('usage:summary', (_e, range: unknown) => summary(normalizeSpan(range)))
+    ipcMain.handle('usage:export-csv', (_e, range: unknown) => exportCsv(normalizeSpan(range)))
+    // Loads the price table first when it is missing, so a dollar total isn't read as zero.
+    ipcMain.handle('usage:budget', async (): Promise<UsageBudgetState> => {
+      await loadPricing()
+      return budgetNow()
+    })
+    ipcMain.handle('usage:set-budget', async (_e, patch: unknown): Promise<UsageBudgetState> => {
+      const asked = typeof patch === 'object' && patch !== null && !Array.isArray(patch) ? patch : {}
+      budget = normalizeBudget({ ...budget, ...asked })
+      store.setJson(BUDGET_FILE, budget)
+      await loadPricing()
+      checkBudget(true)
+      changed()
+      return budgetNow()
+    })
     // The account entry (sidebar, Settings) without the numbers, which it doesn't show.
     ipcMain.handle('usage:account', (): UsageAccountState => ({ account: toknAccount(), signIn: signInState, sync: shownSync() }))
     ipcMain.handle('usage:sign-in', () => startSignIn())

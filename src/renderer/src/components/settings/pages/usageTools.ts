@@ -1,4 +1,4 @@
-import type { UsageDay, UsageTool } from '@shared/usage'
+import type { UsageDay, UsageProjectRow, UsageTool } from '@shared/usage'
 
 /** Eaon and the coding CLIs as Settings → Usage names and orders them. */
 
@@ -48,4 +48,14 @@ export function toolSplit(day: UsageDay, money: (usd: number) => string, tokens:
     return [`${TOOL_LABEL[tool]} ${figure}`]
   })
   return parts.length > 1 || (parts.length === 1 && !day.tools?.eaon) ? parts.join(' · ') : null
+}
+
+/** A project row's name and, for a folder, its full path (for the tooltip). */
+export function projectLabel(row: Pick<UsageProjectRow, 'kind' | 'path'>): { name: string; title: string | undefined } {
+  if (row.kind === 'none') return { name: 'No project folder', title: 'Chats and tasks that ran without a project folder.' }
+  if (row.kind === 'unattributed') {
+    return { name: 'Unattributed', title: 'Requests from before Eaon noted project folders, and ones made outside a chat or a task, such as a chat’s title.' }
+  }
+  const parts = row.path.split(/[\\/]+/).filter(Boolean)
+  return { name: parts.at(-1) ?? row.path, title: row.path }
 }
