@@ -1181,14 +1181,18 @@ export class WorkersEngine {
   /**
    * Mail from a chat app (features/channels). The owner's arrives as the
    * user's (`from: 'user'`); anyone else's as a guest's, carrying the cap
-   * that holds the turn it lands in. Always the main thread.
+   * that holds the turn it lands in. The main thread, unless `thread` asks
+   * for a new task thread (an email's own). Returns the thread it went to.
    */
-  receive(id: string, mail: Omit<WorkerMail, 'id' | 'at'>): void {
+  receive(id: string, mail: Omit<WorkerMail, 'id' | 'at'>, options: { thread?: { title: string } } = {}): { threadId: string } {
     const worker = this.require(id)
     if (!mail.text.trim() && mail.files.length === 0) throw new Error('The message is empty.')
-    this.deliverMail(worker, { ...mail, id: randomUUID(), at: this.now() })
+    // An email gets a task thread of its own, so each one is its own piece of work and the main thread stays the user's.
+    const threadId = options.thread ? this.createThread(id, { title: options.thread.title, kind: 'task' }).id : MAIN_THREAD
+    this.deliverMail(worker, { ...mail, id: randomUUID(), at: this.now() }, threadId)
     this.commit()
     this.tick()
+    return { threadId }
   }
 
   /** Empties a thread's transcript and summary. Mail, wake-ups and settings stay. */
@@ -3391,7 +3395,7 @@ export class WorkersEngine {
               : fromUser
                 ? { kind: 'message', label: mail.some((m) => m.channel) ? 'Message from a chat app' : 'Your message' }
                 : mail.length > 0
-                  ? { kind: 'mail', label: `Message from ${mail[0].fromName}` }
+                  ? { kind: 'mail', label: mail[0].email ? `Email from ${mail[0].fromName}` : `Message from ${mail[0].fromName}` }
                   : goalRun
                     ? { kind: 'goal', label: 'Working toward its goal' }
                     : { kind: 'heartbeat', label: 'Heartbeat' }

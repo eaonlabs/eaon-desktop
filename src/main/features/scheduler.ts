@@ -10,6 +10,11 @@ import { createScheduler, type SchedulerService } from './scheduler/service'
 
 let service: SchedulerService | null = null
 
+/** The running scheduler, for features that start automations (email, webhooks). Null before registration. */
+export function schedulerService(): SchedulerService | null {
+  return service
+}
+
 export const schedulerFeature: Feature = {
   id: 'scheduler',
   register: (ctx) => {

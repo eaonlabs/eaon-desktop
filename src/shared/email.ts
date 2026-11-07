@@ -1,3 +1,5 @@
+import type { GuestAccess } from './channels'
+
 /**
  * The agent's own email. Two ways to have it (`EmailProvider`):
  *
@@ -118,6 +120,8 @@ export interface EmailState {
   /** A desktop notification when new mail arrives. */
   notifyNew: boolean
   lastCheckedAt: number | null
+  /** Workers whose address starts work on new mail; absent from an older main process. */
+  triggers?: EmailTriggerStatus[]
   error: string | null
 }
 
@@ -127,6 +131,40 @@ export interface EmailSignUp {
   /** The user's own address: AgentMail sends the code here, and only then can the inbox send. */
   humanEmail: string
   displayName?: string
+}
+
+/**
+ * What new mail to a worker's own address does, per worker. Off until the
+ * user turns it on. Mail comes from outside, so it is held to `access` (the
+ * guest levels chat apps use) however free the worker otherwise is.
+ */
+export interface EmailTriggerRule {
+  enabled: boolean
+  /** Only mail from these addresses ("jo@x.com") or domains ("@x.com") starts anything; empty means anyone. */
+  senders: string[]
+  /** The most an email may make the worker do. */
+  access: GuestAccess
+  /** Emails that may start work in one hour; the rest stay unread in the inbox. */
+  maxPerHour: number
+  /** Run this automation with the email, instead of waking the worker. */
+  automationId: string | null
+}
+
+export const DEFAULT_EMAIL_TRIGGER: EmailTriggerRule = { enabled: false, senders: [], access: 'read-only', maxPerHour: 5, automationId: null }
+/** However it is set, a worker's address starts at most this many runs an hour. */
+export const MAX_TRIGGERS_PER_HOUR = 30
+export const MAX_TRIGGER_SENDERS = 50
+
+/** One worker's rule and how it has been used lately, for Settings. */
+export interface EmailTriggerStatus {
+  workerId: string
+  rule: EmailTriggerRule
+  /** Emails that started work in the last hour. */
+  startedLastHour: number
+  /** Emails left alone in the last hour because of the limit. */
+  heldLastHour: number
+  /** The last email that started work: "Invoice, from Jo", with when, and why it couldn't if it couldn't. */
+  last: { at: number; label: string; error?: string } | null
 }
 
 export interface EmailOutgoing {

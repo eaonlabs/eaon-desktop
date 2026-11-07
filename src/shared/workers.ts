@@ -171,6 +171,12 @@ export interface WorkerMail {
   at: number
   /** Set when it came in through a chat app (Discord, Slack, WhatsApp…) — see shared/channels.ts. */
   channel?: WorkerMailChannel
+  /**
+   * Set when it is an email that arrived at the worker's own address and the
+   * user let such mail start work (Settings → Email). The sender is a stranger
+   * to the turn: `cap` is the most the turn may do, as for a chat-app guest.
+   */
+  email?: { messageId: string; from: string; subject: string; cap: GuestAccess }
   /** The user made this message the worker's goal (Goal in the composer's + menu). */
   goal?: boolean
   /** Colleagues the user @mentioned in it, who were each sent their own copy. */

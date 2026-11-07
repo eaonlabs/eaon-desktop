@@ -26,7 +26,10 @@ const TRIGGER_LABEL: Record<TaskRun['trigger'], string> = {
   schedule: 'On schedule',
   manual: 'Run now',
   'catch-up': 'Caught up late',
-  retry: 'Retry'
+  retry: 'Retry',
+  email: 'An email',
+  webhook: 'A webhook call',
+  list: 'A list run'
 }
 
 /** Runs worth running again: they didn't produce a result. */
@@ -101,7 +104,19 @@ function RunRow({
         <span className="sched-run__when">{formatStamp(run.slotAt ?? run.startedAt, now)}</span>
         <span className="sched-run__status" data-status={run.status}>
           {STATUS_LABEL[run.status]}
-          {run.trigger === 'manual' ? ' · manual' : run.trigger === 'catch-up' ? ' · caught up' : run.trigger === 'retry' ? ' · retry' : ''}
+          {run.trigger === 'manual'
+            ? ' · manual'
+            : run.trigger === 'catch-up'
+              ? ' · caught up'
+              : run.trigger === 'retry'
+                ? ' · retry'
+                : run.trigger === 'email'
+                  ? ' · email'
+                  : run.trigger === 'webhook'
+                    ? ' · webhook'
+                    : run.trigger === 'list'
+                      ? ' · list'
+                      : ''}
         </span>
         <span className="sched-run__detail">{detail ?? ''}</span>
         {duration && <span className="sched-run__duration">{duration}</span>}
@@ -133,7 +148,7 @@ function RunRow({
               </>
             )}
             <dt>Started by</dt>
-            <dd>{TRIGGER_LABEL[run.trigger] ?? run.trigger}</dd>
+            <dd>{run.input ? `${TRIGGER_LABEL[run.trigger] ?? run.trigger}: ${run.input}` : (TRIGGER_LABEL[run.trigger] ?? run.trigger)}</dd>
             {tokens && (
               <>
                 <dt>Tokens</dt>
@@ -163,7 +178,7 @@ function RunRow({
                 Open chat
               </button>
             )}
-            {RETRYABLE.has(run.status) && (
+            {RETRYABLE.has(run.status) && !run.input && (
               <button
                 type="button"
                 className="btn btn--sm"

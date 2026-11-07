@@ -20,7 +20,7 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 
 const KINDS = new Set(['interval', 'daily', 'weekly', 'once', 'cron'])
 const STATUSES = new Set<RunStatus>(['running', 'succeeded', 'failed', 'cancelled', 'missed', 'skipped'])
-const TRIGGERS = new Set(['schedule', 'manual', 'catch-up', 'retry'])
+const TRIGGERS = new Set(['schedule', 'manual', 'catch-up', 'retry', 'email', 'webhook', 'list'])
 
 export interface LoadedTasks {
   tasks: ScheduledTask[]

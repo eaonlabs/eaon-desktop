@@ -1,13 +1,16 @@
 import { Notification } from 'electron'
-import type { CloudflareSetup, EmailOptions, EmailOutgoing, EmailSignUp } from '@shared/email'
+import type { CloudflareSetup, EmailOptions, EmailOutgoing, EmailSignUp, EmailTriggerRule } from '@shared/email'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { AgentMailClient } from './email/agentmail'
 import { CloudflareMailClient } from './email/cloudflare'
+import { deliverIncoming } from './email/deliver'
 import { EmailService, type EmailNotice } from './email/service'
 import { emailToolSource } from './email/tools'
+import { schedulerService } from './scheduler'
 import type { Feature, FeatureContext } from './types'
+import { workersService } from './workers'
 
 /**
  * The agent's own email, through AgentMail or on the user's own domain via
@@ -68,7 +71,7 @@ function stop(): void {
 export const emailFeature: Feature = {
   id: 'email',
   register: (ctx) => {
-    const email = new EmailService({
+    const email: EmailService = new EmailService({
       createClient: (key) => new AgentMailClient(key),
       getKey: () => secrets.get(VAULT_KEY) ?? null,
       // An empty value removes it from the vault.
@@ -79,6 +82,14 @@ export const emailFeature: Feature = {
       load: () => store.getJson<unknown>(STATE_FILE, null),
       save: (saved) => store.setJson(STATE_FILE, saved),
       notify: (notice) => showNotice(ctx, notice),
+      // New mail to a worker's own address, when the user turned that on for it (Settings → Email).
+      onIncoming: (mail) =>
+        deliverIncoming(mail, {
+          read: (id, workerId) => email.read(id, workerId),
+          workers: workersService()?.engine ?? null,
+          automations: schedulerService()?.engine ?? null
+        }),
+      workerExists: (id) => workersService()?.engine.has(id) ?? true,
       onChange: (state) => ctx.send('email:changed', state)
     })
     service = email
@@ -108,6 +119,7 @@ export const emailFeature: Feature = {
       email.setWorkerAddress(text(workerId), input ?? { username: '' })
     )
     ipcMain.handle('email:remove-worker-address', (_e, workerId: string) => email.removeWorkerAddress(text(workerId)))
+    ipcMain.handle('email:set-trigger', (_e, workerId: string, rule: Partial<EmailTriggerRule>) => email.setTrigger(text(workerId), rule ?? {}))
     ipcMain.handle('email:add-verified-address', (_e, address: string) => email.addVerifiedAddress(text(address)))
 
     startTimer = setTimeout(() => {

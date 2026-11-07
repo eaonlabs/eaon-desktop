@@ -11,6 +11,7 @@ import {
   runReason,
   TASK_OVERLAP,
   type RunCause,
+  type RunInput,
   type RunStatus,
   type Schedule,
   type ScheduledTask,
@@ -49,6 +50,8 @@ export const USER_STOP_ERROR = 'Stopped by the user.'
 export interface RunHandle {
   runId: string
   trigger: TaskRun['trigger']
+  /** What started this run beyond the clock: an email, a webhook call, a line of a list. */
+  input?: RunInput
   signal: AbortSignal
   /** Links the run to its chat as soon as the chat exists, so the page can open it mid-run. */
   setChatId: (chatId: string) => void
@@ -107,6 +110,8 @@ export class SchedulerEngine {
   private foreign: unknown[] = []
   private readonly running = new Map<string, { controller: AbortController; runId: string }>()
   private readonly inflight = new Set<Promise<void>>()
+  /** A run's work, by run id, so a caller can wait for that one run (`finished`). */
+  private readonly work = new Map<string, Promise<void>>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private started = false
@@ -290,11 +295,25 @@ export class SchedulerEngine {
     return this.withHistory(task)
   }
 
-  /** Runs a task immediately, outside its schedule. Works on paused tasks too. */
-  runNow(taskId: string): TaskRun {
+  /**
+   * Runs a task immediately, outside its schedule. Works on paused tasks too.
+   * With `input` (an email, a webhook call, a line of a list) the run works on
+   * that data; it is recorded as started by it, and what it carried is not kept.
+   */
+  runNow(taskId: string, input?: RunInput): TaskRun {
     const task = this.require(taskId)
     if (this.running.has(taskId)) throw new Error(`“${task.name}” is already running.`)
-    return clone(this.begin(task, 'manual'))
+    if (!input) return clone(this.begin(task, 'manual'))
+    // Purchases and order tracking act with the user's card on their own terms; nobody outside may feed them.
+    if (task.purchase || task.watch) throw new Error(`“${task.name}” makes purchases, so it can only run on its own schedule or when you run it.`)
+    return clone(this.begin(task, input.source, { input: input.label.replace(/\s+/g, ' ').trim().slice(0, 200) }, input))
+  }
+
+  /** Resolves with the run's record once it has finished and been recorded; undefined for a run that is gone. */
+  async finished(runId: string): Promise<TaskRun | undefined> {
+    await this.work.get(runId)
+    const run = this.runs.find((r) => r.id === runId)
+    return run ? clone(run) : undefined
   }
 
   /** Runs a task again for a run that failed, was stopped, missed or skipped. */
@@ -303,6 +322,7 @@ export class SchedulerEngine {
     const run = this.runs.find((r) => r.id === runId && r.taskId === taskId)
     if (!run) throw new Error('That run is no longer in the history.')
     if (run.status === 'running') throw new Error('That run is still going.')
+    if (run.input) throw new Error('This run worked on data that isn’t kept, so it can’t be run again from here. Start it again from where it came from.')
     if (this.running.has(taskId)) throw new Error(`“${task.name}” is already running.`)
     return clone(this.begin(task, 'retry', { retryOf: run.id }))
   }
@@ -522,7 +542,7 @@ export class SchedulerEngine {
     }
   }
 
-  private begin(task: ScheduledTask, trigger: TaskRun['trigger'], extra: Partial<TaskRun> = {}): TaskRun {
+  private begin(task: ScheduledTask, trigger: TaskRun['trigger'], extra: Partial<TaskRun> = {}, input?: RunInput): TaskRun {
     const now = this.now()
     const controller = new AbortController()
     const run: TaskRun = { id: randomUUID(), taskId: task.id, startedAt: now, finishedAt: null, status: 'running', chatId: null, trigger, ...extra }
@@ -538,6 +558,7 @@ export class SchedulerEngine {
     const handle: RunHandle = {
       runId: run.id,
       trigger,
+      ...(input ? { input } : {}),
       signal: controller.signal,
       setChatId: (chatId) => this.patchRun(run.id, { chatId })
     }
@@ -552,9 +573,11 @@ export class SchedulerEngine {
         this.running.delete(taskId)
         this.stoppedByUser.delete(run.id)
         this.inflight.delete(work)
+        this.work.delete(run.id)
         this.arm()
       })
     this.inflight.add(work)
+    this.work.set(run.id, work)
     return run
   }
 
