@@ -13,5 +13,7 @@ export const adeToolsApi = {
   copyIgnored: (sessionId: string): Promise<CopyReport> => ipcRenderer.invoke('ade-tools:copy-ignored', sessionId),
   /** Moves a session to the Archived group; the session as it is now, or null when it is gone. */
   archive: (id: string): Promise<AdeSession | null> => ipcRenderer.invoke('ade-tools:archive', id),
-  restore: (id: string): Promise<AdeSession | null> => ipcRenderer.invoke('ade-tools:restore', id)
+  restore: (id: string): Promise<AdeSession | null> => ipcRenderer.invoke('ade-tools:restore', id),
+  /** Which of the paths a terminal printed are files in the session's folder: each one's absolute path, or null. */
+  existingFiles: (folder: string, refs: string[]): Promise<(string | null)[]> => ipcRenderer.invoke('ade-tools:existing-files', folder, refs)
 }

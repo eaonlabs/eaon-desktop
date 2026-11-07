@@ -41,6 +41,7 @@ import { useTerminals } from './terminalStore'
 import { type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
 import { ThemePicker } from './ThemePicker'
 import { TerminalFind } from './TerminalFind'
+import { adePathLinks } from './pathLinks'
 import { AdeDictation } from './AdeDictation'
 import { shellQuote } from './input'
 import { isRemote } from '@shared/adeRemote'
@@ -95,6 +96,12 @@ export function TerminalWorkspace(): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  // A path in a pane's output (src/app.ts:42) is a link to the file while the ADE is on screen.
+  useEffect(() => {
+    terminals.setPathLinks(adePathLinks)
+    return () => terminals.setPathLinks(null)
+  }, [])
 
   // The agent cards say which CLIs are installed: asked again each time they
   // show, so one installed since the list was read can be started.

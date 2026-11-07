@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 import { isRemote } from '@shared/adeRemote'
 import type { AdeSession } from '@shared/adeSessions'
@@ -5,6 +6,7 @@ import { cleanCopySettings, type CopyPlan, type CopyReport, type WorktreeCopySet
 import type { Feature } from './types'
 import { adeSessions } from './ade'
 import { copyIgnored, previewCopy } from './ade/worktreeCopy'
+import { existingFiles } from './ade/pathLinks'
 import { store } from '../store'
 
 /**
@@ -59,5 +61,15 @@ export const adeToolsFeature: Feature = {
       return session
     })
     ipcMain.handle('ade-tools:restore', (_e, id: unknown): AdeSession | null => adeSessions().restore(text(id, 'a session')))
+
+    /* ------------------------------------------------- paths in a terminal */
+
+    // Which printed paths are files in the session's folder, for the terminal's links. Only a session's own folder, on this computer.
+    ipcMain.handle('ade-tools:existing-files', async (_e, folder: unknown, refs: unknown): Promise<(string | null)[]> => {
+      const dir = text(folder, 'a folder')
+      const list = (Array.isArray(refs) ? refs : []).filter((r): r is string => typeof r === 'string')
+      if (isRemote(dir) || !adeSessions().byCwd(dir)) return list.map(() => null)
+      return existingFiles(dir, list, os.homedir())
+    })
   }
 }

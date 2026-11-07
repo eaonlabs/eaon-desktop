@@ -58,7 +58,9 @@ export const ADE_SHORTCUTS: Shortcut[] = [
   { id: 'ade-session-n', label: 'Open session 1–9 in the sidebar, counted from the top', modifiers: ['alt', 'mod'], key: '1–9' },
   { id: 'ade-session-next', label: 'Open the next session', modifiers: ['alt', 'mod'], key: '↓' },
   { id: 'ade-session-prev', label: 'Open the previous session', modifiers: ['alt', 'mod'], key: '↑' },
-  { id: 'ade-new-session', label: 'New session', modifiers: ['shift', 'mod'], key: 'N' }
+  { id: 'ade-new-session', label: 'New session', modifiers: ['shift', 'mod'], key: 'N' },
+  // A file path in a terminal (src/app.ts:42) opens beside the terminals when clicked.
+  { id: 'ade-path-external', label: 'Open a file path in a terminal in your editor, not beside the terminals', modifiers: ['mod'], key: 'click' }
 ]
 
 /** In the message box; listed with the others so the page is complete. */

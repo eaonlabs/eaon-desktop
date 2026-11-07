@@ -1,4 +1,4 @@
-import { Terminal, type IBuffer, type IDisposable, type ITheme } from '@xterm/xterm'
+import { Terminal, type IBuffer, type IDisposable, type ILink, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -7,7 +7,8 @@ import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { adeKeyAction } from '@shared/adeKeys'
 import { feedInput, type LineState } from './input'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
-import { keepMatch, readRows, searchRows, stepIndex, type SearchMatch, type SearchOptions } from '@shared/terminalSearch'
+import { keepMatch, readRow, readRows, searchRows, stepIndex, type SearchMatch, type SearchOptions, type SearchRow } from '@shared/terminalSearch'
+import { pathLinksIn } from '@shared/terminalLinks'
 import { scenes, seedOf } from './scenes'
 import { DEFAULT_THEME_ID, findTheme, type TerminalTheme } from './themes'
 import { isMac, isWindows } from '../../../lib/platform'
@@ -110,6 +111,19 @@ export interface FindResult {
   truncated: boolean
   /** Why the query can't be searched for. */
   error: string | null
+}
+
+/**
+ * What the registry needs from the ADE to turn a path in a pane's output
+ * (`src/app.ts:42`) into a link (see terminal/pathLinks.ts).
+ */
+export interface PathLinks {
+  /** The folder a pane's relative paths are from; null when it has none on this computer (a session on another machine). */
+  folderOf: (paneId: string) => string | null
+  /** For each printed path: the file's absolute path when it is a file in `folder`, else null. */
+  resolve: (folder: string, refs: string[]) => Promise<(string | null)[]>
+  /** A link was clicked; `external`: with ⌘ (Ctrl), meaning the editor outside Eaon. */
+  open: (file: string, line: number | null, external: boolean, paneId: string) => void
 }
 
 /** The ADE's look: a terminal theme, and whether its scene is drawn. */
@@ -309,6 +323,8 @@ class TerminalRegistry {
   private serverListeners = new Set<() => void>()
   /** Takes a link clicked in a pane, or declines it so it opens in the system browser. */
   private linkOpener: ((url: string, paneId: string) => boolean) | null = null
+  /** Makes the file paths a pane prints links; none, and they stay text. */
+  private pathLinks: PathLinks | null = null
   /**
    * Tasks waiting to be typed into an agent that can't take one on its
    * command line (see PROMPT_ARG), once that agent is up and waiting.
@@ -434,6 +450,12 @@ class TerminalRegistry {
     } catch {
       /* links are a nicety */
     }
+    // File paths in the output (src/app.ts:42) open in the editor: the ADE's panes only.
+    term.registerLinkProvider({
+      provideLinks: (y, callback) => {
+        void this.fileLinksAt(paneId, y).then(callback, () => callback(undefined))
+      }
+    })
     term.open(wrapper)
     term.textarea?.addEventListener('focus', () => {
       this.focusedPane = paneId
@@ -838,6 +860,49 @@ class TerminalRegistry {
 
   setLinkOpener(opener: ((url: string, paneId: string) => boolean) | null): void {
     this.linkOpener = opener
+  }
+
+  setPathLinks(links: PathLinks | null): void {
+    this.pathLinks = links
+  }
+
+  /**
+   * The links on the line at buffer line `y` (counted from 1): the paths in it
+   * that are files in the pane's folder. A line the terminal wrapped is read
+   * whole, so a path broken across two rows is one link.
+   */
+  private async fileLinksAt(paneId: string, y: number): Promise<ILink[] | undefined> {
+    const hook = this.pathLinks
+    const rt = this.panes.get(paneId)
+    if (!hook || !rt || !this.inAde.has(paneId)) return undefined
+    const folder = hook.folderOf(paneId)
+    if (!folder) return undefined
+    const buffer = rt.term.buffer.active
+    let top = y - 1
+    while (top > 0 && buffer.getLine(top)?.isWrapped) top--
+    let bottom = y - 1
+    while (buffer.getLine(bottom + 1)?.isWrapped) bottom++
+    const rows: SearchRow[] = []
+    for (let i = top; i <= bottom; i++) {
+      const line = buffer.getLine(i)
+      if (!line) return undefined
+      rows.push(readRow(line, Boolean(buffer.getLine(i + 1)?.isWrapped)))
+    }
+    const found = pathLinksIn(rows)
+    if (found.length === 0) return undefined
+    const paths = [...new Set(found.map((l) => l.ref.path))]
+    const files = await hook.resolve(folder, paths)
+    const links: ILink[] = []
+    for (const { ref, start, end } of found) {
+      const file = files[paths.indexOf(ref.path)]
+      if (!file) continue
+      links.push({
+        range: { start: { x: start.x, y: top + start.y }, end: { x: end.x, y: top + end.y } },
+        text: ref.text,
+        activate: (event) => hook.open(file, ref.line, event.metaKey || event.ctrlKey, paneId)
+      })
+    }
+    return links.length > 0 ? links : undefined
   }
 
   devServers(paneIds?: string[]): string[] {

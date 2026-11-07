@@ -65,33 +65,33 @@ export interface BufferLike {
     | undefined
 }
 
+/** One row of the buffer as the search reads it. `wrapNext`: the row after it continues it, so its trailing spaces are part of the line. */
+export function readRow(line: NonNullable<ReturnType<BufferLike['getLine']>>, wrapNext: boolean): SearchRow {
+  const text = line.translateToString(!wrapNext)
+  const row: SearchRow = { text, wrapped: line.isWrapped }
+  // Wide characters (CJK, emoji) take two cells, so a position in the text is not a column.
+  // eslint-disable-next-line no-control-regex
+  if (/[^\x00-\x7e]/.test(text)) {
+    const cols: number[] = []
+    for (let x = 0; x < line.length; x++) {
+      const cell = line.getCell(x)
+      if (!cell || cell.getWidth() === 0) continue
+      const chars = cell.getChars() || ' '
+      for (let u = 0; u < chars.length; u++) cols.push(x)
+    }
+    cols.push(line.length)
+    // The text may be shorter than the row (its trailing spaces were cut): its end is where the next character would start.
+    if (cols.length >= text.length + 1) row.cols = cols.slice(0, text.length + 1)
+  }
+  return row
+}
+
 /** What the buffer shows, a row at a time, for the search. */
 export function readRows(buffer: BufferLike): SearchRow[] {
   const rows: SearchRow[] = []
   for (let i = 0; i < buffer.length; i++) {
     const line = buffer.getLine(i)
-    if (!line) {
-      rows.push({ text: '', wrapped: false })
-      continue
-    }
-    // A row a wrapped row follows keeps its trailing spaces: they are part of the line.
-    const text = line.translateToString(!buffer.getLine(i + 1)?.isWrapped)
-    const row: SearchRow = { text, wrapped: line.isWrapped }
-    // Wide characters (CJK, emoji) take two cells, so a position in the text is not a column.
-    // eslint-disable-next-line no-control-regex
-    if (/[^\x00-\x7e]/.test(text)) {
-      const cols: number[] = []
-      for (let x = 0; x < line.length; x++) {
-        const cell = line.getCell(x)
-        if (!cell || cell.getWidth() === 0) continue
-        const chars = cell.getChars() || ' '
-        for (let u = 0; u < chars.length; u++) cols.push(x)
-      }
-      cols.push(line.length)
-      // The text may be shorter than the row (its trailing spaces were cut): its end is where the next character would start.
-      if (cols.length >= text.length + 1) row.cols = cols.slice(0, text.length + 1)
-    }
-    rows.push(row)
+    rows.push(line ? readRow(line, Boolean(buffer.getLine(i + 1)?.isWrapped)) : { text: '', wrapped: false })
   }
   return rows
 }
@@ -137,7 +137,7 @@ export function searchRows(rows: SearchRow[], query: string, options: SearchOpti
           pattern.lastIndex++
           continue
         }
-        const segments = segmentsOf(rows, start, end, offsets, m.index, m.index + m[0].length)
+        const segments = spanSegments(rows, start, end, offsets, m.index, m.index + m[0].length)
         if (segments.length > 0) matches.push({ row: segments[0].row, col: segments[0].col, segments })
         if (matches.length >= limit) return { matches, truncated: true }
       }
@@ -147,7 +147,12 @@ export function searchRows(rows: SearchRow[], query: string, options: SearchOpti
   return { matches, truncated: false }
 }
 
-function segmentsOf(rows: SearchRow[], first: number, end: number, offsets: number[], from: number, to: number): SearchSegment[] {
+/**
+ * Where the characters `from` to `to` of a line are on screen, one segment per
+ * row they cover. The line is rows `first` up to `end` of `rows`; `offsets[i]`
+ * is where row `first + i` starts in the line's text.
+ */
+export function spanSegments(rows: SearchRow[], first: number, end: number, offsets: number[], from: number, to: number): SearchSegment[] {
   const segments: SearchSegment[] = []
   for (let r = first; r < end; r++) {
     const row = rows[r]
