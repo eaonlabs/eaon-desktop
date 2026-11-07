@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowDown, ArrowUp, ChevronDown, CloudUpload, ExternalLink, GitBranch, GitCommitHorizontal, GitCompareArrows, GitPullRequest, GitPullRequestCreate, Loader2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, CloudUpload, ExternalLink, GitBranch, GitCommitHorizontal, GitCompareArrows, GitPullRequest, GitPullRequestCreate, Loader2, ScanSearch } from 'lucide-react'
 import type { PullRequestInfo, ReviewFile } from '@shared/adeReview'
 import type { ChatGitStatus } from '@shared/chatCode'
+import { COMMIT_DIFF_CAP, PR_DIFF_CAP, describeSent, diffForModel } from '@shared/gitAssist'
 import { MenuItem, MenuSeparator, Modal, Popover, Switch, useDisclosure } from '../ui'
 import { notify } from '../Notice'
 import { useIde } from '../ide/ideStore'
 import { useChatCode } from './chatCodeStore'
 import { DiffStat } from './diff/DiffCard'
+import { AssistButton, AssistHint, NO_MODEL, assistError, useAssistModel } from './assist'
+import { LocalReviewDialog } from './LocalReview'
 
 /**
  * The top bar's Git control: one button for the next thing the branch needs
@@ -48,7 +51,7 @@ export function GitActions({ row = false }: { row?: boolean } = {}): JSX.Element
   const anchor = useRef<HTMLDivElement>(null)
   const menu = useDisclosure()
   const [busy, setBusy] = useState<Action | null>(null)
-  const [dialog, setDialog] = useState<'commit' | 'commit-push' | 'create-pr' | null>(null)
+  const [dialog, setDialog] = useState<'commit' | 'commit-push' | 'create-pr' | 'review' | null>(null)
   // undefined: not asked yet; null: asked, none open.
   const [pr, setPr] = useState<PullRequestInfo | null | undefined>(undefined)
   const branch = status?.branch ?? null
@@ -221,7 +224,17 @@ export function GitActions({ row = false }: { row?: boolean } = {}): JSX.Element
             useIde.getState().reviewChanges({ kind: 'git' })
           }}
         />
+        <MenuItem
+          icon={<ScanSearch size={15} strokeWidth={1.8} />}
+          title="Review changes with the model…"
+          disabled={!dirty}
+          onClick={() => {
+            menu.close()
+            setDialog('review')
+          }}
+        />
       </Popover>
+      {dialog === 'review' && <LocalReviewDialog cwd={folder} onClose={() => setDialog(null)} />}
       {(dialog === 'commit' || dialog === 'commit-push') && (
         <CommitDialog
           folder={folder}
@@ -259,6 +272,10 @@ function CommitDialog({ folder, status, push: pushFirst, onClose, onDone }: { fo
   const [push, setPush] = useState(pushFirst)
   const [files, setFiles] = useState<ReviewFile[] | null>(null)
   const [busy, setBusy] = useState(false)
+  const picked = useAssistModel()
+  const [writing, setWriting] = useState(false)
+  // What the last message was written from, as main sent it; until then, what would be sent.
+  const [sent, setSent] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     void window.api.chatCode
@@ -269,6 +286,22 @@ function CommitDialog({ folder, status, push: pushFirst, onClose, onDone }: { fo
       live = false
     }
   }, [folder])
+
+  const write = async (): Promise<void> => {
+    if (!picked || writing) return
+    setWriting(true)
+    try {
+      const res = await window.api.gitAssist.commitMessage(folder, picked)
+      if (res.ok) {
+        setMessage(res.message)
+        setSent(res.sent)
+      } else notify(res.error, 'error')
+    } catch (e) {
+      notify(assistError(e), 'error')
+    } finally {
+      setWriting(false)
+    }
+  }
 
   const commit = async (): Promise<void> => {
     if (!message.trim() || busy) return
@@ -340,6 +373,20 @@ function CommitDialog({ folder, status, push: pushFirst, onClose, onDone }: { fo
             }
           }}
         />
+        <div className="assist-row">
+          <AssistButton busy={writing} disabled={!picked || !files || files.length === 0} title={picked ? `Write the message with ${picked.label}` : NO_MODEL} onClick={() => void write()}>
+            {message.trim() ? 'Write a new message' : 'Write a message'}
+          </AssistButton>
+          <AssistHint>
+            {!picked
+              ? NO_MODEL
+              : sent
+                ? `Written by ${picked.label}. ${sent}`
+                : files
+                  ? `${describeSent(diffForModel(files, { cap: COMMIT_DIFF_CAP }), { to: picked.label })} You can edit what it writes.`
+                  : ' '}
+          </AssistHint>
+        </div>
         <div className="git-dialog__files scroll">
           {files === null ? (
             <div className="git-dialog__muted">
@@ -373,6 +420,9 @@ function PullRequestDialog({ folder, status, onClose, onDone }: { folder: string
   const [base, setBase] = useState('')
   const [bases, setBases] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const picked = useAssistModel()
+  const [writing, setWriting] = useState(false)
+  const [sent, setSent] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     void window.api.ade.baseBranches(folder).then(
@@ -397,6 +447,22 @@ function PullRequestDialog({ folder, status, onClose, onDone }: { folder: string
 
   const onDefault = Boolean(base && status.branch === base)
   const dirty = (status.changes?.files ?? 0) > 0
+  const write = async (): Promise<void> => {
+    if (!picked || !base || writing) return
+    setWriting(true)
+    try {
+      const res = await window.api.gitAssist.pullRequest(folder, base, picked)
+      if (res.ok) {
+        setTitle(res.title)
+        setBody(res.body)
+        setSent(res.sent)
+      } else notify(res.error, 'error')
+    } catch (e) {
+      notify(assistError(e), 'error')
+    } finally {
+      setWriting(false)
+    }
+  }
   const create = async (): Promise<void> => {
     if (!title.trim() || busy || onDefault) return
     setBusy(true)
@@ -460,6 +526,18 @@ function PullRequestDialog({ folder, status, onClose, onDone }: { folder: string
         {dirty && <p className="git-dialog__warn">There are uncommitted changes. Only what is committed goes into the pull request.</p>}
         <input aria-label="Title" className="input" placeholder="Title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
         <textarea aria-label="Description" className="input git-dialog__message" rows={6} placeholder="What it changes and why" value={body} onChange={(e) => setBody(e.target.value)} />
+        <div className="assist-row">
+          <AssistButton busy={writing} disabled={!picked || !base || onDefault} title={picked ? `Write the title and description with ${picked.label}` : NO_MODEL} onClick={() => void write()}>
+            Write with the model
+          </AssistButton>
+          <AssistHint>
+            {!picked
+              ? NO_MODEL
+              : sent
+                ? `Written by ${picked.label}. ${sent}`
+                : `Sends the branch’s commit subjects and its diff against ${base || 'the base branch'} (up to ${PR_DIFF_CAP.toLocaleString('en-US')} characters, long files cut) to ${picked.label}, with the repository’s pull request template if it has one. You can edit what it writes.`}
+          </AssistHint>
+        </div>
       </div>
     </Modal>
   )

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronRight, ExternalLink, GitPullRequest, Loader2, MessageSquarePlus, Pencil, RefreshCw, Send, X } from 'lucide-react'
+import { ChevronRight, ExternalLink, GitPullRequest, Loader2, MessageSquarePlus, Pencil, RefreshCw, ScanSearch, Send, X } from 'lucide-react'
 import { Code } from '../agent/FileDiff'
 import { Markdown } from '../agent/Markdown'
 import { Segmented, Select } from '../ui'
@@ -12,6 +12,9 @@ import { useTerminals } from './terminal/terminalStore'
 import { useReview } from './reviewStore'
 import { ReviewChecks } from './ReviewChecks'
 import { ReviewConflicts } from './ReviewConflicts'
+import { AssistButton, AssistHint, NO_MODEL, assistError, useAssistModel } from '../chatCode/assist'
+import { LocalReviewDialog } from '../chatCode/LocalReview'
+import { COMMIT_DIFF_CAP, PR_DIFF_CAP, type Finding } from '@shared/gitAssist'
 import {
   formatReviewComments,
   isRange,
@@ -109,6 +112,12 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
   const [bases, setBases] = useState<{ default: string | null; branches: string[] } | null>(null)
   const [method, setMethod] = useState<'squash' | 'merge' | 'rebase'>('squash')
   const [target, setTarget] = useState<string>('')
+  const picked = useAssistModel()
+  /** The model is writing the commit message or the pull request's words; and what the last of each was written from. */
+  const [writing, setWriting] = useState<'commit' | 'pr' | null>(null)
+  const [sentCommit, setSentCommit] = useState<string | null>(null)
+  const [sentPr, setSentPr] = useState<string | null>(null)
+  const [reviewing, setReviewing] = useState(false)
   /** Merge, and clearing every comment, ask once more before they go: the first click arms them for a few seconds. */
   const [armed, setArmed] = useState<'merge' | 'clear' | null>(null)
   useEffect(() => {
@@ -269,6 +278,46 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
     }
   }
 
+  const writeCommit = async (): Promise<void> => {
+    if (!picked || writing) return
+    setWriting('commit')
+    try {
+      const res = await window.api.gitAssist.commitMessage(cwd, picked)
+      if (res.ok) {
+        setMessage(res.message)
+        setSentCommit(res.sent)
+      } else notify(res.error, 'error')
+    } catch (e) {
+      notify(assistError(e), 'error')
+    } finally {
+      setWriting(null)
+    }
+  }
+
+  const writePr = async (): Promise<void> => {
+    const base = pr.base || baseName
+    if (!picked || !base || writing) return
+    setWriting('pr')
+    try {
+      const res = await window.api.gitAssist.pullRequest(cwd, base, picked)
+      if (res.ok) {
+        setPr((p) => ({ ...p, title: res.title, body: res.body }))
+        setSentPr(res.sent)
+      } else notify(res.error, 'error')
+    } catch (e) {
+      notify(assistError(e), 'error')
+    } finally {
+      setWriting(null)
+    }
+  }
+
+  /** A finding of the model's review, as a comment on its line in the diff, to send to an agent like the rest. */
+  const addFinding = (f: Finding): void => {
+    const side = 'new' as const
+    const dup = comments.some((c) => c.path === f.path && c.line === f.line && c.body === f.body)
+    if (!dup) addComment(cwd, { id: newId(), path: f.path, side, line: f.line, endLine: undefined, quote: f.quote ?? '', body: f.body })
+  }
+
   const prInfo = state?.github?.pr ?? null
   const conflictsWithBase = Boolean(prInfo && prInfo.state === 'OPEN' && (prInfo.mergeState === 'DIRTY' || prInfo.mergeable === 'CONFLICTING'))
   const behindBase = Boolean(state && (state.behindBase > 0 || (prInfo?.state === 'OPEN' && prInfo.mergeState === 'BEHIND')))
@@ -363,6 +412,7 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
 
   return (
     <aside className="review" aria-label="Review">
+      {reviewing && <LocalReviewDialog cwd={cwd} onClose={() => setReviewing(false)} onOpen={false} onAdd={addFinding} addLabel="Add as a review comment" />}
       <header className="review__head">
         <div className="review__title">
           <span>Review</span>
@@ -472,6 +522,9 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                     <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null || state.ahead === 0} onClick={() => void fillFromCommits()} title="Title and description from this branch’s commits">
                       {busy === 'fill' ? 'Filling…' : 'Fill from commits'}
                     </button>
+                    <AssistButton busy={writing === 'pr'} disabled={busy !== null || state.ahead === 0 || !picked} title={picked ? `Write the title and description with ${picked.label}` : NO_MODEL} onClick={() => void writePr()}>
+                      Write with the model
+                    </AssistButton>
                     <button
                       type="submit"
                       className="btn btn--primary btn--sm"
@@ -482,6 +535,13 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                     </button>
                   </div>
                   {state.ahead === 0 && <p className="review__muted">Commit the changes below first.</p>}
+                  <AssistHint>
+                    {!picked
+                      ? NO_MODEL
+                      : sentPr
+                        ? `Written by ${picked.label}. ${sentPr}`
+                        : `Write with the model sends the branch’s commit subjects and its diff against ${pr.base || baseName} (up to ${PR_DIFF_CAP.toLocaleString('en-US')} characters, long files cut) to ${picked.label}, with the repository’s pull request template if it has one.`}
+                  </AssistHint>
                 </form>
               )}
               {state.github && !state.github.pr && state.github.runs && state.github.runs.length > 0 && (
@@ -530,10 +590,23 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                   }}
                 />
                 <div className="review__actions">
+                  <AssistButton busy={writing === 'commit'} disabled={busy !== null || !picked} title={picked ? `Write the message with ${picked.label}` : NO_MODEL} onClick={() => void writeCommit()}>
+                    Write a message
+                  </AssistButton>
+                  <button type="button" className="btn btn--ghost btn--sm" disabled={busy !== null || !picked} title={picked ? 'Have the model read the uncommitted changes and list what looks wrong' : NO_MODEL} onClick={() => setReviewing(true)}>
+                    <ScanSearch size={13} strokeWidth={2} /> Review
+                  </button>
                   <button type="submit" className="btn btn--sm" disabled={busy !== null || !message.trim()}>
                     {busy === 'commit' ? 'Committing…' : 'Commit all'}
                   </button>
                 </div>
+                <AssistHint>
+                  {!picked
+                    ? NO_MODEL
+                    : sentCommit
+                      ? `Written by ${picked.label}. ${sentCommit}`
+                      : `Write a message and Review send the uncommitted diff (up to ${COMMIT_DIFF_CAP.toLocaleString('en-US')} characters for a message, long files cut, secret-looking files never read) to ${picked.label}.`}
+                </AssistHint>
               </form>
             )}
             {state.uncommitted === 0 && state.github === null && state.ahead > 0 && (state.upstream === null || state.upstream.ahead > 0) && (

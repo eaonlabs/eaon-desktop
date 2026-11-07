@@ -41,6 +41,7 @@ import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
 import { modsFeature } from './mods'
+import { gitAssistFeature } from './gitAssist'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -97,5 +98,7 @@ export const FEATURES: Feature[] = [
   toknCliFeature,
   freeCreditsFeature,
   cliAccountsFeature,
-  discordPresenceFeature
+  discordPresenceFeature,
+  // After the ADE, whose sessions' folders it may work in.
+  gitAssistFeature
 ]

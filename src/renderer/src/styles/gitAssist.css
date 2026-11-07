@@ -1,0 +1,110 @@
+/* The model's help with git: the sparkle button, the line saying what is sent, and the review of the changes. */
+.assist-btn {
+  gap: 6px;
+}
+.assist-btn svg:not(.spinner) {
+  color: var(--accent);
+}
+.assist-hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  line-height: 1.45;
+}
+.assist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.assist-row > .assist-hint {
+  flex: 1;
+  min-width: 0;
+}
+
+.local-review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.local-review__summary {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.local-review__file {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.local-review__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+}
+.local-review__name {
+  color: var(--text);
+  font-weight: 500;
+}
+.local-review__dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-review__count {
+  margin-left: auto;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.local-review__finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.local-review__body {
+  flex: 1;
+  min-width: 0;
+}
+.local-review__body p {
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.local-review__line {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+}
+.local-review__open {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+}
+.local-review__open:hover {
+  color: var(--text);
+}
+.local-review__note {
+  margin-left: 8px;
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+}
+.local-review__actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
