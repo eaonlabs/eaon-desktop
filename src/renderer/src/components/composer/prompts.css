@@ -1,0 +1,79 @@
+/* The prompt library dialog (composer/PromptLibrary.tsx). */
+
+.prompts__bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.prompts__bar .search-field {
+  flex: 1;
+  min-width: 0;
+}
+.prompts__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(380px, 50vh);
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--r-sm);
+}
+.prompt-row:hover {
+  background: var(--hover);
+}
+.prompt-row__main {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: var(--r-sm);
+}
+.prompt-row__name {
+  display: block;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt-row__text {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prompt-row__tools {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+}
+.prompts__empty {
+  padding: 18px 8px;
+  text-align: center;
+  color: var(--text-3);
+}
+.prompts__form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.prompts__form .input[rows] {
+  min-height: 160px;
+  font-family: inherit;
+}
+.prompts__error {
+  color: var(--danger);
+}

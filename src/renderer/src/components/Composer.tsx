@@ -55,6 +55,9 @@ import { errorText } from '../lib/errors'
 import { sentPrompts } from '../state/chatEdits'
 import { rewindFiles } from './chatCode/turnUndo'
 import { dropStashed, stashPrompt, stashTitle, takeStashed, useStash } from '../state/stash'
+import { Bookmark } from 'lucide-react'
+import { PromptLibrary } from './composer/PromptLibrary'
+import { savedPromptItems } from './composer/promptItems'
 import { ago } from '@shared/modelSelection'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
@@ -176,6 +179,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const stashAnchor = useRef<HTMLDivElement>(null)
   const stashMenu = useDisclosure()
   const stashed = useStash((s) => s.list)
+  // The prompt library (composer/PromptLibrary.tsx), from the + menu or "/".
+  const [library, setLibrary] = useState(false)
   // ⇧⌘V: the next paste stays in the box however long it is.
   const pasteInline = useRef(false)
 
@@ -462,7 +467,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // The project's files for "@": read when the menu first asks (loadFiles only reads, then sets later).
   const projectFiles = useChatCode((s) => (isAgent ? s.files : null))
   const sources: SuggestSources = {
-    '/': () => {
+    '/': (query: string) => {
       const items: SuggestItem[] = [
         { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles }
       ]
@@ -498,6 +503,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
         )
       }
+      // The prompt library, and with something typed, each saved prompt by name.
+      items.push(...savedPromptItems(() => setLibrary(true), query))
       items.push(
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
         { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
@@ -847,6 +854,22 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           setGoalArmed(!goalArmed)
           textarea.current?.focus()
         }}
+        onPrompts={() => setLibrary(true)}
+      />
+      <PromptLibrary
+        open={library}
+        onClose={() => setLibrary(false)}
+        typed={text}
+        onUse={(prompt) => {
+          setLibrary(false)
+          // As a stashed prompt comes back: after what is already in the box.
+          setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${prompt}` : prompt))
+          requestAnimationFrame(() => {
+            const node = textarea.current
+            node?.focus()
+            node?.setSelectionRange(node.value.length, node.value.length)
+          })
+        }}
       />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
       <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
@@ -1017,7 +1040,8 @@ function AddMenu({
   onClose,
   onAttach,
   goalArmed,
-  onGoal
+  onGoal,
+  onPrompts
 }: {
   anchor: React.RefObject<HTMLElement>
   open: boolean
@@ -1025,6 +1049,7 @@ function AddMenu({
   onAttach: (paths: string[]) => void
   goalArmed: boolean
   onGoal: () => void
+  onPrompts: () => void
 }): JSX.Element {
   const { settings, patchSettings, workIn, setSettingsPage, toggleBrowser } = useApp(
     useShallow((s) => ({
@@ -1057,6 +1082,16 @@ function AddMenu({
           void window.api.app
             .openFiles({ properties: isAgent ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'] })
             .then(onAttach)
+        }}
+      />
+      <MenuItem
+        icon={<Bookmark size={16} strokeWidth={1.8} />}
+        title="Saved prompts"
+        hint="Your prompt library"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          close()
+          onPrompts()
         }}
       />
       {isAgent && (
