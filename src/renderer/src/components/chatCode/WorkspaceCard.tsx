@@ -9,6 +9,7 @@ import { useChatCode } from './chatCodeStore'
 import { OpenInButton, ScriptsButton } from './CodeTools'
 import { DiffStat } from './diff/DiffCard'
 import { GitActions } from './GitActions'
+import { RulesPart } from './RulesPart'
 import { RunningPart } from './RunningPart'
 
 /**
@@ -80,6 +81,7 @@ export function WorkspaceCard({ over = false }: { over?: boolean } = {}): JSX.El
         {folder && <ScriptsButton place="card" />}
       </div>
       {folder && <VersionPart repo={repo} />}
+      {folder && <RulesPart />}
       {folder && <RunningPart />}
     </aside>
   )

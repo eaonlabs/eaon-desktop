@@ -1085,3 +1085,9 @@ button.ws-row:hover,
   color: var(--text-3);
   font-size: var(--fs-sm);
 }
+
+/* The card's Rules part (chatCode/RulesPart.tsx): a rules file found and left out reads quieter. */
+.ws-row--muted,
+.ws-row--muted .ws-row__icon {
+  color: var(--text-3);
+}

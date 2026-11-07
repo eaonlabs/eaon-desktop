@@ -47,6 +47,8 @@ import { gitHistoryFeature } from './gitHistory'
 import { personalizeFeature } from './personalize'
 import { chatExportFeature } from './chatExport'
 import { savedPromptsFeature } from './savedPrompts'
+import { chatContextFeature } from './chatContext'
+import { sideQuestionFeature } from './sideQuestion'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -111,5 +113,8 @@ export const FEATURES: Feature[] = [
   // After the ADE, whose sessions' folders it may work in.
   gitAssistFeature,
   searchReplaceFeature,
-  gitHistoryFeature
+  gitHistoryFeature,
+  // What Chat's message box pulls in (git, terminals, rules files, prompt commands); reads the chat folders the dock may.
+  chatContextFeature,
+  sideQuestionFeature
 ]

@@ -405,3 +405,14 @@ export const usageFeature: Feature = {
     flushCliLogs()
   }
 }
+
+/**
+ * Tokn's price table, for what Chat prices a conversation's tokens with
+ * (chatContext/cost.ts). The last copy is used at once while a stale one is
+ * fetched again; only a computer that has never had one waits for it.
+ */
+export async function loadedPricing(): Promise<ToknPricing> {
+  const loading = loadPricing()
+  if (Object.keys(pricing.models).length === 0) await loading
+  return pricing.models
+}

@@ -40,6 +40,8 @@ import { chatCodeApi } from './features/chatCode'
 import { gitAssistApi } from './features/gitAssist'
 import { searchReplaceApi } from './features/searchReplace'
 import { gitHistoryApi } from './features/gitHistory'
+import { chatContextApi } from './features/chatContext'
+import { sideQuestionApi } from './features/sideQuestion'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
@@ -381,7 +383,9 @@ const fullApi = {
   mods: modsApi,
   gitAssist: gitAssistApi,
   searchReplace: searchReplaceApi,
-  gitHistory: gitHistoryApi
+  gitHistory: gitHistoryApi,
+  chatContext: chatContextApi,
+  sideQuestion: sideQuestionApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

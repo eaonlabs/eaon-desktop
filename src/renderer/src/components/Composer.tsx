@@ -21,6 +21,7 @@ import {
   Target,
   AtSign,
   Clock3,
+  MessageCircleQuestion,
   MessageSquarePlus,
   Sparkles,
   X,
@@ -37,6 +38,10 @@ import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
 import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
+import { useChatContext } from './composer/useChatContext'
+import { SideQuestion } from './chat/SideQuestion'
+import { useSideQuestion } from '../state/sideQuestion'
+import { parseSideQuestion } from '@shared/sideQuestion'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
@@ -290,6 +295,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerAppend, appendToComposer])
 
+  // A side question belongs to the chat it was asked in: leaving the chat puts it away.
+  useEffect(() => () => useSideQuestion.getState().close(), [])
+
   const submit = (): void => {
     if (streaming) {
       // Stopping is a moment to look again: whatever is queued waits.
@@ -297,6 +305,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
+    if (askSide()) return
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
@@ -308,20 +317,38 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           setRewindError(result.error ?? 'The files couldn’t be put back.')
           return
         }
-        resendFrom(messageId, text, options)
+        resendFrom(messageId, context.expand(text), options)
         clearBox()
       })
       return
     }
-    if (editing) resendFrom(editing, text, options)
-    else void send(text, options)
+    // "/name args" for a prompt file goes as the file's prompt, filled in.
+    const sent = context.expand(text)
+    if (editing) resendFrom(editing, sent, options)
+    else void send(sent, options)
     clearBox()
+  }
+
+  /**
+   * "/btw …" is a side question: answered in a card, never sent into the chat
+   * or queued behind a reply. True when the text was one (nothing else then runs).
+   */
+  const askSide = (): boolean => {
+    const question = parseSideQuestion(text)
+    if (question === null) return false
+    if (!question) notify('Type your question after /btw, for example: /btw what does that flag do?')
+    else {
+      useSideQuestion.getState().ask(question)
+      setText('')
+    }
+    return true
   }
 
   /** While a reply is being written: the message waits, under the conversation, to go after it. */
   const queueMessage = (): void => {
+    if (askSide()) return
     if (!activeChatId || noModel || editing || (!text.trim() && attachments.length === 0)) return
-    enqueue(activeChatId, text, attachments)
+    enqueue(activeChatId, context.expand(text), attachments)
     clearBox()
   }
 
@@ -466,6 +493,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
    */
   // The project's files for "@": read when the menu first asks (loadFiles only reads, then sets later).
   const projectFiles = useChatCode((s) => (isAgent ? s.files : null))
+  // Git changes, terminal output and earlier chats, attached to the message when picked.
+  const context = useChatContext({ cwd, addAttachments })
   const sources: SuggestSources = {
     '/': (query: string) => {
       const items: SuggestItem[] = [
@@ -507,9 +536,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       items.push(...savedPromptItems(() => setLibrary(true), query))
       items.push(
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
-        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
+        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
+        { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
-      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...modCommandItems('chat')] : [...items, ...modCommandItems('chat')]
+      return isAgent
+        ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query), ...modCommandItems('chat')]
+        : [...items, ...context.commandItems(query), ...modCommandItems('chat')]
     },
     ...(isAgent
       ? {
@@ -526,13 +558,14 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
                 onBrowser: () => toggleBrowser(true),
                 onComputerSettings: () => setSettingsPage('computer-use')
               }),
+              ...context.mentionItems(query),
               ...fileMentionItems(projectFiles ?? [], query)
             ]
           }
         }
       : {})
   }
-  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, plugins and tools' } })
+  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, git, terminals, chats, plugins and tools' } })
   const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)
@@ -745,6 +778,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
+      <SideQuestion />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">
