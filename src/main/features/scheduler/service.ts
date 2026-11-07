@@ -1,14 +1,17 @@
 import { app, Notification, powerMonitor, type WebContents } from 'electron'
-import { mergeRunChat, ORDER_WATCH_MS, type ScheduledTask, type TaskDraft, type TaskRun } from '@shared/scheduler'
+import { mergeRunChat, ORDER_WATCH_MS, type HookStatus, type ScheduledTask, type TaskDraft, type TaskRun } from '@shared/scheduler'
 import { orderSettled } from '@shared/payments'
 import type { Chat } from '@shared/types'
 import { runAgent } from '../../agent/loop'
 import { registerToolSource } from '../../agent/tools'
+import { HookError, setHookTarget } from '../../control/hooks'
+import { secrets } from '../../secrets'
 import { store } from '../../store'
 import { currentZone } from '../../timezone'
 import { findPurchase, mayHaveBoughtSince, planPurchases, purchasesKnown } from '../payments/plans'
 import type { FeatureContext } from '../types'
 import { SchedulerEngine, type RunResult } from './engine'
+import { AutomationHooks, HOOK_PATH, HOOK_VAULT_PREFIX } from './hooks'
 import { RUNS_FILE, TASKS_FILE } from './migrate'
 import { runScheduledTask, type ChatSink, type RunAgent } from './runner'
 import { scheduleToolSource } from './tool'
@@ -38,8 +41,16 @@ const STARTUP_GRACE_MS = 10_000
 const WATCH_FIRST_CHECK_MS = 4 * 60 * 60_000
 const WATCH_EVERY_HOURS = 12
 
+/** What the page needs to give a webhook's address: where the Local API Server answers, and whether it is running. */
+export interface HookBase {
+  url: string
+  running: boolean
+}
+
 export interface SchedulerOverrides {
   runAgent?: RunAgent
+  hooks?: AutomationHooks
+  hookBase?: () => HookBase
   now?: () => number
   monotonic?: () => number
   zone?: () => string
@@ -48,6 +59,9 @@ export interface SchedulerOverrides {
 
 export interface SchedulerService {
   engine: SchedulerEngine
+  hooks: AutomationHooks
+  /** An automation's webhook as the page shows it. */
+  hookStatus: (taskId: string) => HookStatus
   sink: ChatSink
   registerIpc: () => void
   /** Loads tasks now; firing starts once the renderer is ready, or after a grace period. */
@@ -97,6 +111,7 @@ export function cutOffPurchasesToRetry(
 /** How often, and how many times, launch looks again for the payments engine before giving up on cut-off purchases. */
 const RESUME_WAIT_MS = 2_000
 const RESUME_TRIES = 30
+const HOOKS_FILE = 'scheduler-hooks.json'
 
 export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrides = {}): SchedulerService {
   /** Pages that have said they are ready (one per window), until they reload or close. */
@@ -266,6 +281,44 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     }
   })
 
+  const hooks =
+    overrides.hooks ??
+    new AutomationHooks({
+      load: () => store.getJson<unknown>(HOOKS_FILE, {}),
+      save: (info) => store.setJson(HOOKS_FILE, info),
+      getSecret: (taskId) => secrets.get(`${HOOK_VAULT_PREFIX}${taskId}`),
+      setSecret: (taskId, secret) => secrets.set(`${HOOK_VAULT_PREFIX}${taskId}`, secret ?? '')
+    })
+
+  const hookStatus = (taskId: string): HookStatus => {
+    const secret = hooks.secretOf(taskId)
+    const stats = hooks.stats(taskId)
+    const base = overrides.hookBase?.() ?? { url: `http://127.0.0.1:${store.getSettings().localServer.port || 1337}`, running: false }
+    return {
+      on: secret !== null,
+      url: secret ? `${base.url}${HOOK_PATH}${secret}` : null,
+      serverRunning: secret !== null && base.running,
+      calls: secret ? (stats?.calls ?? 0) : 0,
+      lastCalledAt: secret ? (stats?.lastCalledAt ?? null) : null
+    }
+  }
+
+  /** What a call to a webhook does: finds its automation and starts it with the body as input. Refuses a paused one. */
+  const startFromHook = (secret: string, text: string): { automation: string; runId: string } => {
+    const taskId = hooks.find(secret)
+    const task = taskId ? engine.list().find((t) => t.id === taskId) : undefined
+    if (!taskId || !task) throw new HookError(404, 'No such webhook.')
+    // Paused means the user stopped it; a call from outside doesn't start it again.
+    if (!task.enabled) throw new HookError(409, `“${task.name}” is paused.`)
+    try {
+      const run = engine.runNow(taskId, { source: 'webhook', label: 'Webhook call', text })
+      hooks.record(taskId)
+      return { automation: task.name, runId: run.id }
+    } catch (error) {
+      throw new HookError(409, error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const startEngine = (): void => {
     if (startTimer) clearTimeout(startTimer)
     startTimer = null
@@ -334,7 +387,10 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     const { ipcMain } = ctx
     ipcMain.handle('scheduler:list', () => engine.list())
     ipcMain.handle('scheduler:save', (_e, draft: TaskDraft) => engine.save(draft))
-    ipcMain.handle('scheduler:remove', (_e, id: string) => engine.remove(id))
+    ipcMain.handle('scheduler:remove', (_e, id: string) => {
+      engine.remove(id)
+      hooks.prune(new Set(engine.list().map((t) => t.id)))
+    })
     ipcMain.handle('scheduler:set-enabled', (_e, id: string, enabled: boolean) => engine.setEnabled(id, enabled))
     ipcMain.handle('scheduler:run-now', (_e, id: string) => engine.runNow(id))
     ipcMain.handle('scheduler:retry', (_e, id: string, runId: string) => engine.retry(String(id), String(runId)))
@@ -352,15 +408,36 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
       return imported
     })
     ipcMain.handle('scheduler:open-chat', (_e, chatId: string) => openChat(chatId))
+    // An automation's webhook: off until turned on, and its address is only given while it is on.
+    ipcMain.handle('scheduler:hook', (_e, id: string) => hookStatus(String(id)))
+    ipcMain.handle('scheduler:set-hook', (_e, id: string, on: boolean) => {
+      const taskId = String(id)
+      const task = engine.list().find((t) => t.id === taskId)
+      if (!task) throw new Error('That scheduled task no longer exists.')
+      if (on === true) {
+        if (task.purchase || task.watch) throw new Error('This one makes purchases, so it can only run on its schedule or when you run it.')
+        hooks.enable(taskId)
+      } else hooks.disable(taskId)
+      return hookStatus(taskId)
+    })
+    ipcMain.handle('scheduler:new-hook-url', (_e, id: string) => {
+      hooks.rotate(String(id))
+      return hookStatus(String(id))
+    })
     ipcMain.handle('scheduler:ready', (event) => ready(event.sender))
   }
 
   return {
     engine,
+    hooks,
+    hookStatus,
     sink,
     registerIpc,
     start: () => {
       engine.load()
+      hooks.load()
+      hooks.prune(new Set(engine.list().map((t) => t.id)))
+      setHookTarget({ start: startFromHook })
       registerToolSource(scheduleToolSource(engine))
       // Sleep suspends timers; check the moment the machine wakes, and say
       // so on anything that came due meanwhile.
@@ -369,6 +446,7 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
       startTimer.unref?.()
     },
     stop: () => {
+      setHookTarget(null)
       if (startTimer) clearTimeout(startTimer)
       if (resumeTimer) clearTimeout(resumeTimer)
       resumeTimer = null

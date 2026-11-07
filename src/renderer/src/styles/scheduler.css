@@ -575,3 +575,30 @@
     animation: none;
   }
 }
+
+/* An automation's webhook: a switch, and while it is on its address with a copy button. */
+.sched-hook {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.sched-hook__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sched-hook__url {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.sched-hook__note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.sched-hook__note--warn {
+  color: var(--text-2);
+}

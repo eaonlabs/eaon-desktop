@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { ScheduledTask, TaskDraft, TaskRun } from '@shared/scheduler'
+import type { HookStatus, ScheduledTask, TaskDraft, TaskRun } from '@shared/scheduler'
 import type { Chat } from '@shared/types'
 
 /**
@@ -25,6 +25,11 @@ export const schedulerApi = {
   cancel: (id: string): Promise<void> => ipcRenderer.invoke('scheduler:cancel', id),
   /** One-time import of tasks the old page kept in localStorage. Resolves to how many were imported. */
   importLegacy: (drafts: TaskDraft[]): Promise<number> => ipcRenderer.invoke('scheduler:import', drafts),
+  /** An automation's webhook: off until turned on; its address (which holds its secret) is only returned while it is on. */
+  hook: (id: string): Promise<HookStatus> => ipcRenderer.invoke('scheduler:hook', id),
+  setHook: (id: string, on: boolean): Promise<HookStatus> => ipcRenderer.invoke('scheduler:set-hook', id, on),
+  /** A new secret: the old address stops working at once. */
+  newHookUrl: (id: string): Promise<HookStatus> => ipcRenderer.invoke('scheduler:new-hook-url', id),
   /** Raises the window and opens a chat — what a notification click does. */
   openChat: (chatId: string): Promise<void> => ipcRenderer.invoke('scheduler:open-chat', chatId),
   /**

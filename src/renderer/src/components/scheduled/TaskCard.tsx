@@ -4,6 +4,7 @@ import { formatMoney } from '@shared/payments'
 import { describeSchedule, runReason, type ScheduledTask, type TaskRun } from '@shared/scheduler'
 import { Switch } from '../ui'
 import { formatDuration, formatRelative, formatStamp, formatWhen, STATUS_LABEL } from './format'
+import { HookControl } from './HookControl'
 
 /** One scheduled task: what it does, when it runs next, how the last runs went. */
 
@@ -18,6 +19,7 @@ interface Props {
   onRetry: (task: ScheduledTask, run: TaskRun) => void
   onStop: (task: ScheduledTask) => void
   onOpenChat: (chatId: string) => void
+  onError: (message: string) => void
 }
 
 const MACHINE = navigator.platform.startsWith('Mac') ? 'Mac' : 'computer'
@@ -220,7 +222,8 @@ export const TaskCard = memo(function TaskCard({
   onRunNow,
   onRetry,
   onStop,
-  onOpenChat
+  onOpenChat,
+  onError
 }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   // A slot skipped while a run goes on is newer than that run; the run is
@@ -303,6 +306,15 @@ export const TaskCard = memo(function TaskCard({
             )}
           </dd>
         </div>
+        {/* A purchase's orders and an order's tracking run on their own terms; nothing outside starts them. */}
+        {!task.purchase && !task.watch && (
+          <div className="sched-fact">
+            <dt>Webhook</dt>
+            <dd>
+              <HookControl task={task} now={now} onError={onError} />
+            </dd>
+          </div>
+        )}
       </dl>
 
       {task.history.length > 0 && (

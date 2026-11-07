@@ -139,6 +139,7 @@ export function ScheduledPage(): JSX.Element {
                   onRetry={onRetry}
                   onStop={onStop}
                   onOpenChat={onOpenChat}
+                  onError={setError}
                 />
               ))}
             </div>
