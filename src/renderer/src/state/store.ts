@@ -62,6 +62,8 @@ interface AppState {
   modelsRepo: string | null
   activeChatId: string | null
   pendingProjectId: string | null
+  /** The start page's Temporary chat switch: the chat it starts is never saved. */
+  pendingTemporary: boolean
   navPast: NavEntry[]
   navFuture: NavEntry[]
   sidebarOpen: boolean
@@ -132,6 +134,9 @@ interface AppState {
   toggleBrowser: (open?: boolean) => void
 
   newChat: (projectId?: string | null) => void
+  /** The start page, with the next chat it starts temporary (or not): kept in this window only, gone when it is left. */
+  startTemporaryChat: () => void
+  setPendingTemporary: (on: boolean) => void
   openChat: (id: string) => void
   deleteChat: (id: string) => void
   archiveChat: (id: string) => void
@@ -310,7 +315,7 @@ function saveChatsNow(checkpoint = false): void {
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
   const previous = synced
-  synced = new Map(chats.map((chat) => [chat.id, chat]))
+  synced = new Map(chats.filter((chat) => !chat.temporary).map((chat) => [chat.id, chat]))
   if (upserts.length === 0 && removed.length === 0) return
   // A checkpoint is not broadcast: other windows watching the reply have it
   // live from the stream, and a copy a few tokens old would put theirs back.
@@ -734,6 +739,7 @@ export const useApp = create<AppState>((set, get) => ({
   modelsRepo: null,
   activeChatId: null,
   pendingProjectId: null,
+  pendingTemporary: false,
   navPast: [],
   navFuture: [],
   sidebarOpen: true,
@@ -920,9 +926,18 @@ export const useApp = create<AppState>((set, get) => ({
       navFuture: [],
       activeChatId: null,
       view: 'chat',
-      pendingProjectId: projectId
+      pendingProjectId: projectId,
+      pendingTemporary: false
     }))
   },
+
+  startTemporaryChat: () => {
+    get().newChat()
+    set({ pendingTemporary: true })
+  },
+
+  // A temporary chat has no project: the folder, its tools and its checkpoints all outlive it.
+  setPendingTemporary: (on) => set(on ? { pendingTemporary: true, pendingProjectId: null } : { pendingTemporary: false }),
 
   openChat: (id) => {
     const current = { view: get().view, activeChatId: get().activeChatId }
@@ -952,6 +967,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   archiveChat: (id) => {
+    // Nothing to put away: a temporary chat isn't kept.
+    if (get().chats.some((c) => c.id === id && c.temporary)) return get().deleteChat(id)
     if (get().runs[id]) get().stop(id)
     const chats = get().chats.map((c) => (c.id === id ? { ...c, archived: true } : c))
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
@@ -974,7 +991,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   moveChat: (id, projectId) => {
-    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, projectId } : c)) }))
+    set((s) => ({ chats: s.chats.map((c) => (c.id === id && !c.temporary ? { ...c, projectId } : c)) }))
     persistChats()
   },
 
@@ -1033,7 +1050,7 @@ export const useApp = create<AppState>((set, get) => ({
       chat = {
         id: uid(),
         workspaceId: settings.activeWorkspaceId,
-        projectId: state.pendingProjectId,
+        projectId: state.pendingTemporary ? null : state.pendingProjectId,
         title: (text.trim() || options.attachments?.[0]?.split(/[\\/]/).pop() || 'New chat').split('\n')[0].slice(0, 60),
         messages: [userMessage, assistantMessage],
         createdAt: now,
@@ -1043,6 +1060,7 @@ export const useApp = create<AppState>((set, get) => ({
         unread: false,
         modelId: engine ? engineModel || engine : (model?.id ?? null),
         effort: settings.effort,
+        ...(state.pendingTemporary ? { temporary: true } : {}),
         ...(goal ? { goal } : {})
       }
       chats = [chat, ...state.chats]
@@ -1057,7 +1075,13 @@ export const useApp = create<AppState>((set, get) => ({
 
     ownedRuns.add(assistantMessage.id)
     const runningIn = chat.id
-    set((s) => ({ chats, runs: { ...s.runs, [runningIn]: assistantMessage.id }, ...(background ? {} : { activeChatId: runningIn, view: 'chat' as const }) }))
+    set((s) => ({
+      chats,
+      runs: { ...s.runs, [runningIn]: assistantMessage.id },
+      ...(background ? {} : { activeChatId: runningIn, view: 'chat' as const }),
+      // The switch was for the chat just started; the next one starts as usual.
+      ...(into ? {} : { pendingTemporary: false })
+    }))
     // Saved straight away rather than debounced: other windows need the new
     // messages before the reply's first words reach them.
     saveChatsNow()
@@ -1108,7 +1132,8 @@ export const useApp = create<AppState>((set, get) => ({
 
     const request: StreamRequest = {
       chatId: current.id,
-      chatTitle: current.title,
+      // The notification for a finished task shows this: nothing of a temporary chat's words.
+      chatTitle: current.temporary ? 'Temporary chat' : current.title,
       messageId: assistantMessage.id,
       providerId: engine ?? model!.providerId,
       modelId: engine ? engineModel : model!.id,
@@ -1127,7 +1152,7 @@ export const useApp = create<AppState>((set, get) => ({
       goal: current.goal?.status === 'active' ? current.goal : null
     }
     // A chat's first turn on Eaon's own loop: its model names it once the reply is in.
-    if (!engine && current.messages.length === 2 && text.trim())
+    if (!engine && !current.temporary && current.messages.length === 2 && text.trim())
       toName.set(assistantMessage.id, { chatId: current.id, title: current.title, providerId: model!.providerId, modelId: model!.id, message: text })
     try {
       await window.api.chat.stream(request)
@@ -1316,7 +1341,7 @@ export const useApp = create<AppState>((set, get) => ({
     const projectId = folder ? get().projectForFolder(folder).id : null
     const chatId = get().activeChatId
     if (chatId) get().moveChat(chatId, projectId)
-    else set({ pendingProjectId: projectId })
+    else set({ pendingProjectId: projectId, ...(projectId ? { pendingTemporary: false } : {}) })
     set({ indexStatus: null })
     // A folder new to the agent has no index yet, and its search tools are
     // useless until it does — so start building it now.
@@ -1418,7 +1443,7 @@ export const useApp = create<AppState>((set, get) => ({
     const workspaceId = settings?.activeWorkspaceId
     if (chatsCache && chatsCache.chats === chats && chatsCache.workspaceId === workspaceId) return chatsCache.visible
     const visible = chats
-      .filter((c) => !c.archived && c.workspaceId === workspaceId)
+      .filter((c) => !c.archived && !c.temporary && c.workspaceId === workspaceId)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
     chatsCache = { chats, workspaceId, visible }
     return visible
@@ -1473,6 +1498,18 @@ export function revealChat(chatId: string): void {
   }
   state.openChat(chatId)
 }
+
+/**
+ * A temporary chat lasts while it is the open chat. Once the window moves on
+ * (another chat, the start page, another tab), it is dropped, and its reply
+ * stopped if one is still being written. It was never sent to main, so there
+ * is nothing else to remove.
+ */
+useApp.subscribe((state, prev) => {
+  if (state.activeChatId === prev.activeChatId || !prev.activeChatId) return
+  const left = state.chats.find((c) => c.id === prev.activeChatId)
+  if (left?.temporary) state.deleteChat(left.id)
+})
 
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {
   const parts = [...message.parts]
