@@ -64,6 +64,7 @@ import { isSealed, openVault, sealVault, setVaultKey } from './vaultSeal'
 import { readFile } from 'node:fs/promises'
 import type { ConnectorId } from '@shared/workerConnectors'
 import { mayHaveBoughtSince } from '../payments/plans'
+import { parseWorkerSetup, pluginIdsFor, setupFile, setupFileName, setupOf, type SetupPlugin } from '@shared/workerSetup'
 
 /**
  * Glue between the workers engine and the app: files, the renderer, IPC and
@@ -490,6 +491,36 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       return engine.save(draft)
     })
     ipcMain.handle('workers:remove', (_e, id: unknown) => remove(idOf(id)))
+    // Duplicate, export and import (shared/workerSetup.ts). The file dialogs are the desktop's own (files.ts).
+    ipcMain.handle('workers:duplicate', (_e, id: unknown) => engine.duplicate(idOf(id)))
+    ipcMain.handle('workers:export-setup', (_e, id: unknown) => {
+      const worker = engine.list().find((w) => w.id === idOf(id))
+      if (!worker) throw new Error('That worker no longer exists.')
+      // Plugin ids are this computer's own; the file names them, so another computer can match what it has.
+      const servers = store.getMcpServers()
+      const plugins: SetupPlugin[] | null =
+        worker.plugins === null
+          ? null
+          : worker.plugins.flatMap((pluginId) => {
+              const server = servers.find((x) => x.id === pluginId)
+              return server ? [{ id: server.id, name: server.name, ...(server.pluginId ? { pluginId: server.pluginId } : {}) }] : []
+            })
+      const setup = setupOf(worker, plugins)
+      return { fileName: setupFileName(worker.name), text: setupFile(setup), routines: setup.routines.length, playbooks: setup.playbooks.length }
+    })
+    ipcMain.handle('workers:import-setup', (_e, text: unknown, options?: { name?: unknown; access?: unknown; model?: unknown }) => {
+      // Read again here, through the same whitelist: what the page showed is not what is trusted.
+      const parsed = parseWorkerSetup(str(text))
+      if (!parsed.ok) throw new Error(parsed.error)
+      const local = store.getMcpServers().map((x) => ({ id: x.id, name: x.name, ...(x.pluginId ? { pluginId: x.pluginId } : {}) }))
+      const access = options?.access === 'read-only' || options?.access === 'safe' || options?.access === 'autonomous' ? options.access : undefined
+      return engine.importSetup(parsed.setup, {
+        name: str(options?.name) || undefined,
+        ...(access ? { access } : {}),
+        ...(options?.model === null ? { model: null } : {}),
+        pluginIds: pluginIdsFor(parsed.setup, local)
+      })
+    })
     ipcMain.handle('workers:send', (_e, id: unknown, text: unknown, files: unknown, options?: WorkerSendOptions) =>
       engine.send(
         idOf(id),

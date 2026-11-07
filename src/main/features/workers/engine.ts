@@ -90,6 +90,16 @@ import { currentZone } from '../../timezone'
 import { DEFAULT_SHAPE, isWorkerShape, WORKER_SHAPES } from '@shared/workerLook'
 import { workerApp, type WorkerAppLink } from '@shared/workerApps'
 import {
+  importAccess,
+  settingsDraft,
+  settingsOf,
+  uniqueName,
+  type SetupPlaybook,
+  type SetupRoutine,
+  type WorkerSettings,
+  type WorkerSetup
+} from '@shared/workerSetup'
+import {
   addSpend,
   budgetHit,
   budgetReason,
@@ -1145,6 +1155,62 @@ export class WorkersEngine {
     this.deps.saveThread(thread)
     this.commit()
     return clone(worker)
+  }
+
+  /**
+   * A new worker made from settings, the routines it runs and the playbooks
+   * it follows. Nothing else comes with it: it has no sign-ins, linked apps,
+   * notes, goal or messages, and starts with no browser history of its own.
+   * A routine or playbook that doesn't fit (past the limits) is left out.
+   */
+  private createFrom(draft: ReturnType<typeof settingsDraft>, routines: SetupRoutine[], playbooks: SetupPlaybook[]): Worker {
+    const worker = this.save(draft)
+    for (const routine of routines) {
+      try {
+        this.addRoutine(worker.id, {
+          name: routine.name,
+          task: routine.task,
+          marketHours: routine.marketHours,
+          ...(routine.daily ? { daily: routine.daily } : { everyMinutes: (routine.everyMs ?? MIN_HEARTBEAT_MS) / 60_000 })
+        })
+      } catch {
+        /* the worker has too many routines already, or this one is malformed: the rest still come */
+      }
+    }
+    for (const playbook of playbooks) {
+      try {
+        this.savePlaybook(worker.id, playbook)
+      } catch {
+        /* too many, or too long */
+      }
+    }
+    return clone(this.require(worker.id))
+  }
+
+  /** A copy of a worker under a new name and its own colour: its settings, routines and playbooks, and nothing it was signed in to. */
+  duplicate(id: string): Worker {
+    const source = this.require(id)
+    const name = uniqueName(source.name, this.workers.map((w) => w.name))
+    const routines: SetupRoutine[] = source.routines
+      .filter((r) => !r.purchase && !r.watch)
+      .map((r) => ({ name: r.name, task: r.task, everyMs: r.daily ? null : r.everyMs, daily: r.daily, marketHours: r.marketHours === true }))
+    const playbooks: SetupPlaybook[] = source.playbooks.map((p) => ({ name: p.name, summary: p.summary, steps: p.steps }))
+    // A colour and a shape that are free, so the two are told apart on the team page.
+    return this.createFrom({ ...settingsDraft(settingsOf(source)), name, color: '', shape: undefined }, routines, playbooks)
+  }
+
+  /**
+   * A worker from a setup file (shared/workerSetup.ts), already read through
+   * its whitelist. `pluginIds` are the plugins connected here that stand for
+   * the ones the file names. Its freedom level starts no higher than Careful
+   * unless the caller says otherwise: a file's author shouldn't decide how
+   * freely something runs on this computer.
+   */
+  importSetup(setup: WorkerSetup, options: { name?: string; access?: WorkerAccess; pluginIds: string[] | null; model?: null }): Worker {
+    const { plugins: _named, routines, playbooks, ...rest } = setup
+    // `model: null`: the one the file names isn't here, so the worker follows Chat's.
+    const settings: WorkerSettings = { ...rest, plugins: options.pluginIds, access: options.access ?? importAccess(setup.access), ...(options.model === null ? { model: null } : {}) }
+    return this.createFrom({ ...settingsDraft(settings), name: str(options.name) || setup.name }, routines, playbooks)
   }
 
   /**
