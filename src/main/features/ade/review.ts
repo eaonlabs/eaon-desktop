@@ -35,7 +35,7 @@ const RUN_FIELDS = 'databaseId,name,workflowName,status,conclusion,url'
 const MAX_RESOLVE_BYTES = 100_000
 
 /** The default branch to measure against and open pull requests into: origin's HEAD, else main or master. */
-async function defaultBranch(run: Runner, cwd: string): Promise<{ ref: string; name: string } | null> {
+export async function defaultBranch(run: Runner, cwd: string): Promise<{ ref: string; name: string } | null> {
   const head = await run(cwd, 'git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (head.ok && head.stdout.trim()) {
     const ref = head.stdout.trim()

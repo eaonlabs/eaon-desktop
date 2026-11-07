@@ -37,6 +37,7 @@ import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
 import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
+import { useChatContext } from './composer/useChatContext'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
@@ -461,6 +462,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
    */
   // The project's files for "@": read when the menu first asks (loadFiles only reads, then sets later).
   const projectFiles = useChatCode((s) => (isAgent ? s.files : null))
+  // Git changes, terminal output and earlier chats, attached to the message when picked.
+  const context = useChatContext({ cwd, addAttachments })
   const sources: SuggestSources = {
     '/': () => {
       const items: SuggestItem[] = [
@@ -519,13 +522,14 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
                 onBrowser: () => toggleBrowser(true),
                 onComputerSettings: () => setSettingsPage('computer-use')
               }),
+              ...context.mentionItems(query),
               ...fileMentionItems(projectFiles ?? [], query)
             ]
           }
         }
       : {})
   }
-  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, plugins and tools' } })
+  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, git, terminals, chats, plugins and tools' } })
   const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)

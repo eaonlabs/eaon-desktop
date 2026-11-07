@@ -37,6 +37,7 @@ import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { workspaceFilesApi } from './features/workspaceFiles'
 import { chatCodeApi } from './features/chatCode'
+import { chatContextApi } from './features/chatContext'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
@@ -369,7 +370,8 @@ const fullApi = {
   freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi,
   enterprise: enterpriseApi,
-  mods: modsApi
+  mods: modsApi,
+  chatContext: chatContextApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)
