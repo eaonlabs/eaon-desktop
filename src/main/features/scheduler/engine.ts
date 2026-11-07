@@ -19,6 +19,7 @@ import {
 } from '@shared/scheduler'
 import type { TokenUsage } from '@shared/types'
 import { mergeRuns, repairRuns, repairTasks, settleInterrupted, trimRuns } from './records'
+import { normalizeRetry, retryDecision } from '@shared/workerLimits'
 
 /**
  * When scheduled tasks run.
@@ -60,6 +61,8 @@ export interface RunResult {
   error?: string
   summary?: string
   tokens?: TokenUsage
+  /** A tool that changes things outside the chat ran, so a failure after it is never retried on its own. */
+  sideEffects?: boolean
 }
 
 export interface EngineDeps {
@@ -91,6 +94,8 @@ const MAX_DELAY = 2 ** 31 - 1
  * monotonic one means the process was suspended: the computer slept.
  */
 const SLEEP_GAP_MS = 90_000
+/** A retry that came due this long ago (Eaon was closed through it) is dropped, not run late. */
+const RETRY_STALE_MS = 24 * 60 * 60_000
 
 const clone = <T>(value: T): T => structuredClone(value)
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -154,6 +159,12 @@ export class SchedulerEngine {
       .filter((run) => !this.runs.some((r) => r.retryOf === run.id))
       .map((run) => run.id)
     settleInterrupted(this.runs)
+    for (const run of this.runs) {
+      if (run.retryAt !== undefined && now - run.retryAt > RETRY_STALE_MS) {
+        delete run.retryAt
+        run.retryNote = 'Not retried: it came due while Eaon was closed, a day or more ago.'
+      }
+    }
     for (const task of this.tasks) task.lastStatus = this.latestStatus(task.id) ?? task.lastStatus
     if (loaded.dropped > 0) this.deps.onDamaged?.(loaded.dropped)
     this.persist()
@@ -262,6 +273,9 @@ export class SchedulerEngine {
       const value = draft[key] === undefined ? existing?.[key] : draft[key]
       if (value !== null && value !== undefined) (task as unknown as Record<string, unknown>)[key] = clone(value)
     }
+    // Retries: left out keeps what was set, null (or no attempts) stops them.
+    const retries = draft.retries === undefined ? existing?.retries : (normalizeRetry(draft.retries) ?? undefined)
+    if (retries) task.retries = clone(retries)
     if (existing) this.tasks[this.tasks.indexOf(existing)] = task
     else this.tasks.push(task)
     this.commit()
@@ -304,6 +318,8 @@ export class SchedulerEngine {
     if (!run) throw new Error('That run is no longer in the history.')
     if (run.status === 'running') throw new Error('That run is still going.')
     if (this.running.has(taskId)) throw new Error(`“${task.name}” is already running.`)
+    // The user's own retry takes the place of one Eaon had set for later.
+    delete run.retryAt
     return clone(this.begin(task, 'retry', { retryOf: run.id }))
   }
 
@@ -320,7 +336,7 @@ export class SchedulerEngine {
     const now = this.now()
     this.noticeSleep(now)
     const zone = this.zone()
-    let changed = false
+    let changed = this.startRetries(now)
     for (const task of this.tasks) {
       if (!task.enabled || task.nextRunAt === null) continue
 
@@ -451,6 +467,10 @@ export class SchedulerEngine {
     for (const task of this.tasks) {
       if (task.enabled && task.nextRunAt !== null && !this.running.has(task.id)) soonest = Math.min(soonest, task.nextRunAt)
     }
+    // A retry waits for its time, and for the task's current run to end (finish() ticks then).
+    for (const run of this.runs) {
+      if (run.retryAt !== undefined && !(run.taskId && this.running.has(run.taskId))) soonest = Math.min(soonest, run.retryAt)
+    }
     if (soonest === Infinity) return
     const delay = Math.min(Math.max(soonest - this.now(), 0), MAX_DELAY)
     this.timer = setTimeout(() => {
@@ -576,8 +596,10 @@ export class SchedulerEngine {
     if (result.error) run.error = result.error.slice(0, 500)
     else delete run.error
     if (result.summary) run.summary = result.summary
+    if (result.sideEffects) run.sideEffects = true
     const task = this.find(taskId)
     if (task) task.lastStatus = this.latestStatus(taskId) ?? result.status
+    if (task && run.status === 'failed') this.planRetry(task, run)
     this.commit()
     if (!task) return
     try {
@@ -586,6 +608,46 @@ export class SchedulerEngine {
     } catch (error) {
       console.error('[scheduler] a run follow-up failed:', error)
     }
+  }
+
+  /**
+   * A run that failed for a passing reason (a dropped connection, an
+   * overloaded model) is tried again after a wait that doubles each time, up
+   * to the task's setting. Never one that may already have acted, and never
+   * for an error that waiting won't fix. Each attempt is a run of its own in
+   * the history, and the failed one says what happens next.
+   */
+  private planRetry(task: ScheduledTask, run: TaskRun): void {
+    const decision = retryDecision(task.retries, run.attempt ?? 0, run.error, run.sideEffects === true)
+    if (!decision) return
+    if (decision.kind === 'acted') run.retryNote = 'It may have changed things before it failed, so it wasn’t retried on its own.'
+    else if (decision.kind === 'spent') run.retryNote = `Gave up after ${decision.retries} ${decision.retries === 1 ? 'retry' : 'retries'}.`
+    else {
+      const at = this.now() + decision.delayMs
+      run.retryAt = at
+      run.attempts = task.retries!.attempts
+      run.retryNote = `Hit a passing error; retry ${decision.attempt} of ${task.retries!.attempts} at ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`
+    }
+  }
+
+  /** Starts the retries that have come due; drops one a newer run or the task being turned off made pointless. */
+  private startRetries(now: number): boolean {
+    let changed = false
+    for (const run of [...this.runs]) {
+      if (run.retryAt === undefined || run.retryAt > now) continue
+      const task = run.taskId ? this.find(run.taskId) : undefined
+      const newer = this.runs.some((r) => r.taskId === run.taskId && r.startedAt > run.startedAt && r.status !== 'skipped' && r.status !== 'missed')
+      if (!task || !task.enabled || newer || now - run.retryAt > RETRY_STALE_MS) {
+        delete run.retryAt
+        run.retryNote = !task?.enabled ? 'Not retried: the task was turned off.' : newer ? 'Not retried: a later run took its place.' : 'Not retried: it came due too long ago.'
+        changed = true
+        continue
+      }
+      if (this.running.has(task.id)) continue
+      delete run.retryAt
+      this.begin(task, 'retry', { retryOf: run.id, attempt: (run.attempt ?? 0) + 1, attempts: task.retries?.attempts ?? run.attempts })
+    }
+    return changed
   }
 
   private patchRun(runId: string, patch: Partial<TaskRun>): void {

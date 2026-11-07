@@ -79,7 +79,7 @@ import { resolveWorkPath } from '../../localTools'
 import { hoursText, type JobHost } from './jobs'
 import { judge, newLines, type WatchReading } from './watch'
 import { workerPersona } from './prompt'
-import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
+import { AUTO_RETRY_NOTE, buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
 import { ExecutionLog, isEnded } from './executions'
 import { delegationRefusal, isOpenDelegation, normalizeDelegations, pruneDelegations } from './delegations'
 import { watchFor, type WakeCondition } from './watch'
@@ -93,12 +93,11 @@ import {
   addSpend,
   budgetHit,
   budgetReason,
-  isTransientError,
   normalizeBudget,
   normalizeRetry,
   normalizeSites,
   normalizeToolRules,
-  retryDelayMs,
+  retryDecision,
   retryLabel,
   seedSpend,
   spendNow,
@@ -262,6 +261,21 @@ export interface TeamDraft {
   access?: Worker['access']
 }
 
+/**
+ * A retry Eaon set for a run that failed for a passing reason (the worker's
+ * retry setting): the failed receipt it picks up from, when, which retry it
+ * is, whether the chain began with something the user asked for (so its end
+ * is worth a banner), and the routine it belongs to, for a failure notice.
+ */
+interface AutoRetry {
+  execution: WorkerExecution
+  at: number
+  attempt: number
+  max: number
+  notify: boolean
+  routine: string | null
+}
+
 interface Running {
   workerId: string
   /** MAIN_THREAD or a WorkerThreadInfo id. */
@@ -303,6 +317,8 @@ interface Running {
   asked: boolean
   /** The user's mail woke it (for the stale wake-up count). */
   fromUser: boolean
+  /** Set when this run is one of Eaon's own retries of a run that failed for a passing reason. */
+  auto: AutoRetry | null
 }
 
 /** What a thread needs to run. The main thread's live on the Worker itself. */
@@ -711,6 +727,8 @@ export class WorkersEngine {
   private purchaseResumes: { key: string; execution: WorkerExecution; chatId: string; routineId: string }[] = []
   /** Retries the user asked for: slotKey → the receipt being retried. */
   private readonly retries = new Map<string, WorkerExecution>()
+  /** Retries Eaon set for itself after a passing error (workerLimits.ts), by thread; a due one moves to `retries`. */
+  private readonly autoRetries = new Map<string, AutoRetry>()
   /** Start times of budgeted turns, per worker. */
   private readonly turnLog = new Map<string, number[]>()
   /** When each worker sent mail, for the per-hour cap. */
@@ -1150,6 +1168,7 @@ export class WorkersEngine {
       this.waiting.delete(key)
       this.resumes.delete(key)
       this.retries.delete(key)
+      this.autoRetries.delete(key)
       this.unattendedWakes.delete(key)
     }
     for (const delegation of this.delegationList) {
@@ -1394,6 +1413,8 @@ export class WorkersEngine {
     if (execution.threadId !== MAIN_THREAD && !this.info(worker, execution.threadId)) throw new Error('The thread that run was in no longer exists.')
     const info = this.info(worker, execution.threadId)
     if (info?.closedAt) info.closedAt = null
+    // The user's own Retry takes the place of one Eaon set for later.
+    this.autoRetries.delete(slotKey(id, execution.threadId))
     this.retries.set(slotKey(id, execution.threadId), execution)
     this.commit()
     this.tick()
@@ -2810,6 +2831,7 @@ export class WorkersEngine {
     this.checkWatches(now)
     let changed = this.rezoneRoutines(now)
     changed = this.checkSpend(now) || changed
+    this.releaseRetries(now)
     changed = this.expireDelegations(now) || changed
     changed = this.skipOverlappingRoutines(now) || changed
     const concurrency = this.deps.concurrency ?? WORKER_CONCURRENCY
@@ -2943,6 +2965,13 @@ export class WorkersEngine {
   /** Ends a thread's queued receipt, if it has one. */
   private dropWaiting(workerId: string, threadId: string, reason: string): void {
     const key = slotKey(workerId, threadId)
+    // A retry Eaon was waiting to make goes with it, and its failed receipt says so.
+    const pending = this.autoRetries.get(key)
+    if (pending) {
+      this.autoRetries.delete(key)
+      this.retries.delete(key)
+      this.runs.update(pending.execution, { reason: `Not retried. ${reason}` })
+    }
     const execution = this.waiting.get(key)
     if (!execution) return
     this.waiting.delete(key)
@@ -3064,6 +3093,8 @@ export class WorkersEngine {
       }
     }
     for (const d of this.delegationList) if (isOpenDelegation(d) && d.deadlineAt !== null) soonest = Math.min(soonest, Math.max(d.deadlineAt, now))
+    // A retry waiting for its time (one due now is already handed to its thread by tick).
+    for (const auto of this.autoRetries.values()) if (auto.at > now) soonest = Math.min(soonest, auto.at)
     if (soonest === Infinity) return
     const delay = Math.min(Math.max(soonest - now, 0), MAX_DELAY)
     this.timer = setTimeout(() => {
@@ -3252,6 +3283,23 @@ export class WorkersEngine {
     return true
   }
 
+  /**
+   * A retry whose time has come is handed to its thread's next run (the
+   * `retries` the Retry button uses); one whose worker or thread is gone, or
+   * that waited a day, is dropped. A paused worker's waits until it resumes.
+   */
+  private releaseRetries(now: number): void {
+    for (const [key, auto] of this.autoRetries) {
+      const worker = this.find(auto.execution.workerId)
+      if (!worker || now - auto.at > DAY || !this.slotsOf(worker, true).some(({ threadId }) => slotKey(worker.id, threadId) === key)) {
+        this.autoRetries.delete(key)
+        this.retries.delete(key)
+        continue
+      }
+      if (auto.at <= now && !worker.paused && !this.retries.has(key)) this.retries.set(key, auto.execution)
+    }
+  }
+
   /** Every worker's cap, looked at before runs are chosen: one that reached it is paused, one that is under it again carries on. */
   private checkSpend(now: number): boolean {
     let changed = false
@@ -3274,6 +3322,7 @@ export class WorkersEngine {
       worker.routines.length > 0 ||
       this.slotsOf(worker).some(({ threadId, slot }) => slot.inbox.length > 0 || this.nextWake(worker, threadId, slot) !== null) ||
       this.wakes.has(worker.id) ||
+      [...this.autoRetries.values()].some((a) => a.execution.workerId === worker.id) ||
       keepsWatch(worker)
     return scheduled ? 'idle' : 'asleep'
   }
@@ -3430,6 +3479,8 @@ export class WorkersEngine {
     const woke = isMain && this.wakes.has(worker.id)
     const resume = this.resumes.get(key)
     const retry = this.retries.get(key)
+    // One of Eaon's own retries (not the user's Retry button): it knows which attempt it is.
+    const auto = retry && this.autoRetries.get(key)?.execution === retry ? (this.autoRetries.get(key) ?? null) : null
 
     // A repeating wake-up the worker set for itself that has gone off again
     // and again with nobody writing in that thread is watching something no
@@ -3461,11 +3512,13 @@ export class WorkersEngine {
     if (woke) this.wakes.delete(worker.id)
     this.resumes.delete(key)
     this.retries.delete(key)
+    // Any new run in this thread takes the place of a retry still waiting for its time.
+    this.autoRetries.delete(key)
     const fired = heartbeatDue ? { ...slot.heartbeat } : null
     const note = woke
       ? CHECK_IN_NOTE
       : retry
-        ? `${RETRY_NOTE} ("${retry.trigger.label}", which ${retry.state === 'failed' ? `failed${retry.error ? `: ${clip(retry.error, 200)}` : ''}` : retry.state}). Have another go at it${retry.sideEffects ? '; it may already have changed things, so check what was done before repeating anything' : ''}.`
+        ? `${auto ? AUTO_RETRY_NOTE : RETRY_NOTE} ("${retry.trigger.label}", which ${retry.state === 'failed' ? `failed${retry.error ? `: ${clip(retry.error, 200)}` : ''}` : retry.state}). Have another go at it${retry.sideEffects ? '; it may already have changed things, so check what was done before repeating anything' : ''}.`
         : resume
           ? RESUME_NOTE
           : heartbeatDue
@@ -3511,7 +3564,7 @@ export class WorkersEngine {
     const fromUser = mail.some((m) => m.from === 'user')
     const handoffMail = mail.find((m) => m.handoff)
     const trigger: ExecutionTrigger = retry
-      ? { kind: 'retry', label: `Retry: ${retry.trigger.label}` }
+      ? { kind: 'retry', label: auto ? retryLabel(auto.attempt, auto.max, retry.trigger.label) : `Retry: ${retry.trigger.label}` }
       : resume
         ? { kind: 'resume', label: 'Picked up after Eaon quit' }
         : woke
@@ -3537,7 +3590,7 @@ export class WorkersEngine {
     let execution = this.waiting.get(key)
     this.waiting.delete(key)
     if (!execution) execution = this.runs.create({ workerId: worker.id, threadId, trigger, engine: worker.engine, retryOf: retry?.id ?? null })
-    this.runs.update(execution, { state: 'running', trigger, reason, threadId, messageId: assistant.id, engine: worker.engine, retryOf: retry?.id ?? null })
+    this.runs.update(execution, { state: 'running', trigger, reason, threadId, messageId: assistant.id, engine: worker.engine, retryOf: retry?.id ?? null, ...(auto ? { attempt: auto.attempt } : {}) })
 
     const run: Running = {
       workerId: worker.id,
@@ -3554,7 +3607,7 @@ export class WorkersEngine {
       heartbeatSet: false,
       // Not for chat-app mail: the reply goes back to the chat it came from.
       // A timed goal's closing report is news too: the user left it working for hours.
-      userTriggered: woke || !!retry || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal' || m.event?.kind === 'app'),
+      userTriggered: woke || (retry ? (auto ? auto.notify : true) : false) || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal' || m.event?.kind === 'app'),
       stoppedByUser: false,
       postedRooms: new Set(),
       access,
@@ -3564,7 +3617,8 @@ export class WorkersEngine {
       delegationId: delegation?.id ?? null,
       reported: false,
       asked: false,
-      fromUser
+      fromUser,
+      auto
     }
     this.running.set(key, run)
     slot.runningMessageId = assistant.id
@@ -3747,6 +3801,33 @@ export class WorkersEngine {
       }
     }
 
+    // A run that failed for a passing reason is tried again on its own when the worker is set to (workerLimits.ts):
+    // after a wait that doubles each time, never a goal run (it tries again by itself) and never one that may
+    // already have acted. Each attempt is a receipt of its own, and the failed one says what happens next.
+    let retrying = false
+    if (outcome.error && !outcome.cancelled && !run.goalTurn) {
+      const decision = retryDecision(worker.retry, run.auto?.attempt ?? 0, outcome.error, ended.sideEffects)
+      if (decision?.kind === 'again') {
+        const max = worker.retry!.attempts
+        const at = now + decision.delayMs
+        this.autoRetries.set(key, {
+          execution,
+          at,
+          attempt: decision.attempt,
+          max,
+          notify: run.auto ? run.auto.notify : run.userTriggered,
+          routine: (run.routineId ? worker.routines.find((r) => r.id === run.routineId)?.name : run.auto?.routine) ?? null
+        })
+        ended.reason = `Hit a passing error. Retry ${decision.attempt} of ${max} in ${waitText(decision.delayMs)}.`
+        if (retryAt === null) retryAt = at
+        retrying = true
+      } else if (decision?.kind === 'spent') {
+        ended.reason = `Gave up after ${decision.retries} ${decision.retries === 1 ? 'retry' : 'retries'}.`
+      } else if (decision?.kind === 'acted') {
+        ended.reason = 'It may already have changed things, so it wasn’t retried on its own.'
+      }
+    }
+
     // How it went, on the thread and (for the main thread) the worker.
     // What it ended on, not what it said before its work ("Writing it.").
     const summary = outcome.text ? summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) : ''
@@ -3818,14 +3899,16 @@ export class WorkersEngine {
     this.tell((o) =>
       o.turnEnded?.(clone(worker), { mail: clone(run.mail), reply: clone(assistant), ...(outcome.error ? { error: outcome.error } : {}), cancelled: outcome.cancelled })
     )
-    if (run.userTriggered && !outcome.cancelled) {
+    if (retrying) {
+      // Not news yet: it is tried again first, and the last attempt's outcome is what the user hears.
+    } else if (run.userTriggered && !outcome.cancelled) {
       this.deps.notify?.(clone(worker), {
         ok: !outcome.error,
         text: outcome.error ?? (summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || 'Finished.')
       })
-    } else if (run.routineId && outcome.error) {
-      const routine = worker.routines.find((r) => r.id === run.routineId)
-      this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${routine?.name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
+    } else if ((run.routineId || run.auto?.routine) && outcome.error) {
+      const name = run.routineId ? worker.routines.find((r) => r.id === run.routineId)?.name : run.auto?.routine
+      this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
     }
     const turned = run.routineTurned && run.routineId ? worker.routines.find((r) => r.id === run.routineId) : undefined
     if (turned) {

@@ -1,5 +1,6 @@
 import { app, Notification, powerMonitor, type WebContents } from 'electron'
 import { mergeRunChat, ORDER_WATCH_MS, type ScheduledTask, type TaskDraft, type TaskRun } from '@shared/scheduler'
+import { retryDecision } from '@shared/workerLimits'
 import { orderSettled } from '@shared/payments'
 import type { Chat } from '@shared/types'
 import { runAgent } from '../../agent/loop'
@@ -260,6 +261,9 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
       const stageBefore = task.watch ? findPurchase(task.watch.purchaseId)?.tracking?.stage : undefined
       const quietNotify: typeof notify = (t, chatId, result) => {
         if (t.watch && findPurchase(t.watch.purchaseId)?.tracking?.stage === stageBefore) return
+        // A failure that will be retried is not news yet: the last attempt's outcome is.
+        const decision = result.status === 'failed' ? retryDecision(t.retries, t.history.find((r) => r.id === handle.runId)?.attempt ?? 0, result.error, result.sideEffects === true) : null
+        if (decision?.kind === 'again') return
         notify(t, chatId, result)
       }
       return runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify: quietNotify, stallMs: overrides.stallMs })

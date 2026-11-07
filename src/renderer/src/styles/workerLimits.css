@@ -66,3 +66,8 @@
 .worker-hold .btn {
   flex: none;
 }
+
+/* The retry field inside an automation's editor takes the form's width. */
+.sched-field > .field {
+  align-self: stretch;
+}

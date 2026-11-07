@@ -94,7 +94,7 @@ export function buildTurnMessage(
         ? `[Check-in] ${CHECK_IN_NOTE}.`
         : heartbeatNote === RESUME_NOTE
           ? `[Resumed] ${RESUME_NOTE}`
-          : heartbeatNote.startsWith(RETRY_NOTE)
+          : heartbeatNote.startsWith(RETRY_NOTE) || heartbeatNote.startsWith(AUTO_RETRY_NOTE)
             ? `[Retry] ${heartbeatNote}`
             : `[Heartbeat] You scheduled this wake-up${heartbeatNote ? `: "${heartbeatNote}"` : ''}.`
     )
@@ -168,6 +168,8 @@ export const RESUME_NOTE =
   'Your last turn here was cut off when Eaon quit, before you finished. Pick up where you left off; a step shown as interrupted may or may not have happened, so check before repeating it.'
 /** How a retry's note starts; the rest says which run it retries and how that went. */
 export const RETRY_NOTE = 'The user asked you to retry an earlier run'
+/** The same, for a retry Eaon made on its own after a passing error (the worker's retry setting). */
+export const AUTO_RETRY_NOTE = 'Eaon is retrying an earlier run on its own, after it hit a temporary error'
 
 /** What the model is sent as history: everything after the compaction summary, minus the reply being written. */
 export function historyFor(thread: WorkerThread, exceptMessageId: string): ChatMessage[] {

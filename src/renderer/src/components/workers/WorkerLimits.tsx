@@ -2,7 +2,18 @@ import { useState } from 'react'
 import { PauseCircle } from 'lucide-react'
 import { Select } from '../ui'
 import { useWorkers } from './workersStore'
-import { BUDGET_PERIODS, budgetUsageLines, normalizeBudget, type BudgetPeriod, type SiteRules, type ToolRules, type WorkerBudget, type WorkerRetry } from '@shared/workerLimits'
+import {
+  BUDGET_PERIODS,
+  budgetUsageLines,
+  DEFAULT_RETRY,
+  MAX_RETRY_ATTEMPTS,
+  normalizeBudget,
+  type BudgetPeriod,
+  type SiteRules,
+  type ToolRules,
+  type WorkerBudget,
+  type WorkerRetry
+} from '@shared/workerLimits'
 import type { Worker } from '@shared/workers'
 
 /**
@@ -34,6 +45,7 @@ export function WorkerLimitsFields({ worker, value, onChange }: { worker: Worker
       <summary className="worker-limits__summary">Limits and safety</summary>
       <div className="worker-limits__body">
         <SpendCapField worker={worker} value={value.budget} onChange={(budget) => onChange({ ...value, budget })} />
+        <RetryField value={value.retry} onChange={(retry) => onChange({ ...value, retry })} what="Each attempt is a run of its own in Activity." />
       </div>
     </details>
   )
@@ -91,6 +103,53 @@ function SpendCapField({ worker, value, onChange }: { worker: Worker | null; val
         even if it passes the cap. At the cap the worker pauses and says why; raise the cap here to let it carry on.
       </p>
       {used.length > 0 && <p className="worker-editor__hint worker-limits__used">Used so far: {used.join(' · ')}.</p>}
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------- retries */
+
+const RETRY_TIMES = Array.from({ length: MAX_RETRY_ATTEMPTS + 1 }, (_, n) => n)
+const RETRY_WAITS = [1, 2, 5, 10, 30, 60]
+
+/**
+ * How many times a run that fails for a passing reason is tried again, and
+ * how long before the first retry (each later one waits twice as long). Used
+ * for a worker's runs here and for an automation's in its editor.
+ */
+export function RetryField({ value, onChange, what }: { value: WorkerRetry | null; onChange: (next: WorkerRetry | null) => void; what: string }): JSX.Element {
+  const attempts = value?.attempts ?? 0
+  const minutes = value?.minutes ?? DEFAULT_RETRY.minutes
+  // A wait the file holds that is not one of the choices still shows as itself.
+  const waits = RETRY_WAITS.includes(minutes) ? RETRY_WAITS : [...RETRY_WAITS, minutes].sort((a, b) => a - b)
+  return (
+    <div className="field">
+      <span className="field-label">Retry failed runs</span>
+      <div className="worker-limits__row">
+        <Select
+          width={150}
+          label="Retries"
+          value={String(attempts)}
+          onChange={(next: string) => onChange(Number(next) > 0 ? { attempts: Number(next), minutes } : null)}
+          options={RETRY_TIMES.map((n) => ({ value: String(n), label: n === 0 ? 'Don’t retry' : n === 1 ? 'Retry once' : `Retry up to ${n} times` }))}
+        />
+        {attempts > 0 && (
+          <>
+            <span className="worker-limits__unit">first after</span>
+            <Select
+              width={110}
+              label="Wait before the first retry"
+              value={String(minutes)}
+              onChange={(next: string) => onChange({ attempts, minutes: Number(next) })}
+              options={waits.map((n) => ({ value: String(n), label: `${n} min` }))}
+            />
+          </>
+        )}
+      </div>
+      <p className="worker-editor__hint">
+        When a run fails for a passing reason (a dropped connection, a busy model, a stalled turn) Eaon tries it again after the wait, doubling it each time. A run that may already have changed things is not retried on its own, and neither
+        is an error waiting won’t fix, such as a sign-in, a key or a plan’s limit. {what}
+      </p>
     </div>
   )
 }

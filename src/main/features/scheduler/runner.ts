@@ -220,6 +220,8 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
       controller.abort()
     }
     let outcome: RunOutcome
+    // Whether a tool that changes things ran: a failure after that is never retried on its own.
+    let acted = false
     // What this run may do with the card: one order of the schedule, or tracking one order.
     if (task.purchase) {
       grantPurchase(assistant.id, {
@@ -251,6 +253,9 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
                 // A purchase or tracking run clicks through a store: it acts alone, held to its browser and the card.
                 unattended: task.purchase || task.watch ? 'autonomous' : task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
                 ...(task.purchase || task.watch ? { toolGate: purchaseRunGate } : {}),
+                onToolRun: (_name, mutating) => {
+                  if (mutating) acted = true
+                },
                 // Only reached by a tool's own extra confirmation (computer use asking
                 // before each click); with nobody to ask, the answer is no.
                 approver: async () => false
@@ -281,6 +286,7 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
       chatId: chat.id,
       ...(used && used.input + used.output + used.cacheRead + used.cacheWrite > 0 ? { tokens: { ...used } } : {}),
       ...(error ? { error } : {}),
+      ...(acted ? { sideEffects: true } : {}),
       ...(summary ? { summary } : !error && !cancelled ? { summary: 'Finished without a written reply.' } : {})
     }
   }

@@ -213,6 +213,23 @@ export function isTransientError(error: string | null | undefined): boolean {
   return PASSING.some((pattern) => pattern.test(text))
 }
 
+/** What a retry setting does with a run that failed (`attempt`: how many retries led to it, 0 for the first run). */
+export type RetryDecision =
+  /** Try again after `delayMs`; this will be retry number `attempt`. */
+  | { kind: 'again'; attempt: number; delayMs: number }
+  /** Already retried as often as the setting allows. */
+  | { kind: 'spent'; retries: number }
+  /** It may already have changed things, so it is not retried on its own. */
+  | { kind: 'acted' }
+
+/** Null when nothing is done (no setting, or an error that waiting won't fix). */
+export function retryDecision(policy: WorkerRetry | null | undefined, attempt: number, error: string | null | undefined, sideEffects: boolean): RetryDecision | null {
+  if (!policy || !isTransientError(error)) return null
+  if (sideEffects) return { kind: 'acted' }
+  if (attempt >= policy.attempts) return { kind: 'spent', retries: attempt }
+  return { kind: 'again', attempt: attempt + 1, delayMs: retryDelayMs(policy, attempt + 1) }
+}
+
 /** "Retry 1 of 2: Daily research", the label a retry's receipt carries. */
 export function retryLabel(attempt: number, of: number, original: string): string {
   return `Retry ${attempt} of ${of}: ${original.replace(/^Retry( \d+ of \d+)?: /, '')}`
