@@ -221,6 +221,12 @@ export const THEMES: Theme[] = [
     dark: { accent: '#F38ABE', background: '#341832', foreground: '#F9E9F7', contrast: 52, textFade: 0.94 }
   },
   {
+    name: 'Slate',
+    group: 'coloured',
+    light: { accent: '#2F66C8', background: '#F2F5F7', foreground: '#1B2429', contrast: 42, textFade: 0.9 },
+    dark: { accent: '#8DB4FF', background: '#3A4246', foreground: '#F1F4F6', contrast: 52, textFade: 0.6 }
+  },
+  {
     name: 'Synthwave',
     group: 'coloured',
     light: { accent: '#D0268C', background: '#FBEEFE', foreground: '#341A62', contrast: 42, textFade: 0.89 },

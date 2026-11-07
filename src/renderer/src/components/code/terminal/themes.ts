@@ -150,6 +150,19 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     })
   },
   {
+    id: 'frosted-slate',
+    name: 'Frosted Slate',
+    mode: 'dark',
+    app: 'Slate',
+    scene: null,
+    glass: true,
+    blurb: 'Soft slate glass over your wallpaper, blue links, green for running',
+    colors: palette('#2e3337', '#f1f4f6', ['#3a4246', '#ff8a80', '#5fd98a', '#ffb938', '#5b9bff', '#c9a3ff', '#6fd8e0', '#dfe4e7', '#7b858b', '#ffa59c', '#84e4a8', '#ffcb66', '#8db4ff', '#dcc0ff', '#98e8ee', '#ffffff'], {
+      cursor: '#8db4ff',
+      selection: '#5b9bff55'
+    })
+  },
+  {
     id: 'everforest',
     name: 'Everforest',
     mode: 'dark',
