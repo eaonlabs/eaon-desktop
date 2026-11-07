@@ -5,7 +5,7 @@ import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
 import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
-import { allThemes, type Palette, type Theme } from '../../../lib/themes'
+import { allThemes, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
 import { useMods } from '../../../state/mods'
 import { isMac } from '../../../lib/platform'
 import { wallpaperVideoUrl } from '@shared/wallpaper'
@@ -56,16 +56,6 @@ function useResolvedTone(mode: ThemeMode): 'light' | 'dark' {
     return () => media.removeEventListener('change', onChange)
   }, [])
   return mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
-}
-
-/**
- * Choosing a theme or mode here takes the app back from the ADE's terminal
- * theme, which restyles the app while it is picked: the terminals go back to
- * following the app (`eaon`), so the two never disagree.
- */
-function releaseAde(settings: Settings | null): Partial<Settings> {
-  if (!settings || settings.ade.theme === 'eaon') return {}
-  return { ade: { ...settings.ade, theme: 'eaon', appBefore: null } }
 }
 
 export function AppearancePage(): JSX.Element {
@@ -121,21 +111,7 @@ export function AppearancePage(): JSX.Element {
                   key={theme.name}
                   className="theme-swatch"
                   data-active={a.light.preset === theme.name || undefined}
-                  onClick={() => {
-                    // textFade belongs to the theme, not the stored palette —
-                    // useTheme() looks it up by preset name.
-                    const { textFade: _lightFade, ...light } = theme.light
-                    const { textFade: _darkFade, ...dark } = theme.dark
-                    void patchSettings({
-                      appearance: {
-                        // Both appearances move together, so switching Light/Dark
-                        // never drops you into a different theme.
-                        light: { preset: theme.name, ...light },
-                        dark: { preset: theme.name, ...dark }
-                      },
-                      ...releaseAde(settings)
-                    })
-                  }}
+                  onClick={() => void patchSettings(themePatch(theme, settings))}
                 >
                   <ThemeSwatch palette={theme[tone]} tone={tone} />
                   <span className="theme-swatch__name">{theme.name}</span>
