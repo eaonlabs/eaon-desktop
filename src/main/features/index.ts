@@ -44,6 +44,9 @@ import { modsFeature } from './mods'
 import { gitAssistFeature } from './gitAssist'
 import { searchReplaceFeature } from './searchReplace'
 import { gitHistoryFeature } from './gitHistory'
+import { personalizeFeature } from './personalize'
+import { chatExportFeature } from './chatExport'
+import { savedPromptsFeature } from './savedPrompts'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -56,6 +59,10 @@ export const FEATURES: Feature[] = [
   pluginsFeature,
   // Mods' tools and instructions, read by the agent loop; their CLI parts, by the terminals below.
   modsFeature,
+  // Custom instructions and memory for Chat; its `remember` tool is offered to the loop like the mods' tools.
+  personalizeFeature,
+  chatExportFeature,
+  savedPromptsFeature,
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,

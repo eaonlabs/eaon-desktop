@@ -68,6 +68,7 @@ import { trustSystemNetwork } from './netTrust'
 import { onClaudePlanChange } from './engines/claude/status'
 import { versionLabel } from '@shared/version'
 import { MOD_SCHEME, withModInstructions } from './features/mods'
+import { withPersonalInstructions } from './features/personalize'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -818,8 +819,10 @@ function registerIpc(): void {
         if (!event.sender.isDestroyed()) event.sender.send('chat:event', { type: 'done', messageId: request.messageId } satisfies StreamEvent)
         return
       }
-      // The instructions of the mods the user turned on ride with the project's (features/mods).
-      await streamChat(event, { ...request, projectInstructions: withModInstructions(request.projectInstructions ?? '') }, stopped.signal)
+      // What rides with the project's instructions: the mods the user turned on (features/mods),
+      // then their custom instructions and memory (features/personalize).
+      const instructions = withPersonalInstructions(request, withModInstructions(request.projectInstructions ?? ''))
+      await streamChat(event, { ...request, projectInstructions: instructions }, stopped.signal)
     } finally {
       if (chatStreams.get(request.messageId) === stopped) chatStreams.delete(request.messageId)
     }

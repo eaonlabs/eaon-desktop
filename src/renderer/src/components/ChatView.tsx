@@ -11,6 +11,7 @@ import {
   Compass,
   Copy,
   Eye,
+  FileDown,
   FileText,
   FolderInput,
   FolderOpen,
@@ -54,6 +55,9 @@ import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
+import { TemporaryHint, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
+import { exportChatToFile } from './chat/exportChat'
+import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
 import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
 import { StockCards } from './workers/WorkerUi'
@@ -122,6 +126,7 @@ function Home(): JSX.Element {
       <TopBar
         right={
           <div className="chat-header__actions">
+            {isWork && <TemporaryToggle />}
             {isWork ? <PanelToggles over /> : !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
         }
@@ -131,6 +136,7 @@ function Home(): JSX.Element {
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
           <h1 className="home__title">{isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
+          {isWork && <TemporaryHint />}
           {showSuggestions && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
@@ -375,7 +381,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }
 
   const requestArchive = (): void => {
-    if (streaming) setConfirmArchive(true)
+    // A temporary chat isn't kept, so there is nothing to put away: archiving it ends it.
+    if (streaming && !chat.temporary) setConfirmArchive(true)
     else archiveChat(chat.id)
   }
   // ⇧⌘A and File → Archive Chat. They archived straight from the store, so a
@@ -414,6 +421,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             <span className="chat-header__title" title={chat.title}>
               {chat.title}
             </span>
+            {chat.temporary && <TemporaryPill />}
             <button
               ref={moreButton}
               className="icon-btn"
@@ -474,6 +482,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }}
       >
         <div className="thread__inner">
+          {chat.temporary && <TemporaryNote />}
+          {chat.archived && <ArchivedNote chatId={chat.id} />}
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
               {/* The conversation moved to another model here. */}
@@ -524,7 +534,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           onClose={() => setMenu(null)}
           items={[
             // window.prompt does nothing in Electron, so Rename here did nothing.
-            { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) },
+            // A temporary chat has no name to keep, and nowhere to move to or archive to.
+            ...(chat.temporary ? [] : [{ icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) }]),
             {
               icon: <Copy size={15} strokeWidth={1.9} />,
               label: 'Copy transcript',
@@ -534,6 +545,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   () => notify("Couldn't copy the transcript. Click in the window and try again.", 'error')
                 )
             },
+            // The save dialog is main's; see main/features/chatExport.ts.
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as Markdown', action: () => void exportChatToFile(chat, 'markdown') },
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as JSON', action: () => void exportChatToFile(chat, 'json') },
             {
               icon: <FolderOpen size={15} strokeWidth={1.9} />,
               label: coding ? 'Open project folder' : 'Open Eaon’s folder',
@@ -542,10 +556,14 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
                 })
             },
-            { icon: <FolderInput size={15} strokeWidth={1.9} />, label: chat.projectId ? 'Move to another project' : 'Move to a project', action: () => setMoving(true) },
-            { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive },
+            ...(chat.temporary
+              ? []
+              : [
+                  { icon: <FolderInput size={15} strokeWidth={1.9} />, label: chat.projectId ? 'Move to another project' : 'Move to a project', action: () => setMoving(true) },
+                  { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive }
+                ]),
             // Deleting can't be undone, so it asks; Archive is the way to put a chat away.
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => setConfirmDelete(true) }
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: chat.temporary ? 'End temporary chat' : 'Delete', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
       )}
@@ -594,11 +612,13 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete this chat?"
-        confirmLabel="Delete"
+        title={chat.temporary ? 'End this temporary chat?' : 'Delete this chat?'}
+        confirmLabel={chat.temporary ? 'End chat' : 'Delete'}
         onConfirm={() => deleteChat(chat.id)}
       >
-        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+        {chat.temporary
+          ? 'The conversation is removed from this window. It was never saved, so it can’t be brought back.'
+          : `“${chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.`}
       </ConfirmDialog>
 
       {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}

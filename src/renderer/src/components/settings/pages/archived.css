@@ -1,0 +1,13 @@
+/* Settings → Archived chats. */
+
+.archived__search {
+  margin-bottom: 12px;
+}
+.archived__snippet {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

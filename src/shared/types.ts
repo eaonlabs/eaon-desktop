@@ -278,6 +278,12 @@ export interface Chat {
    * `throughMessageId`, so a long chat stops resending its whole history.
    */
   summary?: { text: string; throughMessageId: string } | null
+  /**
+   * A temporary chat: kept in the window that started it and nowhere else.
+   * It is never sent to main to be saved, isn't in the sidebar, the search
+   * or the Library, and is dropped when the window leaves it.
+   */
+  temporary?: boolean
 }
 
 /**
