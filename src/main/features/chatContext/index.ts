@@ -1,9 +1,11 @@
 import { isBranchName, isCommitId, type GitMention, type MentionAttachment } from '@shared/chatContext'
+import type { ProjectRules } from '@shared/projectRules'
 import type { Feature } from '../types'
 import { allowed } from '../workspaceFiles'
 import { makeRunner } from '../ade/runner'
 import { sshHosts } from '../ade'
 import { gitMentionText, gitRefs } from './git'
+import { loadProjectRules, withProjectRules } from './rules'
 import { saveMention } from './save'
 
 /**
@@ -12,10 +14,13 @@ import { saveMention } from './save'
  * menu offers (shared/chatContext.ts), the project's rules files and
  * prompt-file commands, and what a chat's tokens cost.
  *
- * Channels (all `chat-context:`): `refs`, `git`, `save`.
+ * Channels (all `chat-context:`): `refs`, `git`, `save`, `rules`.
  */
 
 const run = makeRunner(sshHosts)
+
+/** A Chat turn's instructions with the project's rules files added (rules.ts), as main/index.ts's `chat:stream` sends them. */
+export const instructionsWithRules = (request: Parameters<typeof withProjectRules>[1]): Promise<string> => withProjectRules(run, request)
 
 /** A mention as the renderer sent it, checked: a git mention names a branch or a commit git would accept. */
 function gitMention(value: unknown): GitMention {
@@ -43,6 +48,11 @@ export const chatContextFeature: Feature = {
         label: text.label,
         ...(text.truncated ? { note: 'The diff was long, so the end is cut. The agent can run git for the rest.' } : {})
       }
+    })
+    // Which rules files the agent is given in this folder, for the workspace card.
+    ipcMain.handle('chat-context:rules', async (_e, cwd: unknown): Promise<Pick<ProjectRules, 'files' | 'skipped'>> => {
+      const { files, skipped } = await loadProjectRules(run, await allowed(cwd))
+      return { files, skipped }
     })
     // Text the renderer read itself (a terminal's screen, an earlier chat), saved to attach.
     ipcMain.handle('chat-context:save', async (_e, label: unknown, text: unknown): Promise<string> => {

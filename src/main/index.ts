@@ -67,6 +67,7 @@ import { trustSystemNetwork } from './netTrust'
 import { onClaudePlanChange } from './engines/claude/status'
 import { versionLabel } from '@shared/version'
 import { MOD_SCHEME, withModInstructions } from './features/mods'
+import { instructionsWithRules } from './features/chatContext'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -818,7 +819,8 @@ function registerIpc(): void {
         return
       }
       // The instructions of the mods the user turned on ride with the project's (features/mods).
-      await streamChat(event, { ...request, projectInstructions: withModInstructions(request.projectInstructions ?? '') }, stopped.signal)
+      // The project's rules files (AGENTS.md…) follow the ones typed into it, and the mods' follow both.
+      await streamChat(event, { ...request, projectInstructions: withModInstructions(await instructionsWithRules(request)) }, stopped.signal)
     } finally {
       if (chatStreams.get(request.messageId) === stopped) chatStreams.delete(request.messageId)
     }
