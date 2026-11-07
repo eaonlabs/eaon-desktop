@@ -9,6 +9,9 @@ import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/ter
 import { scenes, seedOf } from './scenes'
 import { DEFAULT_THEME_ID, findTheme, type TerminalTheme } from './themes'
 import { isMac, isWindows } from '../../../lib/platform'
+import { isTerminalAppChord } from '@shared/keybindings'
+import { keyOf } from '../../../lib/bindings'
+import { useApp } from '../../../state/store'
 
 /**
  * Every xterm behind the ADE's terminal view. Ported from Eaon ADE's
@@ -119,21 +122,22 @@ function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
   if (!isMac) {
     // One modifier on Windows/Linux, and the shell owns bare Ctrl chords (^C,
     // ^D, ^W…); the clipboard lives on Ctrl+Shift, as in every Windows terminal.
-    // The app's own Ctrl chords (Ctrl+1-3, Ctrl+B, Ctrl+, and Ctrl+Shift+P,
-    // GlobalKeys in App.tsx) pass through to it, as ⌘ chords do on macOS.
+    // The app's own Ctrl chords (Ctrl+1-3, Ctrl+, Ctrl+Shift+P, the palette's
+    // Ctrl+Shift+K…, GlobalKeys in App.tsx) pass through to it, as ⌘ chords do
+    // on macOS.
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
       const key = e.key.toLowerCase()
       if (e.shiftKey && key === 'c') return { do: 'copy' }
       if (e.shiftKey && key === 'v') return { do: 'paste' }
       if (!e.shiftKey && key === 'c' && hasSelection) return { do: 'copy' }
       if (!e.shiftKey && key === 'v') return { do: 'paste' }
-      // Ctrl+1-3 and Ctrl+, switch tabs and open Settings, as ⌘ does on a Mac.
-      // Ctrl+B stays with the shell: it is readline's back-a-character and
-      // tmux's prefix, which a terminal must not take away.
-      if (/^[0-9,]$/.test(key)) return { do: 'app' }
-      // ^P either way (a terminal can't tell Ctrl+Shift+P from Ctrl+P), so the
-      // shell loses nothing by giving the shifted one up.
-      if (e.shiftKey && key === 'p') return { do: 'app' }
+      // The keys saved in Settings → Keyboard shortcuts, not the defaults: the
+      // tabs and Settings (Ctrl+1-3, Ctrl+,) and the chords with Shift. Ctrl+B
+      // stays with the shell: it is readline's back-a-character and tmux's
+      // prefix, which a terminal must not take away. Ctrl+Shift+P is ^P either
+      // way (a terminal can't tell it from Ctrl+P), so the shell loses nothing
+      // by giving the shifted one up (see isTerminalAppChord).
+      if (isTerminalAppChord(keyOf(e), useApp.getState().settings?.shortcuts, false)) return { do: 'app' }
     }
     return { do: 'terminal' }
   }

@@ -66,6 +66,7 @@ import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl }
 import { trustSystemNetwork } from './netTrust'
 import { onClaudePlanChange } from './engines/claude/status'
 import { versionLabel } from '@shared/version'
+import { effectiveBinding, toAccelerator } from '@shared/keybindings'
 import { MOD_SCHEME, withModInstructions } from './features/mods'
 
 const here = join(fileURLToPath(import.meta.url), '..')
@@ -409,7 +410,11 @@ async function openReleaseNotes(): Promise<void> {
   await shell.openExternal(url)
 }
 
-function buildMenu(): void {
+/**
+ * `bare`: with no accelerators, while Settings → Keyboard shortcuts is waiting
+ * for a new key (the menu would take a key already in it before the page saw it).
+ */
+function buildMenu(bare = false): void {
   // About Eaon says the release's name, 2026.7.2.1, not the semver under it (shared/version.ts). Both
   // fields alike, so macOS shows the one version rather than "2026.7.2.1 (2026.7.3)".
   const label = versionLabel(app.getVersion())
@@ -429,6 +434,14 @@ function buildMenu(): void {
       if (!window.isDestroyed()) window.webContents.send(channel)
     })
   }
+  // The keys of the commands in this menu are the ones saved in Settings →
+  // Keyboard shortcuts, or their defaults; the menu is built again when one
+  // changes (the settings:patch handler). A command left without a key has none.
+  const saved = store.getSettings().shortcuts
+  const key = (id: string): { accelerator?: string } => {
+    const accelerator = bare ? null : toAccelerator(effectiveBinding(id, saved, isMac), isMac)
+    return accelerator ? { accelerator } : {}
+  }
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -436,7 +449,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendOrOpen('menu:settings') },
+        { label: 'Settings…', ...key('settings'), click: () => sendOrOpen('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -447,19 +460,19 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendOrOpen('menu:new-chat') },
+        { label: 'New Chat', ...key('new-chat'), click: () => sendOrOpen('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
-        { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
+        { label: 'New Window', ...key('new-window'), click: () => void createWindow() },
         { type: 'separator' },
-        { label: 'Archive Chat', accelerator: 'Shift+CmdOrCtrl+A', click: () => send('menu:archive-chat') }
+        { label: 'Archive Chat', ...key('archive-chat'), click: () => send('menu:archive-chat') }
       ]
     },
     { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-sidebar') },
-        { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
+        { label: 'Toggle Sidebar', ...key('toggle-sidebar'), click: () => send('menu:toggle-sidebar') },
+        { label: 'Toggle Browser Panel', ...key('toggle-browser'), click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
         // Not in a packaged build: a "paste this into the console" scam would
@@ -599,6 +612,8 @@ function registerIpc(): void {
   })
   onStoreHealth((health) => broadcast('store:health', health))
   ipcMain.handle('settings:get', (): Settings => forRenderer(store.getSettings()))
+  // Settings → Keyboard shortcuts is listening for a key: the menu's own keys are held back until it has one.
+  ipcMain.handle('app:shortcuts-recording', (_e, on: unknown) => buildMenu(on === true))
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
   ipcMain.handle('settings:patch', (e, raw: Partial<Settings>): Settings => {
@@ -607,6 +622,8 @@ function registerIpc(): void {
     auditSettingsChange(patch, next)
     if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
+    // The menu's accelerators are its commands' keys.
+    if (patch.shortcuts) buildMenu()
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     if (patch.cliUsage && patch.cliUsage.claudeEverywhere !== undefined) applyClaudeEverywhere(next.cliUsage.claudeEverywhere)
     broadcast('settings:changed', forRenderer(next), e.sender)

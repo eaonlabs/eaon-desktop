@@ -254,6 +254,8 @@ const api = {
     showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     /** Brings this window to the front, e.g. when its notification is clicked. */
     focusWindow: (): Promise<void> => ipcRenderer.invoke('app:focus-window'),
+    /** Settings → Keyboard shortcuts is waiting for a key: the menu stops taking its own keys until it is done. */
+    shortcutsRecording: (on: boolean): Promise<void> => ipcRenderer.invoke('app:shortcuts-recording', on),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     /** This version's GitHub release page when it has one, else the list of releases. */
     openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
