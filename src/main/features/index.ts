@@ -42,6 +42,7 @@ import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
 import { modsFeature } from './mods'
 import { chatContextFeature } from './chatContext'
+import { sideQuestionFeature } from './sideQuestion'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -100,5 +101,6 @@ export const FEATURES: Feature[] = [
   cliAccountsFeature,
   discordPresenceFeature,
   // What Chat's message box pulls in (git, terminals, rules files, prompt commands); reads the chat folders the dock may.
-  chatContextFeature
+  chatContextFeature,
+  sideQuestionFeature
 ]

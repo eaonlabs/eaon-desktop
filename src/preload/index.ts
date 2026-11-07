@@ -38,6 +38,7 @@ import { libraryApi } from './features/library'
 import { workspaceFilesApi } from './features/workspaceFiles'
 import { chatCodeApi } from './features/chatCode'
 import { chatContextApi } from './features/chatContext'
+import { sideQuestionApi } from './features/sideQuestion'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
@@ -371,7 +372,8 @@ const fullApi = {
   cliAccounts: cliAccountsApi,
   enterprise: enterpriseApi,
   mods: modsApi,
-  chatContext: chatContextApi
+  chatContext: chatContextApi,
+  sideQuestion: sideQuestionApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

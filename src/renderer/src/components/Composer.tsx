@@ -21,6 +21,7 @@ import {
   Target,
   AtSign,
   Clock3,
+  MessageCircleQuestion,
   MessageSquarePlus,
   Sparkles,
   X,
@@ -38,6 +39,9 @@ import { useSuggest, type SuggestItem, type SuggestSources } from './composer/Su
 import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { useChatContext } from './composer/useChatContext'
+import { SideQuestion } from './chat/SideQuestion'
+import { useSideQuestion } from '../state/sideQuestion'
+import { parseSideQuestion } from '@shared/sideQuestion'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
@@ -286,6 +290,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerAppend, appendToComposer])
 
+  // A side question belongs to the chat it was asked in: leaving the chat puts it away.
+  useEffect(() => () => useSideQuestion.getState().close(), [])
+
   const submit = (): void => {
     if (streaming) {
       // Stopping is a moment to look again: whatever is queued waits.
@@ -293,6 +300,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
+    if (askSide()) return
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
@@ -316,8 +324,24 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     clearBox()
   }
 
+  /**
+   * "/btw …" is a side question: answered in a card, never sent into the chat
+   * or queued behind a reply. True when the text was one (nothing else then runs).
+   */
+  const askSide = (): boolean => {
+    const question = parseSideQuestion(text)
+    if (question === null) return false
+    if (!question) notify('Type your question after /btw, for example: /btw what does that flag do?')
+    else {
+      useSideQuestion.getState().ask(question)
+      setText('')
+    }
+    return true
+  }
+
   /** While a reply is being written: the message waits, under the conversation, to go after it. */
   const queueMessage = (): void => {
+    if (askSide()) return
     if (!activeChatId || noModel || editing || (!text.trim() && attachments.length === 0)) return
     enqueue(activeChatId, context.expand(text), attachments)
     clearBox()
@@ -505,7 +529,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       }
       items.push(
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
-        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
+        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
+        { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
       return isAgent
         ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query), ...modCommandItems('chat')]
@@ -746,6 +771,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
+      <SideQuestion />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">
