@@ -91,6 +91,16 @@ export function GeneralPage(): JSX.Element {
             />
           </Row>
           <Row
+            title="Notify me when an agent needs me"
+            description="A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t the window in front. It covers Chat, Workers, scheduled tasks and the ADE."
+          >
+            <Switch
+              label="Notify me when an agent needs me"
+              checked={settings.notifications?.taskComplete !== false}
+              onChange={(on) => void patchSettings({ notifications: { taskComplete: on } })}
+            />
+          </Row>
+          <Row
             title="Auto-compact long chats"
             description="When a chat nears the model’s context limit, summarize its older messages so it can keep going. Nothing in the chat is removed."
           >

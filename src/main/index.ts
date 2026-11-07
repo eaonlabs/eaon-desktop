@@ -27,6 +27,7 @@ import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import { capture as captureCheckpoint, captureBefore } from './features/chatCheckpoints'
 import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
+import { approvalGate, approvalNotice, finishedNotice, type NoticeText } from '@shared/chatNotice'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
@@ -843,8 +844,13 @@ function registerIpc(): void {
     // A coding chat's folder is checkpointed around the reply, so its changes can be undone.
     const checkpointed = request.cwd ? await captureBefore(request.cwd, request.messageId) : false
     try {
-      const outcome = await runAgent(request, batch.emit, { signal })
-      notifyIfAway(request, outcome.error, Date.now() - started)
+      // A call waiting on the person's OK is told to them if they have looked away.
+      const emit = (payload: StreamEvent): void => {
+        if (payload.type === 'approval-request' && approvalOnce(payload.messageId, Date.now())) notifyIfAway(approvalNotice(request, payload))
+        batch.emit(payload)
+      }
+      const outcome = await runAgent(request, emit, { signal })
+      notifyIfAway(finishedNotice(request, outcome.error, Date.now() - started))
     } finally {
       sender.removeListener('destroyed', abandon)
       sender.removeListener('render-process-gone', abandon)
@@ -931,21 +937,27 @@ function registerIpc(): void {
 }
 
 /**
- * A Work task that ran for a while and finished while the user was in another
- * app gets a system notification — the whole point of handing work to an
- * agent is not having to watch it.
+ * A Work task that finished, or a call waiting on the user's OK, while they
+ * were in another app gets a system notification: the whole point of handing
+ * work to an agent is not having to watch it. What it says is
+ * shared/chatNotice.ts's; Settings → General's switch turns it off.
  */
-function notifyIfAway(request: StreamRequest, error: string | undefined, elapsedMs: number): void {
-  if (request.mode !== 'work' || elapsedMs < 20_000) return
+const approvalOnce = approvalGate()
+/** Held until clicked or closed: a collected notification loses its click handler. */
+const shownNotices = new Set<Notification>()
+function notifyIfAway(text: NoticeText | null): void {
+  if (!text) return
   if (!store.getSettings().notifications.taskComplete || !Notification.isSupported()) return
   if (openWindows().some((window) => window.isFocused())) return
-  const notification = new Notification({
-    title: error ? 'Task stopped with an error' : 'Task finished',
-    body: request.chatTitle || 'Eaon'
-  })
+  const notification = new Notification(text)
+  shownNotices.add(notification)
   // The window may have been closed since (macOS keeps the app running), and
   // showing a destroyed one throws in the main process.
-  notification.on('click', () => openMainWindow())
+  notification.on('click', () => {
+    shownNotices.delete(notification)
+    openMainWindow()
+  })
+  notification.on('close', () => shownNotices.delete(notification))
   notification.show()
 }
 
