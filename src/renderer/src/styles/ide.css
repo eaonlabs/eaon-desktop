@@ -134,19 +134,75 @@ body[data-resizing='ide'] * {
   font-size: 12.5px;
   line-height: var(--ide-line);
 }
+.ide-editor-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ide-editor__gutter {
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 2;
   flex: none;
-  min-width: 44px;
+  min-width: 48px;
   min-height: 100%;
-  padding: 8px 12px 40vh 8px;
+  padding: 8px 14px 40vh 8px;
   background: var(--ide-editor-bg);
   color: var(--text-4);
   text-align: right;
   font-variant-numeric: tabular-nums;
   user-select: none;
+}
+.ide-editor__gutter-row {
+  height: var(--ide-line);
+}
+/* The caret's line: its number lit, and a faint band across it (not while selecting). */
+.ide-editor__num[data-active] {
+  color: var(--text-2);
+}
+.ide-editor__band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  pointer-events: none;
+}
+/* Changed since the last commit: a bar at the gutter's edge, green for new
+   lines, amber for changed ones, a red notch where lines were removed. */
+.ide-editor__num[data-mark] {
+  position: relative;
+}
+.ide-editor__num[data-mark]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -10px;
+  width: 3px;
+  border-radius: 1px;
+}
+.ide-editor__gutter-row .ide-editor__num {
+  display: block;
+  height: 100%;
+}
+.ide-editor__num[data-mark='added']::after {
+  background: var(--git-added);
+}
+.ide-editor__num[data-mark='changed']::after {
+  background: var(--git-modified);
+}
+.ide-editor__num[data-mark='deleted']::after {
+  top: -3px;
+  bottom: auto;
+  height: 6px;
+  width: 6px;
+  right: -12px;
+  border-radius: 0;
+  background: var(--git-removed);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 .ide-editor__code {
   position: relative;
@@ -166,6 +222,8 @@ body[data-resizing='ide'] * {
   word-wrap: normal;
 }
 .ide-editor__view {
+  position: relative;
+  z-index: 1;
   color: var(--text-2);
   pointer-events: none;
 }
@@ -208,6 +266,9 @@ body[data-resizing='ide'] * {
 .ide-editor[data-wrap] .ide-editor__view {
   position: relative;
   z-index: 1;
+}
+.ide-editor[data-wrap] .ide-editor__num[data-mark]::after {
+  right: -6px;
 }
 .ide-editor[data-wrap] .ide-editor__num {
   position: absolute;
@@ -339,3 +400,87 @@ body[data-resizing='ide'] * {
     transition: none;
   }
 }
+
+/* ---- The selection's buttons, and ⌘K's box (CodeEditor) ---- */
+
+.ide-sel-tools {
+  position: absolute;
+  right: 18px;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--menu-bg, var(--surface-3));
+  box-shadow: var(--shadow-menu);
+  backdrop-filter: blur(16px);
+}
+.ide-sel-tools__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.ide-sel-tools__btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.ide-sel-tools__btn kbd,
+.ide-ask__hint {
+  color: var(--text-4, var(--text-3));
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+}
+.ide-ask {
+  position: absolute;
+  left: 52px;
+  right: 18px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 5px 0 12px;
+  border-radius: 11px;
+  background: var(--surface-3);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    var(--shadow-menu);
+  font-family: var(--font-ui);
+}
+.ide-ask__icon {
+  flex: none;
+  color: var(--accent);
+}
+.ide-ask__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.ide-ask__input::placeholder {
+  color: var(--text-3);
+}
+.ide-ask__send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--send-bg);
+  color: var(--send-fg);
+}
+.ide-ask__send:disabled {
+  opacity: 0.4;
+}
+

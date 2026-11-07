@@ -31,8 +31,8 @@ files:
 # process can run any script under Eaon's signature (NODE_OPTIONS, --inspect)
 # and inherit what macOS has granted Eaon: the microphone, Accessibility and
 # Screen Recording for computer use. ELECTRON_RUN_AS_NODE stays on: the
-# bundled `tokn` command runs on Eaon's own Node (features/toknCli.ts), so it
-# needs no Node on the computer. File-protocol privileges stay on: the
+# bundled `tokn` command and its background sync run on Eaon's own Node
+# (features/toknCli.ts, toknJob.ts), so they need no Node on the computer. File-protocol privileges stay on: the
 # renderer is loaded from file://. Integrity validation checks app.asar
 # against the hash electron-builder writes into Info.plist / the exe, so a
 # modified bundle refuses to start; smoke-test a packaged build after
@@ -71,16 +71,20 @@ extraResources:
   # offline. Installing one copies it out to the user's mods folder.
   - from: resources/mods
     to: mods
+  # What the background sync runs (main/features/toknJob.ts), next to it.
+  - from: resources/tokn-job.cjs
+    to: tokn-job.cjs
 publish:
   provider: github
   owner: eaonlabs
   repo: eaon-desktop
 mac:
   category: public.app-category.productivity
-  # The launch agent behind "Run in the background" (main/background.ts), in
-  # Contents/Library/LaunchAgents where SMAppService looks for it. Registered
-  # from inside the app, macOS shows it as Eaon's; a loose plist in
-  # ~/Library/LaunchAgents read "Software from <whoever signed it>".
+  # The launch agents behind "Run in the background" (main/background.ts) and
+  # the tokn background sync (main/features/toknJob.ts), in
+  # Contents/Library/LaunchAgents where SMAppService looks for them.
+  # Registered from inside the app, macOS shows them as Eaon's; a loose plist
+  # in ~/Library/LaunchAgents read "Software from <whoever signed it>".
   extraFiles:
     - from: resources/mac/LaunchAgents
       to: Library/LaunchAgents

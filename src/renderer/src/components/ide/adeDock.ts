@@ -131,6 +131,13 @@ export function useAdePlace(): DockPlace {
         if (!pane) return notify('Start an agent in this session first.', 'error')
         if (!terminals.paste(pane.id, text)) return notify(`${pane.name} isn’t running.`, 'error')
         notify(`Added ${what} to ${pane.name}`)
+      },
+      // The agent's own prompt sends it: pasted, never typed with an Enter the user didn't press.
+      askAgent: (text) => {
+        const pane = cwd ? agentPane(cwd) : null
+        if (!pane) return notify('Start an agent in this session first.', 'error')
+        if (!terminals.paste(pane.id, text)) return notify(`${pane.name} isn’t running.`, 'error')
+        notify(`Put the request in ${pane.name}’s prompt. Press Return there to send it.`)
       }
     }),
     [cwd, folder, status, files]

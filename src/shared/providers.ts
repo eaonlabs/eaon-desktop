@@ -231,12 +231,22 @@ export function isLastingIssue(kind: ProviderErrorKind): boolean {
   )
 }
 
+/** A wait this long is a limit for the day (Eaon's gateway: per network, or per event code), not for the minute. */
+export const LONG_LIMIT_MS = 15 * 60_000
+
+/** A rate limit that asks to wait for the rest of the day rather than a few seconds. */
+export const isLongLimit = (issue: Pick<ProviderIssue, 'kind' | 'retryAfterMs'>): boolean => issue.kind === 'rate-limit' && (issue.retryAfterMs ?? 0) >= LONG_LIMIT_MS
+
 /** The last time Eaon checked a provider's credentials, and what it found. */
 export interface ProviderHealth {
   ok: boolean
   /** Why the check failed; null when it worked. */
   issue: ProviderIssue | null
   checkedAt: number
+  /** The version of Eaon whose check failed. Eaon's gateway refuses a copy of Eaon, and updating ends that. */
+  version?: string
+  /** For a limit Eaon's gateway set for the day: when it ends. Until then the provider waits it out. */
+  until?: number
 }
 
 /**

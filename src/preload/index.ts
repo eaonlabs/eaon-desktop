@@ -235,7 +235,9 @@ const api = {
       const listener = (_e: unknown, payload: StreamEvent): void => handler(payload)
       ipcRenderer.on('chat:event', listener)
       return () => ipcRenderer.removeListener('chat:event', listener)
-    }
+    },
+    /** A reply's after checkpoint is written: its changes can be undone now. */
+    onCheckpoint: (handler: (messageId: string) => void): (() => void) => on('chat:checkpoint', (payload: { messageId: string }) => handler(payload.messageId))
   },
   plugins: {
     /** Empty token disconnects. Returns the refreshed server statuses. */
@@ -267,6 +269,8 @@ const api = {
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
     /** Saves an image pasted from the clipboard (it has no file of its own) and returns its path, to attach. */
     savePastedImage: (data: Uint8Array, type: string): Promise<string> => ipcRenderer.invoke('library:save-pasted', data, type),
+    /** A long paste, saved as a .txt to attach instead of typing it into the box. */
+    savePastedText: (text: string): Promise<string> => ipcRenderer.invoke('library:save-pasted-text', text),
     /**
      * App-menu commands. Listened for from the start and held until the app
      * subscribes, so a command that opened this window (New Chat with every

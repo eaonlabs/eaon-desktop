@@ -330,3 +330,47 @@ for (const [name, adapter, make] of adapters) {
     }
   })
 }
+
+test('a rate limit from Eaon’s gateway says its own reason; a day’s limit says how to keep going, in hours', () => {
+  const gateway = 'https://gateway.eaon.dev/v1'
+  const lite = like({ id: 'eaon-gateway', name: 'Eaon Lite', auth: 'none', baseUrl: gateway })
+  const event = like({ id: 'eaon-free', name: 'Eaon Event', auth: 'none', baseUrl: gateway })
+  const refused = (message: string, retryAfterMs?: number): ProviderHttpError =>
+    new ProviderHttpError(429, `429: ${message}`, retryAfterMs)
+
+  // Eaon Lite's day, counted per network (by IP): in our words, since the
+  // gateway's "a day per user" reads wrong at a venue. 65410 s is 18 h, not 1090 min.
+  const daily = classifyProviderError(refused('Daily limit reached. This gateway allows 20 requests a day per user.', 65_410_000), lite)
+  assert.equal(daily.kind, 'rate-limit')
+  assert.equal(
+    daily.message,
+    'Eaon Lite’s free requests are used up on this network for now. Try again in 18 h, or redeem an event code in Settings → Model providers → Eaon Event, or choose another model.'
+  )
+  assert.equal(daily.action, 'choose-model', 'retrying won’t help for hours')
+  assert.equal(daily.retryAfterMs, 65_410_000)
+  assert.match(daily.detail ?? '', /Daily limit reached\. This gateway allows 20 requests a day per user\./, 'the gateway’s words stay for Copy details')
+  // Without a Retry-After, the way out alone.
+  assert.equal(
+    classifyProviderError(refused('Daily limit reached. This gateway allows 20 requests a day per user.'), lite).message,
+    'Eaon Lite’s free requests are used up on this network for now. To keep going, redeem an event code in Settings → Model providers → Eaon Event, or choose another model.'
+  )
+
+  // An event code's day: its reason already says when it starts over.
+  const code = classifyProviderError(refused('You’ve used today’s 50 requests from the code "Hack". They start over at 00:00 UTC.', 30_000_000), event)
+  assert.equal(code.message, 'You’ve used today’s 50 requests from the code "Hack". They start over at 00:00 UTC. To keep going now, choose another model.')
+
+  // The JSON body works as well as the message.
+  const json = classifyProviderError(new ProviderHttpError(429, JSON.stringify({ error: { message: 'You’ve used today’s 50 requests from the code "Hack". They start over at 00:00 UTC.', code: 'rate_limit_exceeded' } }), 7_200_000), event)
+  assert.match(json.message, /^You’ve used today’s 50 requests from the code "Hack"\. They start over at 00:00 UTC\. To keep going now, choose another model\.$/)
+
+  // A minute's limit stays a short wait, in the gateway's words.
+  const minute = classifyProviderError(refused('Too many requests. This gateway allows 30 a minute per user; try again in 12s.', 12_000), lite)
+  assert.equal(minute.message, 'Too many requests. This gateway allows 30 a minute per user; try again in 12s.')
+  assert.equal(minute.action, 'retry')
+
+  // Another provider's long wait is in hours too; a short one is as before.
+  const other = like({ id: 'openai', name: 'OpenAI', auth: 'key', baseUrl: 'https://api.openai.com/v1' })
+  assert.match(classifyProviderError(refused('Rate limit reached', 3 * 3_600_000), other).message, /^OpenAI is limiting how fast requests can be made\. Try again in 3 h\.$/)
+  assert.match(classifyProviderError(refused('Rate limit reached', 20_000), other).message, /Try again in 20 s\./)
+  assert.match(classifyProviderError(refused('Rate limit reached', 20 * 60_000), other).message, /Try again in 20 min\./)
+})

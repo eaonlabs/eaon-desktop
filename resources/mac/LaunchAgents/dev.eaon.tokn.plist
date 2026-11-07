@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.eaon.tokn</string>
+  <key>BundleProgram</key>
+  <string>Contents/MacOS/Eaon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>Contents/MacOS/Eaon</string>
+    <string>-e</string>
+    <string>require(require('path').join(process.execPath, '..', '..', 'Resources', 'tokn-job.cjs')).run()</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ELECTRON_RUN_AS_NODE</key>
+    <string>1</string>
+  </dict>
+  <key>AssociatedBundleIdentifiers</key>
+  <string>dev.eaon.desktop</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>23</integer>
+    <key>Minute</key>
+    <integer>59</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>/dev/null</string>
+</dict>
+</plist>

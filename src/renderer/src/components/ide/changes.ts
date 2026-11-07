@@ -28,6 +28,8 @@ function useEditParts(): { part: ChatToolPart; turn: number }[] {
       for (const m of s.activeChat()?.messages ?? []) {
         if (m.role !== 'assistant') continue
         turn++
+        // A reply whose changes were undone no longer counts; Redo brings it back.
+        if (m.undone) continue
         for (const p of m.parts) if (p.type === 'tool' && (p.name === 'edit_file' || p.name === 'write_file')) out.push(p, turn)
       }
       return out

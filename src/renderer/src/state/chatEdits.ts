@@ -117,3 +117,10 @@ export function sentPrompts(chat: Chat | null): string[] {
   }
   return prompts
 }
+
+/** The replies after a user message, in order: what Edit from here drops, and what its file rewind puts back. */
+export function repliesAfter(messages: ChatMessage[], userMessageId: string): string[] {
+  const at = messages.findIndex((m) => m.id === userMessageId)
+  if (at === -1) return []
+  return messages.slice(at + 1).filter((m) => m.role === 'assistant').map((m) => m.id)
+}

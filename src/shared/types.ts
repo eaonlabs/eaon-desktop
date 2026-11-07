@@ -225,8 +225,12 @@ export interface ChatMessage {
    * quit or crashed before the reply finished.
    */
   interrupted?: boolean
+  /** What the reply is waiting on right now (a retry's wait), while it is written; never kept once it ends. */
+  notice?: string
   /** The user stopped this reply before it finished. */
   stopped?: boolean
+  /** A coding reply whose file changes the user undid (its checkpoint, chatCheckpoints.ts); Redo puts them back. */
+  undone?: boolean
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
   /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */
@@ -617,6 +621,11 @@ export interface Settings {
      * in the setup; off until the person says yes.
      */
     sync: boolean
+    /**
+     * Keep publishing while Eaon is closed: a job the operating system runs
+     * (main/features/toknJob.ts). On by default, with `sync`.
+     */
+    background: boolean
   }
   /**
    * Left from Eaon Free's free week, which Eaon Event (a code only) replaced:
@@ -858,6 +867,11 @@ export interface StreamRequest {
 export type StreamEvent =
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'reasoning'; messageId: string; text: string }
+  /**
+   * Something the turn is waiting on, said while it waits: a retry after the
+   * provider was busy, the next saved key. Shown until the model answers again.
+   */
+  | { type: 'notice'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
   | {
