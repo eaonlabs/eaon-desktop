@@ -66,6 +66,10 @@ export const workersApi = {
   /** Stops one of the worker's routines, by name. */
   removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
   removeRoutineById: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:remove-routine-id', id, routineId),
+  /** Pauses or resumes one routine (a paused one doesn't run; resumed, it carries on from its next slot). */
+  setRoutinePaused: (id: string, routineId: string, paused: boolean): Promise<WorkerRoutine> => ipcRenderer.invoke('workers:set-routine-paused', id, routineId, paused),
+  /** Cancels a wake-up the worker set for itself, in its main thread or a side thread. */
+  stopWakeup: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:stop-wakeup', id, threadId),
   /** A routine's next run, now: a purchase schedule's "Buy now". */
   runRoutine: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:run-routine', id, routineId),
   /** Saves a purchase schedule as one of the worker's routines (new, or replacing `draft.id`). */

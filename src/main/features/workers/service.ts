@@ -516,6 +516,9 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:remove-routine', (_e, id: unknown, name: unknown) => engine.removeRoutine(idOf(id), str(name)))
     ipcMain.handle('workers:remove-routine-id', (_e, id: unknown, routineId: unknown) => engine.removeRoutineById(idOf(id), str(routineId)))
     ipcMain.handle('workers:run-routine', (_e, id: unknown, routineId: unknown) => engine.runRoutineNow(idOf(id), str(routineId)))
+    // Scheduled → All schedules: pause or resume one routine, or cancel a wake-up the worker set for itself.
+    ipcMain.handle('workers:set-routine-paused', (_e, id: unknown, routineId: unknown, paused: unknown) => engine.setRoutinePaused(idOf(id), str(routineId), paused === true))
+    ipcMain.handle('workers:stop-wakeup', (_e, id: unknown, threadId?: unknown) => engine.stopWakeup(idOf(id), optionalThread(threadId)))
     // The /purchase dialog: a purchase schedule saved as one of the worker's routines.
     ipcMain.handle('workers:save-purchase', (_e, id: unknown, draft: PurchaseRoutineDraft) => {
       const worker = engine.list().find((w) => w.id === idOf(id))

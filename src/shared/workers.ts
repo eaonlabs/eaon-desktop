@@ -113,6 +113,12 @@ export interface WorkerRoutine {
   runs: { at: number; ok: boolean }[]
   /** The thread its runs go in, made on its first run. */
   threadId?: string
+  /**
+   * The user paused this routine (Scheduled → All schedules): it doesn't run,
+   * and when resumed it carries on from the next slot, not a burst of the
+   * ones it missed. The worker can't change this.
+   */
+  paused?: boolean
   /** The time zone `nextAt` was worked out in, for a daily routine: "9:00" means 9:00 where the user is now. */
   zone?: string
   /**

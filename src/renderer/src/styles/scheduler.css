@@ -602,3 +602,112 @@
 .sched-hook__note--warn {
   color: var(--text-2);
 }
+
+/* The view switch, and the one list of every schedule. */
+.sched-view {
+  margin: 0 0 16px;
+}
+.sched-all {
+  padding: 0;
+  overflow: hidden;
+}
+.sched-all__head,
+.sched-all__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr) 110px;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 16px;
+}
+.sched-all__head {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+.sched-all__row {
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.sched-all__row[data-paused='true'] .sched-all__name,
+.sched-all__row[data-idle='true'] .sched-all__name {
+  color: var(--text-2);
+}
+.sched-all__what {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sched-all__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.sched-all__text {
+  min-width: 0;
+}
+.sched-all__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-all__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.sched-all__worker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.sched-all__next,
+.sched-all__last {
+  min-width: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sched-all__last {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sched-all__detail {
+  min-width: 0;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.sched-all__control {
+  display: flex;
+  justify-content: flex-end;
+}
+.sched-all__note {
+  font-size: var(--fs-xs);
+  text-align: right;
+}
+@media (max-width: 820px) {
+  .sched-all__head {
+    display: none;
+  }
+  .sched-all__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .sched-all__next,
+  .sched-all__last {
+    grid-column: 1 / -1;
+  }
+}
