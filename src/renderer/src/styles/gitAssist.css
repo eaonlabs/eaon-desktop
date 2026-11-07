@@ -108,3 +108,98 @@
   flex: none;
   gap: 2px;
 }
+
+/* Replace across the project, in Find in project's dialog. */
+.code-search__replace {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 10px 0 14px;
+  border-bottom: 0.5px solid var(--border);
+}
+.code-search__input--replace {
+  margin-left: 21px;
+  font-size: var(--fs-sm);
+}
+.code-search__outcome {
+  flex: none;
+  margin: 6px 10px 2px;
+  padding: 6px 8px 6px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.code-search__outcome-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-search__outcome-head > span {
+  flex: 1;
+}
+.code-search__outcome ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.code-search__outcome li span {
+  font-family: var(--font-mono);
+}
+.code-search__file-head input[type='checkbox'],
+.code-search__hit-row input[type='checkbox'] {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.code-search__file-note {
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+}
+.code-search__hit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-left: 8px;
+}
+.code-search__hit-row[data-off] {
+  opacity: 0.5;
+}
+.code-search__hit-row > .code-search__hit {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.code-search__hit[data-replace] .code-search__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.code-search__hit[data-replace] .code-search__text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.code-search__after {
+  color: var(--text);
+}
+.code-search__after ins {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--diff-add-fg, #3fb950) 28%, transparent);
+  color: inherit;
+  text-decoration: none;
+}
+.code-search__after ins[data-empty] {
+  display: inline-block;
+  width: 3px;
+  height: 1em;
+  margin: 0 1px;
+  vertical-align: text-bottom;
+}
+.code-search__hit[data-replace] .code-search__before mark {
+  background: color-mix(in srgb, var(--diff-del-fg, #f85149) 26%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--diff-del-fg, #f85149) 70%, transparent);
+}
