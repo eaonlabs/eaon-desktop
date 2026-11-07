@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
-import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary, UsageTool, UsageToolRow } from '@shared/usage'
+import { Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { monthRange, tokenSplit, type UsageBudget, type UsageBudgetState, type UsageDay, type UsageModelRow, type UsageProjectRow, type UsageSource, type UsageSourceRow, type UsageSpan, type UsageSummary, type UsageToolRow } from '@shared/usage'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section, Segmented } from '../../ui'
+import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
+import { notify } from '../../Notice'
 import { ProviderMark } from '../../composer/ProviderMark'
 import { UsageActivity } from './UsageActivity'
-import { listOf, TOOL_LABEL, TOOL_ORDER, toolMark, toolSplit } from './usageTools'
+import { listOf, projectLabel, TOOL_LABEL, TOOL_ORDER, toolMark, toolSplit } from './usageTools'
 import { ToknMark } from '../../account/ToknAccount'
 import { ToknCommand } from './ToknCommand'
 
@@ -19,13 +20,21 @@ import { ToknCommand } from './ToknCommand'
 const RANGES: { value: string; label: string }[] = [
   { value: '7', label: '7 days' },
   { value: '30', label: '30 days' },
-  { value: '90', label: '90 days' }
+  { value: '90', label: '90 days' },
+  { value: 'custom', label: 'Custom' }
 ]
 const RANGE_KEY = 'eaon.usage.range'
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 
-function savedRange(): UsageRange {
+/** The range shown last time: a preset, or the two days picked by hand. Eaon's main process checks it again. */
+function savedSpan(): UsageSpan {
   try {
-    const value = Number(localStorage.getItem(RANGE_KEY))
+    const raw = localStorage.getItem(RANGE_KEY) ?? ''
+    if (raw.startsWith('{')) {
+      const saved = JSON.parse(raw) as { from?: unknown; to?: unknown }
+      if (typeof saved.from === 'string' && typeof saved.to === 'string' && DAY.test(saved.from) && DAY.test(saved.to)) return { from: saved.from, to: saved.to }
+    }
+    const value = Number(raw)
     return value === 7 || value === 90 ? value : 30
   } catch {
     return 30
@@ -59,7 +68,9 @@ function ago(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function useUsage(range: UsageRange): { summary: UsageSummary | null; error: string | null; retry: () => void } {
+function useUsage(span: UsageSpan): { summary: UsageSummary | null; error: string | null; retry: () => void } {
+  // A custom range is a new object on every render; what it says is the key.
+  const key = JSON.stringify(span)
   const [summary, setSummary] = useState<UsageSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Only the latest request's answer is kept: switching range quickly could
@@ -67,7 +78,7 @@ function useUsage(range: UsageRange): { summary: UsageSummary | null; error: str
   const latest = useRef(0)
   const load = useCallback(() => {
     const id = ++latest.current
-    window.api.usage.summary(range).then(
+    window.api.usage.summary(JSON.parse(key) as UsageSpan).then(
       (next) => {
         if (id !== latest.current) return
         setSummary(next)
@@ -78,7 +89,7 @@ function useUsage(range: UsageRange): { summary: UsageSummary | null; error: str
         setError((e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
       }
     )
-  }, [range])
+  }, [key])
   useEffect(() => {
     load()
     const stop = window.api.usage.onChanged(load)
@@ -93,17 +104,21 @@ function useUsage(range: UsageRange): { summary: UsageSummary | null; error: str
 }
 
 export function UsagePage(): JSX.Element {
-  const [range, setRange] = useState<UsageRange>(savedRange)
-  const { summary, error, retry } = useUsage(range)
+  const [span, setSpan] = useState<UsageSpan>(savedSpan)
+  const { summary, error, retry } = useUsage(span)
 
-  const pickRange = (value: string): void => {
-    const next = Number(value) as UsageRange
-    setRange(next)
+  const setRange = (next: UsageSpan): void => {
+    setSpan(next)
     try {
-      localStorage.setItem(RANGE_KEY, String(next))
+      localStorage.setItem(RANGE_KEY, typeof next === 'number' ? String(next) : JSON.stringify(next))
     } catch {
       /* the default is fine */
     }
+  }
+  const pickRange = (value: string): void => {
+    // Custom starts from this month so far, or from the days last picked.
+    if (value === 'custom') setRange(typeof span === 'number' ? monthRange('this') : span)
+    else setRange(Number(value) as 7 | 30 | 90)
   }
 
   return (
@@ -121,7 +136,7 @@ export function UsagePage(): JSX.Element {
             </button>
           </Row>
         </Card>
-      ) : !summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
+      ) : !summary ? null : summary.account ? <SignedIn summary={summary} span={span} onRange={pickRange} onSpan={setRange} /> : <SignedOut summary={summary} />}
       {summary && <ToknCommand signedIn={Boolean(summary.account)} />}
     </>
   )
@@ -205,14 +220,21 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
 
       {summary.totals.requests > 0 && (
         <p className="usage-counted">
-          Eaon has counted {summary.totals.requests.toLocaleString()} {summary.totals.requests === 1 ? 'request' : 'requests'} in
-          the last {summary.range} days. They show up here once you sign in.
+          Eaon has counted {summary.totals.requests.toLocaleString()} {summary.totals.requests === 1 ? 'request' : 'requests'}{' '}
+          {rangeText(summary)}. They show up here once you sign in.
         </p>
       )}
+
+      <BudgetSection />
 
       <WhatIsSent />
     </>
   )
+}
+
+/** "in the last 30 days", or "from Oct 9 to Nov 7" for a range picked by hand. */
+function rangeText(summary: UsageSummary): string {
+  return summary.span.custom ? `from ${dayLabel(summary.span.from)} to ${dayLabel(summary.span.to)}` : `in the last ${summary.range} days`
 }
 
 function WhatIsSent(): JSX.Element {
@@ -244,8 +266,21 @@ function WhatIsSent(): JSX.Element {
   )
 }
 
-function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: UsageRange; onRange: (value: string) => void }): JSX.Element {
+function SignedIn({
+  summary,
+  span,
+  onRange,
+  onSpan
+}: {
+  summary: UsageSummary
+  span: UsageSpan
+  onRange: (value: string) => void
+  onSpan: (span: UsageSpan) => void
+}): JSX.Element {
   const account = summary.account!
+  const range = summary.range
+  const custom = summary.span.custom
+  const label = custom ? `${dayLabel(summary.span.from)} – ${dayLabel(summary.span.to)}` : `${range} days`
   const { sync } = summary
   const syncing = sync.state === 'syncing'
   const tracksClis = useApp((s) => s.settings?.toknCli.sync ?? false)
@@ -304,6 +339,7 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
           agents={summary.agents}
           priced={summary.priced}
           range={range}
+          rangeText={custom ? label : undefined}
           money={money}
           tokens={tokens}
           fromTokn={summary.activityFrom.source === 'tokn'}
@@ -311,12 +347,14 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       </Section>
 
       <div className="usage-toolbar">
-        <Segmented value={String(range)} options={RANGES} onChange={onRange} />
+        <Segmented value={typeof span === 'number' ? String(span) : 'custom'} options={RANGES} onChange={onRange} />
+        <ExportCsv span={span} />
       </div>
+      {typeof span !== 'number' && <CustomRange span={span} onChange={onSpan} />}
 
       <div className="usage-tiles">
         <Tile
-          label={`Est. spend · ${range} days`}
+          label={`Est. spend · ${label}`}
           value={money(summary.totals.costUsd)}
           sub={summary.totals.planUsd > 0 ? `Plus ≈ ${money(summary.totals.planUsd)} covered by plans` : 'Pay-per-token, at API rates'}
         />
@@ -329,6 +367,8 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         <Tile label="Requests" value={summary.totals.requests.toLocaleString()} />
       </div>
 
+      <BudgetSection />
+
       <Section label="Daily use">
         <DailyChart days={summary.chart} reading={summary.cliLogs.reading} />
       </Section>
@@ -339,6 +379,12 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         </Section>
       )}
 
+      {summary.totals.tokens > 0 && (
+        <Section label="Token split">
+          <TokenSplitBar models={summary.models} />
+        </Section>
+      )}
+
       <Section label="By model">
         <ModelTable models={summary.models} />
       </Section>
@@ -346,6 +392,12 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       {summary.sources.some((row) => row.source !== 'chat') && (
         <Section label="By what it was for">
           <SourceTable sources={summary.sources} />
+        </Section>
+      )}
+
+      {summary.projects.some((row) => row.kind !== 'unattributed') && (
+        <Section label="By project">
+          <ProjectTable projects={summary.projects} />
         </Section>
       )}
 
@@ -640,7 +692,9 @@ function ModelTable({ models }: { models: UsageModelRow[] }): JSX.Element {
             <span className="usage-table__via">{nameOf(model.providerId)}</span>
           </span>
           <span role="cell">{model.requests.toLocaleString()}</span>
-          <span role="cell">{tokens(model.input + model.output + model.cacheRead + model.cacheWrite)}</span>
+          <span role="cell" title={splitText(model)}>
+            {tokens(model.input + model.output + model.cacheRead + model.cacheWrite)}
+          </span>
           <span
             role="cell"
             className="usage-table__cost"
@@ -652,5 +706,316 @@ function ModelTable({ models }: { models: UsageModelRow[] }): JSX.Element {
         </div>
       ))}
     </div>
+  )
+}
+
+/** "Input 1.2M · Output 300k · Cache read 10M · Cache write 500k", leaving out what is zero. */
+function splitText(counts: Pick<UsageModelRow, 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'cacheWrite1h'>): string {
+  const split = tokenSplit([counts])
+  return [
+    ['Input', split.input],
+    ['Output', split.output],
+    ['Cache read', split.cacheRead],
+    ['Cache write', split.cacheWrite]
+  ]
+    .filter(([, n]) => (n as number) > 0)
+    .map(([name, n]) => `${name} ${tokens(n as number)}`)
+    .join(' · ')
+}
+
+const SPLIT_PARTS: { key: 'input' | 'output' | 'cacheRead' | 'cacheWrite'; label: string }[] = [
+  { key: 'input', label: 'Input' },
+  { key: 'output', label: 'Output' },
+  { key: 'cacheRead', label: 'Cache read' },
+  { key: 'cacheWrite', label: 'Cache write' }
+]
+
+/**
+ * The range's tokens as uncached input, output, cache reads and cache writes,
+ * with how much of the prompt came from the cache. From the counts the
+ * ledger already keeps for the models above, so it adds up to the Tokens tile.
+ */
+function TokenSplitBar({ models }: { models: UsageModelRow[] }): JSX.Element {
+  const split = useMemo(() => tokenSplit(models), [models])
+  return (
+    <div className="usage-split">
+      <div className="usage-split__bar" role="img" aria-label={`Tokens: ${SPLIT_PARTS.map((part) => `${part.label} ${tokens(split[part.key])}`).join(', ')}`}>
+        {SPLIT_PARTS.map((part) =>
+          split[part.key] > 0 ? <div key={part.key} className="usage-split__seg" data-part={part.key} style={{ flexGrow: split[part.key] }} /> : null
+        )}
+      </div>
+      <div className="usage-split__legend">
+        {SPLIT_PARTS.map((part) => (
+          <span key={part.key} title={`${split[part.key].toLocaleString()} tokens`}>
+            <i data-part={part.key} />
+            {part.label} <strong>{tokens(split[part.key])}</strong>
+            {split.total > 0 && <em>{Math.round((split[part.key] / split.total) * 100)}%</em>}
+          </span>
+        ))}
+      </div>
+      <p className="usage-footnote">
+        {split.cacheHitRate === null
+          ? 'No prompts in this range.'
+          : `${Math.round(split.cacheHitRate * 100)}% of prompt tokens were cache reads (cache reads out of uncached input, cache reads and cache writes). A model that doesn’t report its cache shows none.`}
+      </p>
+    </div>
+  )
+}
+
+/** Saves what is on the page for this range as a CSV, where the person chooses. */
+function ExportCsv({ span }: { span: UsageSpan }): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const save = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const saved = await window.api.usage.exportCsv(span)
+      if (saved) notify(`Saved usage to ${saved.path}`)
+    } catch (e) {
+      notify(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="btn btn--ghost"
+      disabled={busy}
+      title="Daily use and the tool, model, source and project tables for this range, as one CSV"
+      onClick={() => void save()}
+    >
+      <Download size={13} strokeWidth={2} /> Export CSV
+    </button>
+  )
+}
+
+const todayDay = (): string => {
+  const now = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/** The two days of a custom range, and this month and last month in one click. Eaon keeps about 400 days. */
+function CustomRange({ span, onChange }: { span: { from: string; to: string }; onChange: (span: UsageSpan) => void }): JSX.Element {
+  const max = todayDay()
+  const oldest = (() => {
+    const at = new Date()
+    at.setDate(at.getDate() - 399)
+    const pad = (n: number): string => String(n).padStart(2, '0')
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`
+  })()
+  const change = (edge: 'from' | 'to', value: string): void => {
+    // A cleared or half-typed date reads as empty: keep the last good one.
+    if (!DAY.test(value)) return
+    const next = { ...span, [edge]: value }
+    // The other end follows rather than leaving an empty range.
+    if (next.from > next.to) next[edge === 'from' ? 'to' : 'from'] = value
+    onChange(next)
+  }
+  return (
+    <div className="usage-range">
+      <label>
+        From
+        <input type="date" className="input" value={span.from} min={oldest} max={max} onChange={(e) => change('from', e.target.value)} />
+      </label>
+      <label>
+        To
+        <input type="date" className="input" value={span.to} min={oldest} max={max} onChange={(e) => change('to', e.target.value)} />
+      </label>
+      <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange(monthRange('this'))}>
+        This month
+      </button>
+      <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange(monthRange('last'))}>
+        Last month
+      </button>
+    </div>
+  )
+}
+
+/** The range split by project folder. Eaon began noting folders in this version; see the footnote. */
+function ProjectTable({ projects }: { projects: UsageProjectRow[] }): JSX.Element {
+  return (
+    <>
+      <div className="usage-table" role="table" aria-label="Usage by project">
+        <div className="usage-table__row usage-table__row--head" role="row">
+          <span role="columnheader">Project</span>
+          <span role="columnheader">Requests</span>
+          <span role="columnheader">Tokens</span>
+          <span role="columnheader">Cost</span>
+        </div>
+        {projects.map((row) => {
+          const { name, title } = projectLabel(row)
+          return (
+            <div key={`${row.kind} ${row.path}`} className="usage-table__row" role="row">
+              <span role="cell" className="usage-table__name" title={title} data-muted={row.kind !== 'folder' || undefined}>
+                {name}
+              </span>
+              <span role="cell">{row.requests.toLocaleString()}</span>
+              <span role="cell">{tokens(row.tokens)}</span>
+              <span
+                role="cell"
+                className="usage-table__cost"
+                title={row.planUsd > 0 ? `Plus ≈ ${money(row.planUsd)} covered by plans, at API rates` : undefined}
+              >
+                {money(row.costUsd)}
+                {row.planUsd > 0 && <span className="usage-table__via"> + ≈ {money(row.planUsd)}</span>}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <p className="usage-footnote">
+        A project is the folder a chat or task worked in. Eaon began noting it in this version, so older requests, and ones made
+        outside a chat or a task (a chat’s title), show as Unattributed. Claude Code’s and Codex’s own logs aren’t split by project here.
+      </p>
+    </>
+  )
+}
+
+const UNIT_DEFAULT: Record<UsageBudget['unit'], number> = { usd: 50, tokens: 10_000_000 }
+const WARN_OPTIONS = [50, 70, 80, 90, 95].map((n) => ({ value: String(n), label: `${n}%` }))
+
+/**
+ * A monthly budget for pay-per-token models: Eaon warns at a percent of it
+ * and, if asked, stops sending pay-per-token requests at the limit, saying so
+ * in the chat or app that asked. Estimates at Tokn’s rates, never a provider’s
+ * own limit.
+ */
+function BudgetSection(): JSX.Element | null {
+  const [state, setState] = useState<UsageBudgetState | null>(null)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = (): void => void window.api.usage.budget().then((next) => alive && setState(next), () => {})
+    load()
+    const stop = window.api.usage.onChanged(load)
+    return () => {
+      alive = false
+      stop()
+    }
+  }, [])
+  const { unit, limit } = state?.budget ?? { unit: 'usd' as const, limit: 0 }
+  // The saved limit is what the field shows; typing is a draft until Enter or leaving it.
+  useEffect(() => setDraft(unit === 'usd' ? String(limit) : String(limit / 1e6)), [unit, limit])
+  if (!state) return null
+
+  const { budget } = state
+  const save = (patch: Partial<UsageBudget>): void => {
+    void window.api.usage.setBudget(patch).then(setState, (e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+  }
+  const commit = (): void => {
+    const value = Number(draft.trim())
+    if (!Number.isFinite(value) || value <= 0) {
+      setError(budget.unit === 'usd' ? 'Enter a dollar amount above zero.' : 'Enter a number of million tokens above zero.')
+      setDraft(budget.unit === 'usd' ? String(budget.limit) : String(budget.limit / 1e6))
+      return
+    }
+    setError(null)
+    const next = budget.unit === 'usd' ? Math.round(value * 100) / 100 : Math.round(value * 1e6)
+    if (next !== budget.limit) save({ limit: next })
+  }
+  const amount = (n: number): string => (budget.unit === 'usd' ? money(n) : `${tokens(n)} tokens`)
+  const month = new Date(`${state.month}-15T12:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+
+  return (
+    <Section label="Monthly budget">
+      <Card>
+        <Row
+          title="Budget for pay-per-token models"
+          description="Counts what you spend through your own API keys each calendar month. Plans, models on this computer and Eaon Lite never count."
+        >
+          <Switch label="Budget for pay-per-token models" checked={budget.enabled} onChange={(on) => save({ enabled: on })} />
+        </Row>
+        {budget.enabled && (
+          <>
+            <div className="usage-meter" data-level={state.level}>
+              <div className="usage-meter__bar" role="progressbar" aria-label="Budget used this month" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round(state.percent))}>
+                <div style={{ width: `${Math.min(100, state.percent)}%` }} />
+              </div>
+              <div className="usage-meter__text">
+                <strong>{amount(state.spent)}</strong> of {amount(budget.limit)} in {month} · {Math.floor(state.percent)}%
+                {state.blocked && ' · pay-per-token requests are stopped'}
+                {state.level === 'over' && !state.blocked && ' · over the limit, requests still go through'}
+                {state.level === 'warn' && ' · past the warning'}
+              </div>
+            </div>
+            <Row title="Count in" description={budget.unit === 'usd' ? 'Dollars, at Tokn’s published API rates.' : 'Every token sent or received on a pay-per-token model.'}>
+              <Segmented
+                value={budget.unit}
+                options={[
+                  { value: 'usd', label: 'Dollars' },
+                  { value: 'tokens', label: 'Tokens' }
+                ]}
+                onChange={(next) => next !== budget.unit && save({ unit: next, limit: UNIT_DEFAULT[next] })}
+              />
+            </Row>
+            <Row
+              title="Monthly limit"
+              description={
+                error ? (
+                  <span className="field-error" role="alert">
+                    {error}
+                  </span>
+                ) : budget.unit === 'usd' ? (
+                  'In dollars. It starts over on the first of each month.'
+                ) : (
+                  'In millions of tokens. It starts over on the first of each month.'
+                )
+              }
+            >
+              <input
+                className="input"
+                style={{ width: 120 }}
+                type="number"
+                min={0}
+                step={budget.unit === 'usd' ? 1 : 1}
+                aria-label="Monthly limit"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => e.key === 'Enter' && commit()}
+              />
+            </Row>
+            <Row title="Warn at" description="A notification when this month’s use reaches this share of the limit, and another at the limit. Once each.">
+              <Select
+                value={String(budget.warnAt)}
+                options={WARN_OPTIONS.some((o) => o.value === String(budget.warnAt)) ? WARN_OPTIONS : [...WARN_OPTIONS, { value: String(budget.warnAt), label: `${budget.warnAt}%` }]}
+                width={96}
+                onChange={(value) => save({ warnAt: Number(value) })}
+              />
+            </Row>
+            <Row
+              title="At the limit"
+              description={
+                budget.hardCap
+                  ? 'Eaon stops sending requests to models you pay per token and says why, in the chat or the app that asked. Models on a plan or on this computer keep working.'
+                  : 'Only warn: requests keep going.'
+              }
+            >
+              <Segmented
+                value={budget.hardCap ? 'stop' : 'warn'}
+                options={[
+                  { value: 'warn', label: 'Only warn' },
+                  { value: 'stop', label: 'Stop requests' }
+                ]}
+                onChange={(next) => save({ hardCap: next === 'stop' })}
+              />
+            </Row>
+          </>
+        )}
+      </Card>
+      {budget.enabled && (
+        <p className="usage-footnote">
+          An estimate from what Eaon counted, at Tokn’s published rates: a provider’s own bill can differ, and a request already
+          running when the limit is reached finishes, so use can pass it a little. It includes other apps that use your keys
+          through the Local API Server. Runs on Codex or Claude with an API key are counted but can’t be stopped here.
+          {!state.priced && budget.unit === 'usd' && ' Tokn’s prices haven’t loaded yet, so the dollar figure reads low until they do.'}
+          {state.uncounted > 0 &&
+            ` ${state.uncounted.toLocaleString()} ${state.uncounted === 1 ? 'request' : 'requests'} this month had no price or no token counts and ${state.uncounted === 1 ? 'isn’t' : 'aren’t'} in the figure.`}
+        </p>
+      )}
+    </Section>
   )
 }

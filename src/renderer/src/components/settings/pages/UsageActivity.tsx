@@ -75,6 +75,7 @@ export function UsageActivity({
   agents,
   priced,
   range,
+  rangeText = `the last ${range} days`,
   money,
   tokens,
   fromTokn = false
@@ -84,6 +85,8 @@ export function UsageActivity({
   agents: UsageAgents
   priced: boolean
   range: number
+  /** What the range is called in a tile's note: "the last 30 days", or "Oct 9 – Nov 7". */
+  rangeText?: string
   money: (usd: number) => string
   tokens: (n: number) => string
   /** The calendar and the tiles are the Tokn profile's (every computer and tool), not this computer's. */
@@ -201,14 +204,14 @@ export function UsageActivity({
         <StatTile
           label="Active days"
           value={activity.activeDays.toLocaleString()}
-          sub={`${activity.activeInRange} in the last ${range} days`}
+          sub={`${activity.activeInRange} in ${rangeText}`}
         />
         <StatTile
           label="Current streak"
           value={plural(activity.currentStreak, 'day')}
           sub={`Longest: ${plural(activity.longestStreak, 'day')}`}
         />
-        <StatTile label="Agents" value={agents.runs.toLocaleString()} sub={`${agents.runsInRange.toLocaleString()} in the last ${range} days`} />
+        <StatTile label="Agents" value={agents.runs.toLocaleString()} sub={`${agents.runsInRange.toLocaleString()} in ${rangeText}`} />
         <StatTile
           label="Longest agent"
           value={agents.longestMs > 0 ? duration(agents.longestMs) : '—'}

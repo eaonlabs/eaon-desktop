@@ -1,7 +1,7 @@
 import type { TokenUsage } from '@shared/types'
 import type { UsageCounts, UsageSource } from '@shared/usage'
 import { store } from '../../store'
-import { usageSource } from './attribution'
+import { usageProject, usageSource } from './attribution'
 
 /**
  * Eaon's own usage, counted on this computer: requests and tokens per local
@@ -23,14 +23,27 @@ export type LedgerDays = Record<string, Record<string, Record<string, UsageCount
 /** day → source → provider → model → counts: the same requests again, split by what they were for. */
 export type LedgerSources = Record<string, Partial<Record<UsageSource, Record<string, Record<string, UsageCounts>>>>>
 
+/**
+ * day → project → provider → model → counts: Eaon's own requests again, split
+ * by the project folder they were made for (`''`: no project folder). Only
+ * requests made since this was added are in it; an older request, or one made
+ * outside a chat or a task, is simply missing here and shows as unattributed.
+ * The folder paths stay on this computer: the Tokn upload is built from `days`.
+ */
+export type LedgerProjects = Record<string, Record<string, Record<string, Record<string, UsageCounts>>>>
+
 interface Ledger {
   version: 1
   days: LedgerDays
   /** Added in 2026.6.2; older versions leave it out when they save, which only loses the split. */
   sources: LedgerSources
+  /** Added with Usage by project; older versions leave it out when they save, which only loses the split. */
+  projects: LedgerProjects
 }
 
 const SOURCES = new Set<UsageSource>(['chat', 'schedule', 'worker', 'trading', 'gateway'])
+/** A folder path longer than this is not a folder path; it isn't kept as a project. */
+const MAX_PROJECT_PATH = 1024
 
 let ledger: Ledger | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -50,7 +63,18 @@ function load(): Ledger {
         }
       }
     }
-    ledger = { version: 1, days: cleanDays(saved.days), sources }
+    const projects: LedgerProjects = {}
+    if (isObject(saved.projects)) {
+      for (const [day, byProject] of Object.entries(saved.projects)) {
+        if (!isObject(byProject)) continue
+        for (const [project, providers] of Object.entries(byProject)) {
+          if (project.length > MAX_PROJECT_PATH) continue
+          const clean = cleanDays({ [day]: providers })[day]
+          if (clean) (projects[day] ??= {})[project] = clean
+        }
+      }
+    }
+    ledger = { version: 1, days: cleanDays(saved.days), sources, projects }
   }
   return ledger
 }
@@ -98,14 +122,25 @@ export function localDay(at: Date): string {
 export const emptyCounts = (): UsageCounts => ({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
 
 /** Counts one model request, under the source of the run it was made in (see attribution.ts). */
-export function recordUsage(providerId: string, modelId: string, usage: TokenUsage, at: Date = new Date(), source: UsageSource = usageSource()): void {
+export function recordUsage(
+  providerId: string,
+  modelId: string,
+  usage: TokenUsage,
+  at: Date = new Date(),
+  source: UsageSource = usageSource(),
+  project: string | undefined = usageProject()
+): void {
   if (!providerId || !modelId) return
-  const { days, sources } = load()
+  const { days, sources, projects } = load()
   const day = localDay(at)
   // Another app's requests are kept in the split only: the totals, the
   // calendar and the Tokn upload stay Eaon's own (see UsageSource).
   if (source !== 'gateway') addRequest((((days[day] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
   addRequest(((((sources[day] ??= {})[source] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
+  // Only Eaon's own requests, and only where the run said which project it was for.
+  if (source !== 'gateway' && project !== undefined && project.length <= MAX_PROJECT_PATH) {
+    addRequest((((((projects[day] ??= {})[project] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts())), usage)
+  }
   scheduleSave(at)
   for (const listener of listeners) listener(source)
 }
@@ -135,6 +170,10 @@ export function ledgerSources(): LedgerSources {
   return load().sources
 }
 
+export function ledgerProjects(): LedgerProjects {
+  return load().projects
+}
+
 /** Called after every recorded request. */
 export function onLedgerChange(listener: (source: UsageSource) => void): () => void {
   listeners.add(listener)
@@ -152,9 +191,10 @@ function scheduleSave(now: Date): void {
 
 function prune(now: Date): void {
   const oldest = localDay(new Date(now.getTime() - KEEP_DAYS * 86_400_000))
-  const { days, sources } = load()
+  const { days, sources, projects } = load()
   for (const day of Object.keys(days)) if (day < oldest) delete days[day]
   for (const day of Object.keys(sources)) if (day < oldest) delete sources[day]
+  for (const day of Object.keys(projects)) if (day < oldest) delete projects[day]
 }
 
 /** Writes anything still waiting, at quit. */
