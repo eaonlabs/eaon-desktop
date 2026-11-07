@@ -14,6 +14,8 @@ import { shortcutLabel } from '../../lib/platform'
 import { DockToggle } from '../ide/Dock'
 import { useAdeDock } from '../ide/adeDock'
 import { ModWidgets } from '../mods/ModWidgets'
+import { OpenInButton } from '../chatCode/CodeTools'
+import { isRemote } from '@shared/adeRemote'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
@@ -30,6 +32,8 @@ export function CodeHeader(): JSX.Element {
         <div className="chat-header__actions">
           <ModWidgets />
           <UsagePlacement />
+          {/* The session's folder in your editor; one on another machine has none here. */}
+          {cwd && !isRemote(cwd) && <OpenInButton icon folder={cwd} />}
           <ReviewButton />
           <NewTerminalButton />
           {cwd && !dockOpen && <DockToggle store={useAdeDock} holds={`browser (${shortcutLabel('⇧⌘B')}), files, diff, pull request`} />}

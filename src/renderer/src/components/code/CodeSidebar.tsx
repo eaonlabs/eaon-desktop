@@ -12,6 +12,7 @@ import { NewSessionDialog, RemoveProjectDialog, RemoveSessionDialog, RenameSessi
 import { revealLabel } from '../../lib/files'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { notify } from '../Notice'
+import { useEditorMenuItems } from './openInEditor'
 import {
   ageLabel,
   folderName,
@@ -233,6 +234,7 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
   const changes = useChanges(session, state)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
+  const editors = useEditorMenuItems(session.cwd, Boolean(menu))
   const title = sessionTitle(session)
   const sub = solo && !session.missing && !session.host ? session.branch : sessionSubtitle(session)
 
@@ -295,6 +297,8 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
               : []),
             // A folder on another machine has nothing to show in Finder.
             ...(session.host ? [] : [{ icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) }]),
+            // Only a folder that is here, and not one that has gone.
+            ...(session.missing ? [] : editors),
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
           ]}
         />
