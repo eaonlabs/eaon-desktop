@@ -2,14 +2,17 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
 import { isBranchName, isCommitId, type GitMention, type MentionAttachment } from '@shared/chatContext'
+import type { ChatCost, ModelUsage } from '@shared/chatUsage'
 import type { ProjectRules } from '@shared/projectRules'
 import type { PromptCommand } from '@shared/promptCommands'
 import type { Feature } from '../types'
 import { allowed } from '../workspaceFiles'
+import { loadedPricing } from '../usage'
 import { makeRunner } from '../ade/runner'
 import { sshHosts } from '../ade'
 import { gitMentionText, gitRefs } from './git'
 import { loadPromptCommands } from './commands'
+import { costForChat } from './cost'
 import { loadProjectRules, withProjectRules } from './rules'
 import { saveMention } from './save'
 
@@ -19,7 +22,7 @@ import { saveMention } from './save'
  * menu offers (shared/chatContext.ts), the project's rules files and
  * prompt-file commands, and what a chat's tokens cost.
  *
- * Channels (all `chat-context:`): `refs`, `git`, `save`, `rules`, `commands`, `commands-folder`.
+ * Channels (all `chat-context:`): `refs`, `git`, `save`, `rules`, `commands`, `commands-folder`, `cost`.
  */
 
 const run = makeRunner(sshHosts)
@@ -73,6 +76,16 @@ export const chatContextFeature: Feature = {
       const problem = await shell.openPath(folder)
       if (problem) throw new Error(problem)
       return folder
+    })
+    // A chat's tokens priced at published rates, for the models the price table knows.
+    ipcMain.handle('chat-context:cost', async (_e, groups: unknown): Promise<ChatCost> => {
+      const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0)
+      const list: ModelUsage[] = (Array.isArray(groups) ? groups : []).slice(0, 50).map((g: Partial<ModelUsage>) => ({
+        model: typeof g?.model === 'string' ? g.model.slice(0, 200) : '',
+        turns: count(g?.turns),
+        usage: { input: count(g?.usage?.input), output: count(g?.usage?.output), cacheRead: count(g?.usage?.cacheRead), cacheWrite: count(g?.usage?.cacheWrite) }
+      }))
+      return costForChat(list, await loadedPricing())
     })
     // Text the renderer read itself (a terminal's screen, an earlier chat), saved to attach.
     ipcMain.handle('chat-context:save', async (_e, label: unknown, text: unknown): Promise<string> => {

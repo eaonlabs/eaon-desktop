@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron'
 import type { GitMention, GitRefs, MentionAttachment } from '@shared/chatContext'
+import type { ChatCost, ModelUsage } from '@shared/chatUsage'
 import type { ProjectRules } from '@shared/projectRules'
 import type { PromptCommand } from '@shared/promptCommands'
 
@@ -15,6 +16,8 @@ export const chatContextApi = {
   commands: (cwd: string | null): Promise<PromptCommand[]> => ipcRenderer.invoke('chat-context:commands', cwd),
   /** Opens the user's commands folder, made if needed; its path. */
   openCommandsFolder: (): Promise<string> => ipcRenderer.invoke('chat-context:commands-folder'),
+  /** A chat's tokens priced at published rates, for the models whose price is known. */
+  cost: (groups: ModelUsage[]): Promise<ChatCost> => ipcRenderer.invoke('chat-context:cost', groups),
   /** Text read in the window (a terminal, an earlier chat), saved as a file to attach; its path. */
   save: (label: string, text: string): Promise<string> => ipcRenderer.invoke('chat-context:save', label, text)
 }
