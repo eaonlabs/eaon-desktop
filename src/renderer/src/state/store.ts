@@ -140,6 +140,10 @@ interface AppState {
   openChat: (id: string) => void
   deleteChat: (id: string) => void
   archiveChat: (id: string) => void
+  /** Archives these chats at once, leaving any whose reply is still being written; returns how many moved. */
+  archiveChats: (ids: string[]) => number
+  /** Deletes these chats at once (as `deleteChat` does each); returns how many went. */
+  deleteChats: (ids: string[]) => number
   restoreChat: (id: string) => void
   renameChat: (id: string, title: string) => void
   togglePin: (id: string) => void
@@ -956,14 +960,36 @@ export const useApp = create<AppState>((set, get) => ({
   // its end never found the message, so every composer stayed on "Stop".
   deleteChat: (id) => {
     if (get().runs[id]) get().stop(id)
-    // A coding chat's checkpoints (refs in its project's repository) go with it.
-    const gone = get().chats.find((c) => c.id === id)
-    const folder = gone?.projectId ? get().projects.find((p) => p.id === gone.projectId)?.folder : null
-    const replies = gone?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
-    if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
+    dropCheckpointsOf(get().chats.find((c) => c.id === id), get().projects)
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
+  },
+
+  deleteChats: (ids) => {
+    const gone = new Set(ids)
+    const { chats: all, projects, activeChatId } = get()
+    const doomed = all.filter((c) => gone.has(c.id))
+    for (const chat of doomed) {
+      if (get().runs[chat.id]) get().stop(chat.id)
+      dropCheckpointsOf(chat, projects)
+    }
+    if (doomed.length === 0) return 0
+    set({ chats: all.filter((c) => !gone.has(c.id)), activeChatId: activeChatId && gone.has(activeChatId) ? null : activeChatId })
+    persistChats()
+    return doomed.length
+  },
+
+  archiveChats: (ids) => {
+    const wanted = new Set(ids)
+    const { chats, runs, activeChatId } = get()
+    // A reply still being written would be stopped by archiving its chat; those stay as they are.
+    const moving = chats.filter((c) => wanted.has(c.id) && !c.archived && !c.temporary && !runs[c.id])
+    if (moving.length === 0) return 0
+    const moved = new Set(moving.map((c) => c.id))
+    set({ chats: chats.map((c) => (moved.has(c.id) ? { ...c, archived: true } : c)), activeChatId: activeChatId && moved.has(activeChatId) ? null : activeChatId })
+    persistChats()
+    return moving.length
   },
 
   archiveChat: (id) => {
@@ -1510,6 +1536,13 @@ useApp.subscribe((state, prev) => {
   const left = state.chats.find((c) => c.id === prev.activeChatId)
   if (left?.temporary) state.deleteChat(left.id)
 })
+
+/** A coding chat's checkpoints (refs in its project's repository) go with it when it is deleted. */
+function dropCheckpointsOf(chat: Chat | undefined, projects: Project[]): void {
+  const folder = chat?.projectId ? projects.find((p) => p.id === chat.projectId)?.folder : null
+  const replies = chat?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
+  if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
+}
 
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {
   const parts = [...message.parts]

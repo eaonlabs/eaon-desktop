@@ -57,6 +57,7 @@ import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/Elsewh
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
 import { TemporaryHint, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
 import { exportChatToFile } from './chat/exportChat'
+import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
 import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
 import { StockCards } from './workers/WorkerUi'
@@ -482,6 +483,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         <div className="thread__inner">
           {chat.temporary && <TemporaryNote />}
+          {chat.archived && <ArchivedNote chatId={chat.id} />}
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
               {/* The conversation moved to another model here. */}

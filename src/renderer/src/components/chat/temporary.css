@@ -1,4 +1,5 @@
-/* Temporary chats: the start page's switch, its hint, and the note in the conversation. */
+/* Temporary chats: the start page's switch, its hint, and the note in the conversation.
+   `.thread-note` is also the archived chat's note (ArchivedNote.tsx). */
 
 .temp-hint {
   max-width: min(440px, 100%);
@@ -24,7 +25,7 @@
   white-space: nowrap;
 }
 
-.temp-note {
+.thread-note {
   display: flex;
   align-items: flex-start;
   gap: 9px;
@@ -37,7 +38,7 @@
   line-height: 1.5;
   color: var(--text-2);
 }
-.temp-note svg {
+.thread-note svg {
   flex: none;
   margin-top: 2px;
   color: var(--text-3);

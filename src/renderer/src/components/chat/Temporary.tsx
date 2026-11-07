@@ -52,7 +52,7 @@ export function TemporaryPill(): JSX.Element {
 export function TemporaryNote(): JSX.Element {
   const engine = useApp((s) => Boolean(s.settings?.selectedEngine))
   return (
-    <div className="temp-note" role="note">
+    <div className="thread-note" role="note">
       <MessageSquareDashed size={14} strokeWidth={1.9} />
       <span>
         Temporary chat. It isn’t saved, and it’s gone when you leave it. {FILES}

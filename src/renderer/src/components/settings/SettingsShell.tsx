@@ -116,7 +116,7 @@ const KEYWORDS: Record<string, string> = {
   'remote-devices': 'phone mobile remote web rc github',
   system: 'cpu memory ram gpu performance monitor',
   security: 'audit log policy enterprise organization verify integrity records',
-  archived: 'archive restore deleted chats history'
+  archived: 'archive restore deleted chats history archive all delete all search find open read'
 }
 
 const NAV: NavEntry[] = [
