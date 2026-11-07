@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, Trash2 } from 'lucide-react'
 import { ContextMenu } from '../Sidebar'
 import { useCode } from './codeStore'
-import { useAdeSessions } from './sessionsStore'
+import { orderedGroups, useAdeSessions } from './sessionsStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
@@ -15,9 +15,7 @@ import { notify } from '../Notice'
 import {
   ageLabel,
   folderName,
-  groupSessions,
   isSoloProject,
-  keepOrder,
   sessionSubtitle,
   sessionTitle,
   type AdeChanges,
@@ -53,12 +51,7 @@ export function CodeSidebar(): JSX.Element | null {
   }, [loaded, cwd, sessions])
 
   // Sorted once by how recently each project was opened, then kept in place (see keepOrder).
-  const shown = useRef<string[]>([])
-  const groups = useMemo(() => {
-    const next = keepOrder(groupSessions(sessions, recents), shown.current)
-    shown.current = next.map((g) => g.project)
-    return next
-  }, [sessions, recents])
+  const groups = useMemo(() => orderedGroups(sessions, recents), [sessions, recents])
 
   return (
     <>

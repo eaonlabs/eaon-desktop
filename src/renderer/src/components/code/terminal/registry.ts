@@ -1,11 +1,13 @@
-import { Terminal, type IBuffer, type ITheme } from '@xterm/xterm'
+import { Terminal, type IBuffer, type IDisposable, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalAgentId } from '@shared/terminals'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
+import { adeKeyAction } from '@shared/adeKeys'
 import { feedInput, type LineState } from './input'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
+import { keepMatch, readRows, searchRows, stepIndex, type SearchMatch, type SearchOptions } from '@shared/terminalSearch'
 import { scenes, seedOf } from './scenes'
 import { DEFAULT_THEME_ID, findTheme, type TerminalTheme } from './themes'
 import { isMac, isWindows } from '../../../lib/platform'
@@ -79,6 +81,35 @@ interface Runtime {
   workingSince: number
   /** A long stretch of work just went quiet; told to the finish listeners once it stays quiet. */
   finishPending: boolean
+  /** The find bar's search of this pane, while the bar is open. */
+  find: Find | null
+}
+
+/** A search of a pane's output (the find bar): what it looks for, what it found, and what marks the matches on screen. */
+interface Find {
+  query: string
+  options: SearchOptions
+  matches: SearchMatch[]
+  /** The match on show, an index into `matches`; -1 with none. */
+  index: number
+  truncated: boolean
+  error: string | null
+  /** What marks the matches in the terminal (a marker and its decoration each); empty on the alternate screen, which can't take decorations. */
+  marks: IDisposable[]
+  /** Searches again when output arrives. */
+  watch: IDisposable
+  timer: number | null
+}
+
+/** What the find bar shows of a pane's search. */
+export interface FindResult {
+  count: number
+  /** The match on show, counted from 1; 0 with none. */
+  current: number
+  /** There are more matches than were counted. */
+  truncated: boolean
+  /** Why the query can't be searched for. */
+  error: string | null
 }
 
 /** The ADE's look: a terminal theme, and whether its scene is drawn. */
@@ -108,13 +139,15 @@ const FINISH_QUIET_MS = 4_000
  * Who owns a keypress: the shell, the app, or this layer. The whole bug class
  * here is "two different keys send the same bytes", invisible from outside.
  */
-type Verdict = { do: 'terminal' } | { do: 'app' } | { do: 'send'; data: string } | { do: 'selectAll' } | { do: 'copy' } | { do: 'paste' }
+type Verdict = { do: 'terminal' } | { do: 'app' } | { do: 'send'; data: string } | { do: 'selectAll' } | { do: 'copy' } | { do: 'paste' } | { do: 'find' }
 
-function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
+function resolveKey(e: KeyboardEvent, hasSelection: boolean, ade: boolean): Verdict {
   if (e.type !== 'keydown') return { do: 'terminal' }
   // Shift+Enter opens a line instead of sending it. A terminal sends a bare CR
   // for both; ESC CR is what CLI agents read as "newline, don't submit".
   if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return { do: 'send', data: '\x1b\r' }
+  // The ADE's own chords (next terminal, session N…) belong to it, not to the shell (shared/adeKeys.ts).
+  if (ade && adeKeyAction(e, isMac)) return { do: 'app' }
 
   if (!isMac) {
     // One modifier on Windows/Linux, and the shell owns bare Ctrl chords (^C,
@@ -123,6 +156,8 @@ function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
     // GlobalKeys in App.tsx) pass through to it, as ⌘ chords do on macOS.
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
       const key = e.key.toLowerCase()
+      // Find is Ctrl+Shift+F, as in Windows Terminal: Ctrl+F is the shell's (forward a character).
+      if (e.shiftKey && key === 'f' && ade) return { do: 'find' }
       if (e.shiftKey && key === 'c') return { do: 'copy' }
       if (e.shiftKey && key === 'v') return { do: 'paste' }
       if (!e.shiftKey && key === 'c' && hasSelection) return { do: 'copy' }
@@ -146,6 +181,7 @@ function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
   if (e.metaKey) {
     const key = e.key.toLowerCase()
     if (key === 'a') return { do: 'selectAll' }
+    if (key === 'f' && !e.shiftKey && !e.altKey && ade) return { do: 'find' }
     // The line editing every other Mac text field has, as readline control codes.
     const line = ({ ArrowLeft: '\x01', ArrowRight: '\x05', Backspace: '\x15', Delete: '\x0b' } as Record<string, string>)[e.key]
     if (line) return { do: 'send', data: line }
@@ -255,6 +291,9 @@ class TerminalRegistry {
   private commandListeners = new Set<(command: 'theme', paneId: string) => void>()
   private finishListeners = new Set<(paneId: string, task: string | null) => void>()
   private promptListeners = new Set<(paneId: string) => void>()
+  /** The panes the ADE draws: they have a find bar and the ADE's keys (adeKeys.ts); Chat's terminals leave those chords as they were. */
+  private inAde = new Set<string>()
+  private findListeners = new Set<(paneId: string) => void>()
   private bound = false
   private ticker: number | null = null
   private theme: ITheme | null = null
@@ -429,7 +468,8 @@ class TerminalRegistry {
       line: '',
       activity: quietActivity(),
       workingSince: 0,
-      finishPending: false
+      finishPending: false,
+      find: null
     }
 
     // Claude Code titles its terminal with the task at hand (behind a spinner
@@ -461,7 +501,7 @@ class TerminalRegistry {
       window.api.terminals.write(paneId, data)
     })
     term.attachCustomKeyEventHandler((e) => {
-      const verdict = resolveKey(e, term.hasSelection())
+      const verdict = resolveKey(e, term.hasSelection(), this.inAde.has(paneId))
       switch (verdict.do) {
         case 'send':
           e.preventDefault()
@@ -480,6 +520,10 @@ class TerminalRegistry {
         case 'paste':
           e.preventDefault()
           void navigator.clipboard.readText().then((text) => text && term.paste(text)).catch(() => undefined)
+          return false
+        case 'find':
+          e.preventDefault()
+          for (const listener of this.findListeners) listener(paneId)
           return false
         case 'app':
           return false
@@ -824,6 +868,158 @@ class TerminalRegistry {
     for (const listener of this.serverListeners) listener()
   }
 
+  /* ------------------------------------------------------------------ find */
+
+  /** `listener` hears which pane's find bar the find key asked for. */
+  onFind(listener: (paneId: string) => void): () => void {
+    this.findListeners.add(listener)
+    return () => this.findListeners.delete(listener)
+  }
+
+  /** The ADE draws the pane: the find key means find there, and so do the chords of shared/adeKeys.ts. */
+  setInAde(paneId: string, on: boolean): void {
+    if (on) this.inAde.add(paneId)
+    else {
+      this.inAde.delete(paneId)
+      const rt = this.panes.get(paneId)
+      if (rt) this.endFind(rt)
+    }
+  }
+
+  /**
+   * Looks for `query` through everything the pane holds, scrollback included
+   * (the screen it is on: a full-screen program has no scrollback), marks the
+   * matches and shows the newest. An empty query ends the search.
+   */
+  find(paneId: string, query: string, options: SearchOptions): FindResult {
+    const rt = this.panes.get(paneId)
+    if (!rt) return NO_FIND
+    if (!query) {
+      this.endFind(rt)
+      this.bump()
+      return NO_FIND
+    }
+    const found = searchRows(readRows(rt.term.buffer.active), query, options)
+    const watch = rt.find?.watch ?? rt.term.onWriteParsed(() => this.findAgainSoon(rt))
+    this.clearMarks(rt)
+    rt.find = {
+      query,
+      options,
+      matches: found.matches,
+      index: found.matches.length - 1,
+      truncated: found.truncated,
+      error: found.error ?? null,
+      marks: [],
+      watch,
+      timer: rt.find?.timer ?? null
+    }
+    this.paintFind(rt, true)
+    this.bump()
+    return this.findResult(paneId)
+  }
+
+  /** To the next older match (1) or the next newer (-1), wrapping round. */
+  findStep(paneId: string, step: 1 | -1): FindResult {
+    const rt = this.panes.get(paneId)
+    const find = rt?.find
+    if (!rt || !find || find.matches.length === 0) return this.findResult(paneId)
+    find.index = stepIndex(find.index, find.matches.length, step)
+    this.paintFind(rt, true)
+    this.bump()
+    return this.findResult(paneId)
+  }
+
+  findResult(paneId: string): FindResult {
+    const find = this.panes.get(paneId)?.find
+    if (!find) return NO_FIND
+    return { count: find.matches.length, current: find.index + 1, truncated: find.truncated, error: find.error }
+  }
+
+  /** Closes the search: the marks go, and the terminal has the keyboard back. */
+  closeFind(paneId: string): void {
+    const rt = this.panes.get(paneId)
+    if (!rt) return
+    this.endFind(rt)
+    this.bump()
+    rt.term.focus()
+  }
+
+  private clearMarks(rt: Runtime): void {
+    for (const mark of rt.find?.marks ?? []) mark.dispose()
+    if (rt.find) rt.find.marks = []
+  }
+
+  private endFind(rt: Runtime): void {
+    const find = rt.find
+    if (!find) return
+    this.clearMarks(rt)
+    find.watch.dispose()
+    if (find.timer !== null) window.clearTimeout(find.timer)
+    rt.find = null
+    // On the alternate screen the match on show was a selection.
+    if (rt.term.buffer.active.type === 'alternate') rt.term.clearSelection()
+  }
+
+  /** New output moves the matches and adds some: searched again once it pauses, without moving the view. */
+  private findAgainSoon(rt: Runtime): void {
+    const find = rt.find
+    if (!find || find.timer !== null) return
+    find.timer = window.setTimeout(() => {
+      const now = rt.find
+      if (!now) return
+      now.timer = null
+      const found = searchRows(readRows(rt.term.buffer.active), now.query, now.options)
+      const index = keepMatch(now.matches[now.index] ?? null, found.matches, now.index)
+      const changed = found.matches.length !== now.matches.length || index !== now.index
+      now.matches = found.matches
+      now.index = index
+      now.truncated = found.truncated
+      this.clearMarks(rt)
+      this.paintFind(rt, false)
+      if (changed) this.bump()
+    }, 400)
+  }
+
+  /** Marks the matches in the terminal, the one on show stronger. */
+  private paintFind(rt: Runtime, reveal: boolean): void {
+    const find = rt.find
+    if (!find) return
+    const buffer = rt.term.buffer.active
+    const current = find.matches[find.index]
+    if (buffer.type === 'alternate') {
+      // The alternate screen takes no decorations: the match on show is selected instead.
+      if (current) rt.term.select(current.segments[0].col, current.segments[0].row, current.segments.reduce((sum, s) => sum + s.width, 0))
+      else rt.term.clearSelection()
+      return
+    }
+    // A marker for every match of a log of a hundred thousand lines is too many: the ones around the current.
+    const from = Math.max(0, find.index - MARKED_EACH_WAY)
+    const near = find.matches.slice(from, find.index + MARKED_EACH_WAY + 1)
+    const at = buffer.baseY + buffer.cursorY
+    const mark = (match: SearchMatch, strong: boolean): void => {
+      for (const segment of match.segments) {
+        const marker = rt.term.registerMarker(segment.row - at)
+        if (!marker) continue
+        const decoration = rt.term.registerDecoration({
+          marker,
+          x: segment.col,
+          width: segment.width,
+          backgroundColor: strong ? FIND_CURRENT_BG : FIND_MATCH_BG,
+          foregroundColor: strong ? FIND_CURRENT_FG : FIND_MATCH_FG,
+          layer: 'top'
+        })
+        find.marks.push(marker)
+        if (decoration) find.marks.push(decoration)
+      }
+    }
+    for (const match of near) if (match !== current) mark(match, false)
+    if (current) mark(current, true)
+    if (reveal && current) {
+      const top = buffer.viewportY
+      if (current.row < top || current.row >= top + rt.term.rows) rt.term.scrollToLine(Math.max(0, current.row - Math.floor(rt.term.rows / 2)))
+    }
+  }
+
   /** Closes a pane for good: the shell, the terminal and its history. */
   dispose(paneId: string): void {
     const rt = this.panes.get(paneId)
@@ -834,7 +1030,9 @@ class TerminalRegistry {
       this.servers = this.servers.filter((s) => s.paneId !== paneId)
       for (const listener of this.serverListeners) listener()
     }
+    this.inAde.delete(paneId)
     if (!rt) return
+    this.endFind(rt)
     this.detach(paneId, null)
     try {
       rt.term.dispose()
@@ -891,6 +1089,17 @@ class TerminalRegistry {
     }
   }
 }
+
+/** What a search with nothing to show reads as. */
+const NO_FIND: FindResult = { count: 0, current: 0, truncated: false, error: null }
+
+/** Matches marked each side of the one on show. */
+const MARKED_EACH_WAY = 500
+/** Find's marks, in hex as xterm takes them: amber that reads on any theme, the current match brighter. */
+const FIND_MATCH_BG = '#7a6410'
+const FIND_MATCH_FG = '#ffffff'
+const FIND_CURRENT_BG = '#f5c400'
+const FIND_CURRENT_FG = '#111111'
 
 /** A dev server's address as CLIs print it: localhost, a loopback address, or a .local name. */
 const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.local)(?::\d{2,5})?(?:\/[^\s'"`<>]*)?/g

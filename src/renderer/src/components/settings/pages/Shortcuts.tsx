@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Card, SearchField, Section } from '../../ui'
-import { CHAT_SHORTCUTS, COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
+import { ADE_SHORTCUTS, CHAT_SHORTCUTS, COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
 import { holdKeyLabel } from '@shared/holdKey'
 import { useHoldSetting } from '../../composer/useHoldToTalk'
 import { useApp } from '../../../state/store'
@@ -24,6 +24,7 @@ export function ShortcutsPage(): JSX.Element {
 
   const app = match(SHORTCUTS)
   const chat = match(CHAT_SHORTCUTS)
+  const ade = match(ADE_SHORTCUTS)
   const composer = match(COMPOSER_SHORTCUTS)
   // Hold to talk is the one key that can be changed, in Settings → General.
   const hold = useHoldSetting()
@@ -49,6 +50,11 @@ export function ShortcutsPage(): JSX.Element {
           <ShortcutList shortcuts={chat} mac={mac} />
         </Section>
       )}
+      {ade.length > 0 && (
+        <Section label="ADE">
+          <ShortcutList shortcuts={ade} mac={mac} />
+        </Section>
+      )}
       {composer.length > 0 && (
         <Section label="Message box">
           <ShortcutList shortcuts={composer} mac={mac} />
@@ -72,7 +78,7 @@ export function ShortcutsPage(): JSX.Element {
           </Card>
         </Section>
       )}
-      {app.length === 0 && chat.length === 0 && composer.length === 0 && !holdShown && <p className="settings__lede">No shortcut matches “{query.trim()}”.</p>}
+      {app.length === 0 && chat.length === 0 && ade.length === 0 && composer.length === 0 && !holdShown && <p className="settings__lede">No shortcut matches “{query.trim()}”.</p>}
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AdeConversation, AdeSession, NewSessionRequest } from '@shared/adeSessions'
+import { groupSessions, keepOrder, type AdeConversation, type AdeSession, type NewSessionRequest, type ProjectGroup } from '@shared/adeSessions'
 import type { NewRemoteSessionRequest } from '@shared/adeRemote'
 import type { TerminalAgentId } from '@shared/terminals'
 import { useApp } from '../../state/store'
@@ -294,6 +294,20 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     return null
   }
 }))
+
+/** The projects the sidebar showed last, so its order holds still while it is on screen (see keepOrder). */
+let shownProjects: string[] = []
+
+/**
+ * The sidebar's projects in the order it lists them. The sidebar and the
+ * keyboard (ADE shortcuts: open session 3) both read it here, so "3" is the
+ * third row you see.
+ */
+export function orderedGroups(sessions: AdeSession[], recents: string[]): ProjectGroup[] {
+  const next = keepOrder(groupSessions(sessions, recents), shownProjects)
+  shownProjects = next.map((g) => g.project)
+  return next
+}
 
 /** "New session" from the sidebar or the collapsed rail: the dialog, for the project on screen. */
 export async function openNewSession(): Promise<void> {

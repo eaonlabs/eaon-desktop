@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowLeft, ArrowRight, ArrowRightLeft, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, Search, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
@@ -40,6 +40,7 @@ import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
 import { type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
 import { ThemePicker } from './ThemePicker'
+import { TerminalFind } from './TerminalFind'
 import { AdeDictation } from './AdeDictation'
 import { shellQuote } from './input'
 import { isRemote } from '@shared/adeRemote'
@@ -435,6 +436,9 @@ const TerminalPane = memo(function TerminalPane({
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(pane.name)
   const [handingOff, setHandingOff] = useState(false)
+  const [finding, setFinding] = useState(false)
+  /** Bumped by every ask for find, so a bar that is already open takes the keyboard again. */
+  const [findAsk, setFindAsk] = useState(0)
   const launch = { cwd, command: agent?.command ?? null, agent: pane.agent, ...(pane.resume ? { resume: pane.resume } : {}), ...(pane.prompt ? { prompt: pane.prompt } : {}) }
 
   useEffect(() => {
@@ -446,6 +450,20 @@ const TerminalPane = memo(function TerminalPane({
     // one would not change what is already running.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane.id, cwd])
+
+  // ⌘F in this pane (Ctrl+Shift+F elsewhere) opens its find bar, and the ADE's own keys pass through it (registry.ts).
+  useEffect(() => {
+    terminals.setInAde(pane.id, true)
+    const off = terminals.onFind((id) => {
+      if (id !== pane.id) return
+      setFinding(true)
+      setFindAsk((n) => n + 1)
+    })
+    return () => {
+      off()
+      terminals.setInAde(pane.id, false)
+    }
+  }, [pane.id])
 
   const commitRename = (): void => {
     setRenaming(false)
@@ -582,12 +600,21 @@ const TerminalPane = memo(function TerminalPane({
           </button>
         </div>
       )}
+      <TerminalFind paneId={pane.id} open={finding} asked={findAsk} onClose={() => setFinding(false)} />
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            {
+              icon: <Search size={15} strokeWidth={1.9} />,
+              label: 'Find in output…',
+              action: () => {
+                setFinding(true)
+                setFindAsk((n) => n + 1)
+              }
+            },
             {
               icon: <PencilLine size={15} strokeWidth={1.9} />,
               label: 'Rename',
