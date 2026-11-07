@@ -1943,3 +1943,16 @@ body[data-reduce-motion='on'] .ade-spinner {
   margin-right: auto;
   gap: 6px;
 }
+
+/* Archived sessions (CodeSidebar's Archived group): quieter than the live ones,
+   with room at the end for the Restore button and none for a state dot. */
+.ade-session--archived .ade-session__row {
+  padding-left: 12px;
+  padding-right: 34px;
+}
+.ade-session--archived .ade-session__title {
+  color: var(--text-2);
+}
+.ade-session--archived:hover > .ade-session__add {
+  opacity: 1;
+}

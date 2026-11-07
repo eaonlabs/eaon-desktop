@@ -290,6 +290,7 @@ export const adeFeature: Feature = {
 
 /** What Eaon Remote (features/rc) reads about the ADE's sessions. */
 export const adeForRemote = {
-  list: (): AdeSession[] => sessions().list(),
+  // Archived sessions are out of the way, here as in the sidebar.
+  list: (): AdeSession[] => sessions().list().filter((s) => s.archivedAt === undefined),
   changes: changesIn
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Card, ConfirmDialog, SearchField, Section } from '../../ui'
-import { CHAT_SHORTCUTS, COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
+import { ADE_SHORTCUTS, CHAT_SHORTCUTS, COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
 import { keyOf } from '../../../lib/bindings'
 import {
   BINDABLE,
@@ -90,6 +90,7 @@ export function ShortcutsPage(): JSX.Element {
     return {
       app: [...BINDABLE.filter((e) => e.section === 'app').map(row), ...fixed(SHORTCUTS)],
       chat: [...BINDABLE.filter((e) => e.section === 'chat').map(row), ...fixed(CHAT_SHORTCUTS)],
+      ade: fixed(ADE_SHORTCUTS),
       composer: COMPOSER_SHORTCUTS.map((s): Row => ({ id: s.id, label: s.label, fixed: formatShortcut(s, mac) }))
     }
   }, [mac])
@@ -98,6 +99,7 @@ export function ShortcutsPage(): JSX.Element {
   const visible = (rows: Row[]): Row[] => rows.filter((row) => shown(row.id, row.label, keyText(row)))
   const app = visible(sections.app)
   const chat = visible(sections.chat)
+  const ade = visible(sections.ade)
   const composer = visible(sections.composer)
 
   // Hold to talk is a key held on its own, changed in Settings → General.
@@ -207,6 +209,7 @@ export function ShortcutsPage(): JSX.Element {
 
       {app.length > 0 && <Section label="App">{list(app)}</Section>}
       {chat.length > 0 && <Section label="Chat">{list(chat)}</Section>}
+      {ade.length > 0 && <Section label="ADE">{list(ade)}</Section>}
       {composer.length > 0 && <Section label="Message box">{list(composer)}</Section>}
       {holdShown && (
         <Section label="Speech to text">

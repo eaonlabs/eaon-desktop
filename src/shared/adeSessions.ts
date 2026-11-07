@@ -37,6 +37,12 @@ export interface AdeSession {
   missing?: boolean
   /** On another machine over SSH (`cwd` is `ssh://…`, see adeRemote.ts): the host as the picker names it. */
   host?: string
+  /**
+   * When it was archived: out of the sidebar's list, into its Archived group,
+   * with its terminals ended. Its folder, branch and conversations are as they
+   * were, and restoring brings it back.
+   */
+  archivedAt?: number
 }
 
 /** A Claude Code or Codex conversation filed on this computer. */
@@ -72,6 +78,12 @@ export interface NewSessionRequest {
 }
 
 export type NewSessionResult = { ok: true; session: AdeSession } | { ok: false; error: string }
+
+/** What the window does right after a new session is made, when the New session dialog asked for it. */
+export interface NewSessionExtras {
+  /** Copy the ignored files Settings → ADE names (.env…) into the new worktree. */
+  copyIgnored?: boolean
+}
 
 /** What happens to a session's worktree when the session is removed. */
 export interface RemoveSessionOptions {
@@ -265,6 +277,19 @@ export function keepOrder(groups: ProjectGroup[], shown: readonly string[]): Pro
   const fresh = groups.filter((g) => !place.has(g.project))
   const known = groups.filter((g) => place.has(g.project)).sort((a, b) => place.get(a.project)! - place.get(b.project)!)
   return [...fresh, ...known]
+}
+
+/** The sessions that are not archived, and the archived ones, newest archived first. */
+export function splitArchived(sessions: readonly AdeSession[]): { live: AdeSession[]; archived: AdeSession[] } {
+  return {
+    live: sessions.filter((s) => s.archivedAt === undefined),
+    archived: sessions.filter((s) => s.archivedAt !== undefined).sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
+  }
+}
+
+/** The sessions the sidebar lists, top to bottom: the ones in a folded project are left out. */
+export function visibleSessions(groups: ProjectGroup[], collapsed: Readonly<Record<string, boolean>>): AdeSession[] {
+  return groups.flatMap((group) => (isSoloProject(group) || !collapsed[group.project] ? group.sessions : []))
 }
 
 /** A project that is just its own folder: shown as one row, not a heading over a row repeating it. */

@@ -12,6 +12,7 @@ import { chatCodeFeature } from './chatCode'
 import { wallpaperFeature } from './wallpaper'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
+import { adeToolsFeature } from './adeTools'
 import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
 import { workersFeature } from './workers'
@@ -78,6 +79,7 @@ export const FEATURES: Feature[] = [
   wallpaperFeature,
   terminalsFeature,
   adeFeature,
+  adeToolsFeature,
   // Make ADE sessions, so after it.
   prReviewFeature,
   linearFeature,
