@@ -51,7 +51,9 @@ export default defineConfig(({ command }) => ({
     resolve: {
       alias: {
         '@': resolve('src/renderer/src'),
-        '@shared': resolve('src/shared')
+        '@shared': resolve('src/shared'),
+        // Mermaid's optional ELK layout, left out (see the file).
+        'elkjs/lib/elk.bundled.js': resolve('src/renderer/src/lib/elkStub.ts')
       }
     },
     build: { rollupOptions: { input: { index: resolve('src/renderer/index.html') } } },

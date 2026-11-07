@@ -279,6 +279,30 @@
   tab-size: 2;
 }
 
+/* A ```mermaid block drawn as a diagram (MermaidBlock.tsx): the code block's
+   frame, with the picture where the code was. */
+.mermaid-block__stage {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  overflow-x: auto;
+}
+.mermaid-block__img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-block__loading {
+  align-self: center;
+  padding: 24px 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.code-block__note {
+  margin-right: 4px;
+  color: var(--text-3);
+}
+
 /* ---------- Diff ----------
    Adapted from AICSS (MIT, Copyright (c) 2026 AICSS); see components/aicss/LICENSE.
    A raised card: file and counts on top, then two line-number gutters split

@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useMemo, useRef, type JSX, type ReactN
 import { WorkerFace } from '../workers/WorkerFace'
 import type { WorkerShape } from '@shared/workerLook'
 import { CodeBlock } from './CodeBlock'
+import { MermaidBlock } from './MermaidBlock'
 import { MathView } from './MathView'
 import { MarkdownTable } from './MarkdownTables'
 import { FileRef, parseFileRef } from './FileRef'
@@ -211,7 +212,12 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
   const mentions = useContext(MentionContext)
   switch (block.kind) {
     case 'code':
-      return <CodeBlock lang={block.lang} code={block.code} streaming={block.streaming} />
+      // A diagram is drawn once it is whole; while it streams it is code like any other.
+      return block.lang.toLowerCase() === 'mermaid' && !block.streaming ? (
+        <MermaidBlock code={block.code} />
+      ) : (
+        <CodeBlock lang={block.lang} code={block.code} streaming={block.streaming} />
+      )
     case 'heading': {
       const Tag = `h${Math.min(block.level + 2, 6)}` as 'h3'
       return (
