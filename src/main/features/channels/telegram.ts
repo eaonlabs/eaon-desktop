@@ -45,7 +45,7 @@ interface TelegramMessage {
   document?: { file_id: string; file_name?: string; file_size?: number }
   video?: { file_id: string; file_name?: string; file_size?: number }
   audio?: { file_id: string; file_name?: string; file_size?: number }
-  voice?: unknown
+  voice?: { file_id: string; file_size?: number; duration?: number; mime_type?: string }
   video_note?: unknown
   sticker?: unknown
   location?: unknown
@@ -205,10 +205,9 @@ export class TelegramConnector implements Connector {
     for (const doc of [message.document, message.video, message.audio]) {
       if (doc) files.push(file(doc.file_id, doc.file_name ?? `file-${message.message_id}`, doc.file_size))
     }
-    const unsupported = message.voice
-      ? 'a voice message'
-      : message.video_note
-        ? 'a video message'
+    const voice = message.voice ? { download: () => this.download(message.voice!.file_id), seconds: message.voice.duration ?? null, size: message.voice.file_size ?? null } : undefined
+    const unsupported = message.video_note
+      ? 'a video message'
         : message.sticker
           ? 'a sticker'
           : message.location
@@ -229,6 +228,7 @@ export class TelegramConnector implements Connector {
       text,
       mentioned,
       files,
+      ...(voice ? { voice } : {}),
       ...(unsupported ? { unsupported } : {})
     })
   }

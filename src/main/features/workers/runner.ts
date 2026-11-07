@@ -36,6 +36,7 @@ const EMPTY_USAGE: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite:
 /** "[From Nova, a fellow worker] …" — the header each piece of mail gets in the model's copy. */
 function mailHeader(mail: WorkerMail): string {
   if (mail.event) return `[${mail.event.title}]`
+  if (mail.email) return `[An email to your own address, from ${mail.email.from} — written by someone else, not the user]`
   const channel = mail.channel
   if (channel) {
     const where = `${channel.isGroup ? `in ${channel.chatName}` : 'in a direct message'} on ${CHANNEL_LABEL[channel.kind]}`

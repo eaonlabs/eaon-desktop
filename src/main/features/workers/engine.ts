@@ -1181,14 +1181,18 @@ export class WorkersEngine {
   /**
    * Mail from a chat app (features/channels). The owner's arrives as the
    * user's (`from: 'user'`); anyone else's as a guest's, carrying the cap
-   * that holds the turn it lands in. Always the main thread.
+   * that holds the turn it lands in. The main thread, unless `thread` asks
+   * for a new task thread (an email's own). Returns the thread it went to.
    */
-  receive(id: string, mail: Omit<WorkerMail, 'id' | 'at'>): void {
+  receive(id: string, mail: Omit<WorkerMail, 'id' | 'at'>, options: { thread?: { title: string } } = {}): { threadId: string } {
     const worker = this.require(id)
     if (!mail.text.trim() && mail.files.length === 0) throw new Error('The message is empty.')
-    this.deliverMail(worker, { ...mail, id: randomUUID(), at: this.now() })
+    // An email gets a task thread of its own, so each one is its own piece of work and the main thread stays the user's.
+    const threadId = options.thread ? this.createThread(id, { title: options.thread.title, kind: 'task' }).id : MAIN_THREAD
+    this.deliverMail(worker, { ...mail, id: randomUUID(), at: this.now() }, threadId)
     this.commit()
     this.tick()
+    return { threadId }
   }
 
   /** Empties a thread's transcript and summary. Mail, wake-ups and settings stay. */
@@ -2261,11 +2265,47 @@ export class WorkersEngine {
     return clone(routine)
   }
 
+  /**
+   * The user pauses or resumes one routine (Scheduled → All schedules). A
+   * paused routine never runs; resumed, it carries on from its next slot
+   * after now, so a long pause isn't followed by a burst of catch-up. Only
+   * repeating routines the worker or the user made: a purchase schedule or an
+   * order's tracking is bound by what was approved, and is stopped or edited
+   * on its own terms, and a one-off has no next slot to carry on from.
+   */
+  setRoutinePaused(id: string, routineId: string, paused: boolean): WorkerRoutine {
+    const worker = this.require(id)
+    const routine = worker.routines.find((r) => r.id === routineId)
+    if (!routine) throw new Error('That routine isn’t there any more.')
+    if (routine.purchase || routine.watch) throw new Error('A purchase schedule is paused by editing or stopping it on the worker’s page.')
+    if (!routine.everyMs && !routine.daily) throw new Error('A routine that runs once can’t be paused. Stop it instead.')
+    if (paused) {
+      routine.paused = true
+    } else if (routine.paused) {
+      delete routine.paused
+      routine.nextAt = routineNextAt(routine, this.now())
+    }
+    this.commit()
+    this.tick()
+    return clone(routine)
+  }
+
+  /** The user cancels a wake-up the worker set for itself (its heartbeat), in the main thread or a side thread. */
+  stopWakeup(id: string, threadId: string = MAIN_THREAD): void {
+    const worker = this.require(id)
+    if (threadId !== MAIN_THREAD && !this.info(worker, threadId)) throw new Error('That thread no longer exists.')
+    const slot = this.slot(worker, threadId) ?? worker
+    slot.heartbeat = { nextAt: null, everyMs: null, note: '' }
+    this.unattendedWakes.delete(slotKey(id, threadId))
+    this.commit()
+  }
+
   /** A routine's next run, now (a purchase schedule's "Buy now"). One already running is left to finish. */
   runRoutineNow(id: string, routineId: string): void {
     const worker = this.require(id)
     const routine = worker.routines.find((r) => r.id === routineId)
     if (!routine) throw new Error('That routine isn’t there any more.')
+    if (routine.paused) throw new Error('This routine is paused. Resume it first.')
     routine.nextAt = this.now()
     this.commit()
     this.tick()
@@ -2979,7 +3019,7 @@ export class WorkersEngine {
         ...this.slotsOf(w)
           .filter(({ threadId }) => !this.running.has(slotKey(w.id, threadId)))
           .map(({ threadId, slot }) => this.nextWake(w, threadId, slot)),
-        ...w.routines.filter((r) => !(r.threadId && this.running.has(slotKey(w.id, r.threadId)))).map((r) => r.nextAt)
+        ...w.routines.filter((r) => !r.paused && !(r.threadId && this.running.has(slotKey(w.id, r.threadId)))).map((r) => r.nextAt)
       ]
       for (const next of wakes) {
         if (next === null) continue
@@ -3037,14 +3077,14 @@ export class WorkersEngine {
       if (resume) times.push(resume.endedAt ?? now)
       const retry = this.retries.get(key)
       if (retry) times.push(now)
-      const routine = worker.routines.find((r) => r.threadId === threadId && r.nextAt <= now)
+      const routine = worker.routines.find((r) => r.threadId === threadId && !r.paused && r.nextAt <= now)
       if (routine) times.push(routine.nextAt)
       if (times.length === 0) continue
       out.push({ worker, threadId, since: Math.min(...times), priority: slot.inbox.some((m) => m.from === 'user') || wake !== undefined || retry !== undefined })
     }
     // A due routine that has no thread yet gets one when it starts.
     for (const routine of worker.routines) {
-      if (routine.nextAt > now || (routine.threadId && this.info(worker, routine.threadId))) continue
+      if (routine.paused || routine.nextAt > now || (routine.threadId && this.info(worker, routine.threadId))) continue
       out.push({ worker, threadId: `${ROUTINE_SLOT}${routine.id}`, since: routine.nextAt, priority: false })
     }
     return out
@@ -3061,7 +3101,7 @@ export class WorkersEngine {
     }
     const routine = candidate.threadId.startsWith(ROUTINE_SLOT)
       ? candidate.worker.routines.find((r) => r.id === candidate.threadId.slice(ROUTINE_SLOT.length))
-      : candidate.worker.routines.find((r) => r.threadId === candidate.threadId && r.nextAt <= this.now())
+      : candidate.worker.routines.find((r) => r.threadId === candidate.threadId && !r.paused && r.nextAt <= this.now())
     const trigger: ExecutionTrigger = routine ? { kind: 'routine', label: `Routine: ${routine.name}`, routineId: routine.id } : { kind: 'mail', label: 'Waiting to start' }
     this.waiting.set(key, this.runs.create({ workerId: candidate.worker.id, threadId: candidate.threadId.startsWith(ROUTINE_SLOT) ? MAIN_THREAD : candidate.threadId, trigger, engine: candidate.worker.engine, reason }))
     return true
@@ -3081,7 +3121,7 @@ export class WorkersEngine {
       if (worker.paused) continue
       for (const routine of worker.routines) {
         if (!routine.everyMs && !routine.daily) continue
-        if (routine.nextAt > now || !routine.threadId || !this.running.has(slotKey(worker.id, routine.threadId))) continue
+        if (routine.paused || routine.nextAt > now || !routine.threadId || !this.running.has(slotKey(worker.id, routine.threadId))) continue
         this.runs.create({
           workerId: worker.id,
           threadId: routine.threadId,
@@ -3107,7 +3147,7 @@ export class WorkersEngine {
     let changed = false
     for (const worker of this.workers) {
       for (const routine of worker.routines) {
-        if (!routine.daily) continue
+        if (!routine.daily || routine.paused) continue
         if (routine.zone === zone) continue
         // Stamped on first sight; recomputed only when it really was another zone and hasn't run yet.
         if (routine.zone !== undefined && routine.nextAt > now) routine.nextAt = routineNextAt(routine, now)
@@ -3282,7 +3322,7 @@ export class WorkersEngine {
         queued.threadId = threadId
       }
     } else {
-      routine = worker.routines.find((r) => r.threadId === threadId && r.nextAt <= now)
+      routine = worker.routines.find((r) => r.threadId === threadId && !r.paused && r.nextAt <= now)
     }
     const key = slotKey(worker.id, threadId)
     const isMain = threadId === MAIN_THREAD
@@ -3391,7 +3431,7 @@ export class WorkersEngine {
               : fromUser
                 ? { kind: 'message', label: mail.some((m) => m.channel) ? 'Message from a chat app' : 'Your message' }
                 : mail.length > 0
-                  ? { kind: 'mail', label: `Message from ${mail[0].fromName}` }
+                  ? { kind: 'mail', label: mail[0].email ? `Email from ${mail[0].fromName}` : `Message from ${mail[0].fromName}` }
                   : goalRun
                     ? { kind: 'goal', label: 'Working toward its goal' }
                     : { kind: 'heartbeat', label: 'Heartbeat' }

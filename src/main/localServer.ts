@@ -5,6 +5,7 @@ import type { GatewayScope } from '@shared/gateway'
 import type { LocalServerStatus } from '@shared/types'
 import { isLoopbackHost, setOwnServerPort } from './providers/compat'
 import { handleControl } from './control/server'
+import { handleHook } from './control/hooks'
 import { anthropicError, anthropicModelList, serveCountTokens, serveMessages } from './gateway/anthropic'
 import { gatewayModels, localGatewayModels, tokenAllowed } from './gateway/models'
 import { serveChatCompletions } from './gateway/openaiChat'
@@ -185,6 +186,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   // Eaon's control API: its own, stricter key check, and nothing else of the gateway's.
   if (await handleControl(req, res, url.pathname)) return
+
+  // An automation's webhook: its own secret in the address, and nothing else of the gateway's.
+  if (await handleHook(req, res, url.pathname)) return
 
   if (url.pathname === '/docs') {
     res.writeHead(200, { 'Content-Type': 'text/html' })

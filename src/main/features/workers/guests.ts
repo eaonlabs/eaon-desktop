@@ -35,7 +35,7 @@ const TALK = new Set(['web_fetch', 'set_status', 'ask_user', 'notify_user', 'sen
 
 /** The cap for this turn: the weakest a guest's message allows, never above the worker's own access. Null when no guest wrote. */
 export function guestCap(mail: WorkerMail[], access: WorkerAccess): GuestAccess | null {
-  const caps = mail.map((m) => m.channel?.cap).filter((cap): cap is GuestAccess => Boolean(cap && ACCESS_ORDER.includes(cap)))
+  const caps = mail.map((m) => m.channel?.cap ?? m.email?.cap).filter((cap): cap is GuestAccess => Boolean(cap && ACCESS_ORDER.includes(cap)))
   if (caps.length === 0) return null
   return caps.reduce<GuestAccess>((weakest, cap) => weakerAccess(weakest, cap), access)
 }

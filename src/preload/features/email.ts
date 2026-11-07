@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { CloudflareSetup, CloudflareZoneChoice, EmailMessage, EmailOptions, EmailOutgoing, EmailSignUp, EmailState } from '@shared/email'
+import type { CloudflareSetup, CloudflareZoneChoice, EmailMessage, EmailOptions, EmailOutgoing, EmailSignUp, EmailState, EmailTriggerRule } from '@shared/email'
 
 /**
  * Renderer bridge for the agent's own email (AgentMail, or the user's domain on Cloudflare). Exposed as
@@ -50,6 +50,8 @@ export const emailApi = {
   setWorkerAddress: (workerId: string, input: { username: string; displayName?: string }): Promise<EmailState> =>
     ipcRenderer.invoke('email:set-worker-address', workerId, input),
   removeWorkerAddress: (workerId: string): Promise<EmailState> => ipcRenderer.invoke('email:remove-worker-address', workerId),
+  /** What new mail to a worker's own address does (off by default); changing the rule keeps the rest of it. */
+  setTrigger: (workerId: string, rule: Partial<EmailTriggerRule>): Promise<EmailState> => ipcRenderer.invoke('email:set-trigger', workerId, rule),
   /** Cloudflare: asks Cloudflare to verify an address (it emails a link), so the free route can email it. */
   addVerifiedAddress: (address: string): Promise<EmailState> => ipcRenderer.invoke('email:add-verified-address', address),
   onChanged: (handler: (state: EmailState) => void): (() => void) => subscribe('email:changed', handler)

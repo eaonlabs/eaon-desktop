@@ -13,6 +13,7 @@ import { ZulipConnector, verifyZulipCredentials } from './channels/zulip'
 import { ChannelsService } from './channels/service'
 import { TelegramConnector, verifyTelegramToken } from './channels/telegram'
 import { channelsToolSource } from './channels/tools'
+import { transcribeVoiceNoteLocally } from './voice/localVoiceNote'
 import type { Connector, ConnectorEvents } from './channels/types'
 import { readAuthFiles, WhatsAppConnector, writeAuthFiles } from './channels/whatsapp'
 import type { Feature, FeatureContext } from './types'
@@ -118,6 +119,8 @@ export function createChannels(ctx: FeatureContext, workers: WorkersService): Ch
     setToken: (id, token) => secrets.set(tokenKey(id), token ?? ''),
     verifyToken: verify,
     createConnector: connectorFor,
+    // A voice note is heard on this computer or not at all (voice/voiceNote.ts).
+    transcribeVoice: transcribeVoiceNoteLocally,
     onChange: (links) => ctx.send('channels:changed', links),
     onStatus: (statuses) => ctx.send('channels:status', statuses)
   })

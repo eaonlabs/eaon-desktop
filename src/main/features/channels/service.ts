@@ -25,6 +25,7 @@ import {
 import type { ChatMessage } from '@shared/types'
 import { approvalCode, describeWorker, type Worker, type WorkerAsk, type WorkerMail } from '@shared/workers'
 import { redactSecrets } from '../../redact'
+import { MAX_VOICE_NOTE_SECONDS, NO_ENGINE, NO_MODEL_HOW, type VoiceNoteResult } from '../voice/voiceNote'
 import type { WorkersEngine } from '../workers/engine'
 import { calledByName, parseCommand, replyText, withCommandPrefix } from './format'
 import type { Connector, ConnectorEvents, IncomingMessage } from './types'
@@ -69,6 +70,12 @@ export interface ChannelsDeps {
    */
   verifyToken: (kind: Exclude<ChannelKind, 'whatsapp'>, token: string) => Promise<{ account: string; id: string; token?: string }>
   createConnector: (link: ChannelLink, token: string | null, events: ConnectorEvents) => Connector
+  /**
+   * Turns a voice note's audio into text on this computer (voice/voiceNote.ts);
+   * never anywhere else. Without it, voice notes are answered with why they
+   * can't be heard.
+   */
+  transcribeVoice?: (audio: Uint8Array) => Promise<VoiceNoteResult>
   onChange?: (links: ChannelLink[]) => void
   onStatus?: (statuses: ChannelStatus[]) => void
   now?: () => number
@@ -114,6 +121,9 @@ function describeCall(ask: WorkerAsk): string[] {
 const clone = <T>(value: T): T => structuredClone(value)
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 const chatKey = (linkId: string, chatId: string): string => `${linkId}|${chatId}`
+const voiceKey = (linkId: string, chatId: string, messageId: string): string => `${linkId}|${chatId}|${messageId}`
+/** How much of a voice note's text the reply repeats back. */
+const HEARD_CHARS = 280
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 function code(length: number): string {
@@ -180,6 +190,8 @@ export class ChannelsService {
   /** Chats the worker posted in itself during its running turn. */
   private readonly postedThisTurn = new Map<string, Set<string>>()
   private readonly guestLog = new Map<string, number[]>()
+  /** Voice notes' text by message (`voiceKey`), until the reply to it goes out. */
+  private readonly voiceHeard = new Map<string, string>()
   private readonly pairFailures = new Map<string, number[]>()
   /** When each automatic notice (request received, slow down…) last went out, so they are not repeated. */
   private readonly notices = new Map<string, number>()
@@ -526,7 +538,7 @@ export class ChannelsService {
       addressed = !message.isGroup || message.mentioned || byName !== null || (chatAllowed && link.groupReplies === 'all')
     }
     if (!addressed) return
-    if (!text && message.files.length === 0 && !message.unsupported) return
+    if (!text && message.files.length === 0 && !message.unsupported && !message.voice) return
 
     const isOwner = (link.owner !== null && message.senderId === link.owner.id) || (link.kind === 'whatsapp' && Boolean(message.fromSelf))
     const reply = (body: string): Promise<void> => this.say(link, connector, message.chatId, this.notice(link, body), message.isGroup ? message.messageId : undefined, worker?.name)
@@ -569,12 +581,18 @@ export class ChannelsService {
       }
     }
 
+    // A voice note is heard here, on this computer, and handled as the text it says.
+    const heard = message.voice ? await this.hear(message, role === 'owner', reply) : null
+    if (heard) this.rememberVoice(link.id, message, heard)
+    // Nothing else came with it, and the sender has been told why it couldn't be heard: there is nothing for the worker to do.
+    if (message.voice && !heard && !text && message.files.length === 0 && !message.unsupported) return
     const { saved, skipped } = await this.download(message, worker, link.kind)
     const notes = [
       message.unsupported ? `(Sent ${message.unsupported}, which you can’t open.)` : '',
+      message.voice && !heard ? '(Also sent a voice note, which couldn’t be heard.)' : '',
       skipped.length ? `(Also sent ${skipped.join(', ')}, which couldn’t be saved: too large, or the download failed.)` : ''
     ].filter(Boolean)
-    const body = [text, ...notes].filter(Boolean).join('\n')
+    const body = [text, heard ? `[Voice note, transcribed on this computer, so a word may be wrong] ${heard}` : '', ...notes].filter(Boolean).join('\n')
     const mail: Omit<WorkerMail, 'id' | 'at'> = {
       from: role === 'owner' ? 'user' : 'guest',
       fromName: role === 'owner' ? 'You' : message.senderName,
@@ -604,6 +622,38 @@ export class ChannelsService {
         await reply(`Got it. ${worker.name} is in the middle of something and will read this next.`)
       }
     }
+  }
+
+  /**
+   * What a voice note says, or null after telling the sender why it can't be
+   * heard (no speech model installed, too long, not readable). The owner is
+   * told where to fix it; others only that it can't be heard.
+   */
+  private async hear(message: IncomingMessage, owner: boolean, reply: (body: string) => Promise<void>): Promise<string | null> {
+    const voice = message.voice!
+    let result: VoiceNoteResult
+    if (!this.deps.transcribeVoice) result = { ok: false, reason: 'no-engine', message: NO_ENGINE }
+    else if (voice.seconds !== null && voice.seconds > MAX_VOICE_NOTE_SECONDS) {
+      result = { ok: false, reason: 'too-long', message: 'That voice note is too long. Eaon listens to ones under ten minutes.' }
+    } else {
+      try {
+        result = await this.deps.transcribeVoice(await voice.download())
+      } catch (error) {
+        result = { ok: false, reason: 'failed', message: `I couldn’t get that voice note: ${errorText(error)}` }
+      }
+    }
+    if (result.ok) return result.text
+    // A stranger or a guest who keeps sending them isn't told every time.
+    if (owner || this.once(`voice|${message.chatId}|${message.senderId}`, 10 * 60_000)) {
+      await reply(owner && result.reason === 'no-model' ? `${result.message} ${NO_MODEL_HOW}` : result.message).catch((error) => console.error('[channels] could not answer a voice note:', errorText(error)))
+    }
+    return null
+  }
+
+  /** What a voice note said, kept until the worker's reply goes out, which starts by saying it was a voice note. */
+  private rememberVoice(linkId: string, message: IncomingMessage, text: string): void {
+    this.voiceHeard.set(voiceKey(linkId, message.chatId, message.messageId), text)
+    if (this.voiceHeard.size > 100) this.voiceHeard.delete(this.voiceHeard.keys().next().value!)
   }
 
   private roleOf(link: ChannelLink, message: IncomingMessage, isOwner: boolean): Role | null {
@@ -642,7 +692,7 @@ export class ChannelsService {
       kind: message.isGroup ? 'chat' : 'person',
       id: message.isGroup ? message.chatId : message.senderId,
       name: message.isGroup ? message.chatName : message.senderName,
-      preview: text || message.unsupported || 'sent a file'
+      preview: text || message.unsupported || (message.voice ? 'sent a voice note' : 'sent a file')
     })
     // On the user's own WhatsApp number the bot would be speaking as the user: stay quiet.
     const quiet = link.kind === 'whatsapp' && link.whatsappMode === 'personal'
@@ -888,19 +938,23 @@ export class ChannelsService {
     const posted = this.postedThisTurn.get(worker.id) ?? new Set<string>()
     this.turnChats.delete(worker.id)
     this.postedThisTurn.delete(worker.id)
-    const chats = new Map<string, { linkId: string; chatId: string; isGroup: boolean; lastMessageId: string; owner: boolean }>()
+    const chats = new Map<string, { linkId: string; chatId: string; isGroup: boolean; lastMessageId: string; owner: boolean; heard: string[] }>()
     for (const item of turn.mail) {
       const channel = item.channel
       if (!channel) continue
       const key = chatKey(channel.linkId, channel.chatId)
       this.stopTyping(key)
       const entry = chats.get(key)
+      const voice = voiceKey(channel.linkId, channel.chatId, channel.messageId)
+      const heard = this.voiceHeard.get(voice)
+      this.voiceHeard.delete(voice)
       chats.set(key, {
         linkId: channel.linkId,
         chatId: channel.chatId,
         isGroup: channel.isGroup,
         lastMessageId: channel.messageId,
-        owner: (entry?.owner ?? false) || item.from === 'user'
+        owner: (entry?.owner ?? false) || item.from === 'user',
+        heard: [...(entry?.heard ?? []), ...(heard ? [heard] : [])]
       })
     }
     if (turn.cancelled || chats.size === 0) return
@@ -910,8 +964,10 @@ export class ChannelsService {
       const link = this.find(chat.linkId)
       const connector = this.connectors.get(chat.linkId)
       if (!link || !connector) continue
-      const body = turn.error ? (chat.owner ? `Something went wrong: ${turn.error}` : 'Sorry, something went wrong on my side.') : text
-      if (!body) continue
+      const answer = turn.error ? (chat.owner ? `Something went wrong: ${turn.error}` : 'Sorry, something went wrong on my side.') : text
+      if (!answer) continue
+      // A reply to a voice note says so, and what was heard, so a mis-heard word is easy to spot.
+      const body = chat.heard.length > 0 ? `${chat.heard.map((h) => `(Voice note, heard as “${h.length > HEARD_CHARS ? `${h.slice(0, HEARD_CHARS - 1)}…` : h}”)`).join('\n')}\n\n${answer}` : answer
       await this.say(link, connector, chat.chatId, body, chat.isGroup ? chat.lastMessageId : undefined, worker.name).catch((error) =>
         console.error(`[channels] could not post ${worker.name}’s reply:`, errorText(error))
       )
