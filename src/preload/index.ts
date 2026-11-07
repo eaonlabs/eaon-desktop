@@ -54,6 +54,7 @@ import { linkAccountsApi } from './features/linkAccounts'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { personalizeApi } from './features/personalize'
+import { chatExportApi } from './features/chatExport'
 import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
@@ -359,6 +360,7 @@ const fullApi = {
   providerLogos: providerLogosApi,
   usage: usageApi,
   personalize: personalizeApi,
+  chatExport: chatExportApi,
   toknCli: toknCliApi,
   payments: paymentsApi,
   engines: enginesApi,

@@ -11,6 +11,7 @@ import {
   Compass,
   Copy,
   Eye,
+  FileDown,
   FileText,
   FolderInput,
   FolderOpen,
@@ -55,6 +56,7 @@ import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
 import { TemporaryHint, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
+import { exportChatToFile } from './chat/exportChat'
 import { WorkerFace } from './workers/WorkerFace'
 import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
 import { StockCards } from './workers/WorkerUi'
@@ -541,6 +543,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   () => notify("Couldn't copy the transcript. Click in the window and try again.", 'error')
                 )
             },
+            // The save dialog is main's; see main/features/chatExport.ts.
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as Markdown', action: () => void exportChatToFile(chat, 'markdown') },
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as JSON', action: () => void exportChatToFile(chat, 'json') },
             {
               icon: <FolderOpen size={15} strokeWidth={1.9} />,
               label: coding ? 'Open project folder' : 'Open Eaon’s folder',

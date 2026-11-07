@@ -42,6 +42,7 @@ import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
 import { modsFeature } from './mods'
 import { personalizeFeature } from './personalize'
+import { chatExportFeature } from './chatExport'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -56,6 +57,7 @@ export const FEATURES: Feature[] = [
   modsFeature,
   // Custom instructions and memory for Chat; its `remember` tool is offered to the loop like the mods' tools.
   personalizeFeature,
+  chatExportFeature,
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,
