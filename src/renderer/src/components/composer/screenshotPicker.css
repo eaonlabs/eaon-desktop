@@ -1,0 +1,81 @@
+/* The screenshot picker (ScreenshotPicker.tsx): previews of screens and windows to attach. */
+
+.shot-pick__note {
+  margin: 0 0 12px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.shot-pick__group + .shot-pick__group {
+  margin-top: 14px;
+}
+.shot-pick__label {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.shot-pick__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 10px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.shot-pick__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  text-align: left;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.shot-pick__card:hover:not(:disabled) {
+  background: var(--hover);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.shot-pick__card:disabled {
+  opacity: 0.6;
+}
+.shot-pick__card[aria-busy='true'] {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.shot-pick__thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+}
+.shot-pick__name {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shot-pick__failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.shot-pick__failed p {
+  margin: 0;
+}
+.shot-pick__error {
+  margin: 12px 0 0;
+  color: var(--danger, var(--text-2));
+  font-size: var(--fs-sm);
+}

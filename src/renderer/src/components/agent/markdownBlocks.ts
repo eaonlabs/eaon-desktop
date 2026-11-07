@@ -30,6 +30,8 @@ export type Block =
   | { kind: 'table'; align: TableAlign[]; header: string[]; rows: string[][] }
   | { kind: 'quote'; lines: string[] }
   | { kind: 'rule' }
+  /** Display maths between `$$` or `\[` `\]` lines, kept as the LaTeX it was written in. */
+  | { kind: 'math'; src: string }
   | { kind: 'para'; text: string }
 
 export interface ParsedMarkdown {
@@ -56,6 +58,48 @@ const RULE = /^\s*([-*_])(\s*\1){2,}\s*$/
 /** A table's second line: `|---|:---:|---:|`, with or without the outer pipes. */
 const TABLE_RULE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
 const TASK = /^\[([ xX])\]\s+/
+
+/** Delimiters of a display-maths block, as a line opens and closes it. */
+const MATH_FENCES = [
+  ['$$', '$$'],
+  ['\\[', '\\]']
+] as const
+
+/**
+ * A display formula starting on line `at`: `$$ x $$` on one line, or `$$` /
+ * `\[` on a line of its own (or with the first of the formula after it) and
+ * the same kind of closing line after it. Never reaches past a blank line,
+ * which keeps the settled-prefix rule above true for it, and keeps a stray
+ * `$$` (a shell's process id) from swallowing the rest of a reply: without a
+ * closing line it is no formula, and the line stays text.
+ */
+function displayMath(lines: string[], at: number): { src: string; last: number } | null {
+  const first = lines[at].trim()
+  for (const [open, close] of MATH_FENCES) {
+    if (!first.startsWith(open)) continue
+    const rest = first.slice(open.length)
+    if (rest.endsWith(close) && rest.length > close.length) {
+      const inner = rest.slice(0, -close.length).trim()
+      return inner && !inner.includes(close) ? { src: inner, last: at } : null
+    }
+    // `$$x$$ and more`: a formula inside a sentence, which the inline rule draws.
+    if (rest.includes(close)) return null
+    const body = rest.trim() ? [rest] : []
+    for (let i = at + 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line === '') return null
+      if (line.endsWith(close)) {
+        const tail = line.slice(0, -close.length).trim()
+        if (tail) body.push(tail)
+        const src = body.join('\n').trim()
+        return src ? { src, last: i } : null
+      }
+      body.push(lines[i])
+    }
+    return null
+  }
+  return null
+}
 
 /** Leading spaces, with a tab counted as four. */
 function indentOf(line: string): number {
@@ -208,6 +252,14 @@ function parse(source: string): ParsedMarkdown {
           settledBlocks = blocks.length
         }
       }
+      continue
+    }
+
+    const math = displayMath(lines, i)
+    if (math) {
+      flush()
+      blocks.push({ kind: 'math', src: math.src })
+      i = math.last
       continue
     }
 

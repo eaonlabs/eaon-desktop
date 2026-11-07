@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   Globe,
+  Camera,
   Hand,
   Laptop,
   Lightbulb,
@@ -42,6 +43,7 @@ import { useChatContext } from './composer/useChatContext'
 import { SideQuestion } from './chat/SideQuestion'
 import { useSideQuestion } from '../state/sideQuestion'
 import { parseSideQuestion } from '@shared/sideQuestion'
+import { ScreenshotPicker } from './composer/ScreenshotPicker'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
@@ -409,6 +411,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     }
   }
 
+  const [shotOpen, setShotOpen] = useState(false)
+
   const pickFiles = (): void =>
     void window.api.app
       .openFiles({ properties: isAgent ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'] })
@@ -498,7 +502,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sources: SuggestSources = {
     '/': (query: string) => {
       const items: SuggestItem[] = [
-        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles }
+        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
+        { id: 'screenshot', title: 'Take a screenshot', keywords: 'screenshot screen capture window image attach', section: 'Add', icon: <Camera size={16} strokeWidth={1.8} />, run: () => setShotOpen(true) }
       ]
       if (isAgent) {
         items.push(
@@ -883,6 +888,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         open={plusMenu.open}
         onClose={plusMenu.close}
         onAttach={addAttachments}
+        onScreenshot={() => setShotOpen(true)}
         goalArmed={goalArmed}
         onGoal={() => {
           setGoalArmed(!goalArmed)
@@ -905,6 +911,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           })
         }}
       />
+      <ScreenshotPicker open={shotOpen} onClose={() => setShotOpen(false)} onAttach={addAttachments} />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
       <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
         <div className="menu__label">Saved for later</div>
@@ -1073,6 +1080,7 @@ function AddMenu({
   open,
   onClose,
   onAttach,
+  onScreenshot,
   goalArmed,
   onGoal,
   onPrompts
@@ -1081,6 +1089,7 @@ function AddMenu({
   open: boolean
   onClose: () => void
   onAttach: (paths: string[]) => void
+  onScreenshot: () => void
   goalArmed: boolean
   onGoal: () => void
   onPrompts: () => void
@@ -1126,6 +1135,16 @@ function AddMenu({
         onClick={() => {
           close()
           onPrompts()
+        }}
+      />
+      <MenuItem
+        icon={<Camera size={16} strokeWidth={1.8} />}
+        title="Take a screenshot"
+        hint="A screen or window"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          close()
+          onScreenshot()
         }}
       />
       {isAgent && (

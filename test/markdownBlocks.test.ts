@@ -40,6 +40,11 @@ const PIECES = [
   'function f() {}',
   '```',
   '```',
+  '$$',
+  'x^2 + y^2 = z^2',
+  '$$ E = mc^2 $$',
+  '\\[',
+  '\\]',
   'plain text again'
 ]
 
