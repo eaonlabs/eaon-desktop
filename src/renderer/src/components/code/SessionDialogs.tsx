@@ -17,6 +17,7 @@ import {
   type AdeSession,
   type ProjectGroup
 } from '@shared/adeSessions'
+import { copiedSummary, type CopyPlan } from '@shared/worktreeCopy'
 import type { TerminalAgentId } from '@shared/terminals'
 import { arrangeAgents } from '../../lib/agentPrefs'
 import { useApp } from '../../state/store'
@@ -54,6 +55,10 @@ export function NewSessionDialog(): JSX.Element | null {
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The ignored files (.env…) the project has that Settings → ADE names, and whether to copy them in.
+  const [copyPlan, setCopyPlan] = useState<CopyPlan | null>(null)
+  const [copyOn, setCopyOn] = useState(false)
+  const [copyDefault, setCopyDefault] = useState(false)
 
   // A fresh form each time it opens, in the project it was opened from.
   useEffect(() => {
@@ -76,6 +81,24 @@ export function NewSessionDialog(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  // What this project would copy into the worktree, looked at when a project is picked.
+  useEffect(() => {
+    if (!open || !project) return setCopyPlan(null)
+    let live = true
+    void Promise.all([window.api.adeTools.previewCopy(project), window.api.adeTools.copySettings()]).then(
+      ([plan, settings]) => {
+        if (!live) return
+        setCopyPlan(plan)
+        setCopyDefault(settings.enabled)
+        setCopyOn(settings.enabled)
+      },
+      () => live && setCopyPlan(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [open, project])
+
   const installed = arrangeAgents(agents, useApp.getState().settings?.agentProviders).filter((a) => a.installed && a.id !== 'shell')
   useEffect(() => {
     if (!open) return
@@ -96,7 +119,11 @@ export function NewSessionDialog(): JSX.Element | null {
     setBusy(true)
     setError(null)
     const chosen = presets.find((p) => p.key === preset)
-    const failed = await create({ project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }, chosen ? chosen.panes : agent)
+    const failed = await create(
+      { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) },
+      chosen ? chosen.panes : agent,
+      { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0) }
+    )
     setBusy(false)
     if (failed) setError(failed)
   }
@@ -220,6 +247,28 @@ export function NewSessionDialog(): JSX.Element | null {
             : (problem ??
               `A new branch${own?.branch ? ` from ${own.branch}` : ''}, in its own folder${where ? ` (${where})` : ''}. Your project folder isn’t touched.`)}
         </p>
+        {copyPlan && (copyPlan.copy.length > 0 || copyPlan.skipped.length > 0) && !notGit && (
+          <div className="field">
+            {copyPlan.copy.length > 0 && (
+              <label className="ade-dialog__check">
+                <input type="checkbox" checked={copyOn} onChange={(e) => setCopyOn(e.target.checked)} />
+                <span>
+                  Copy {copyPlan.copy.length === 1 ? 'an ignored file' : `${copyPlan.copy.length} ignored files`} from the project into the new folder:{' '}
+                  <code>{copiedSummary(copyPlan.copy.map((f) => f.path))}</code>. Git ignores {copyPlan.copy.length === 1 ? 'it' : 'them'}, so a fresh checkout doesn’t have {copyPlan.copy.length === 1 ? 'it' : 'them'}.
+                </span>
+              </label>
+            )}
+            {copyPlan.skipped.length > 0 && (
+              <p className="ade-dialog__hint">
+                Not copied: {copyPlan.skipped.slice(0, 3).map((f) => `${f.path} (${f.reason})`).join(', ')}
+                {copyPlan.skipped.length > 3 ? ` and ${copyPlan.skipped.length - 3} more` : ''}.
+              </p>
+            )}
+            <p className="ade-dialog__hint">
+              Which files count is set in Settings → ADE{copyDefault ? '; copying is ticked by default' : ''}. Dependency folders and files over 1 MB are never copied.
+            </p>
+          </div>
+        )}
         <div className="field">
           <span className="field-label">Start with</span>
           <div className="ade-dialog__agents" role="radiogroup" aria-label="Start with">

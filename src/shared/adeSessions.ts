@@ -73,6 +73,12 @@ export interface NewSessionRequest {
 
 export type NewSessionResult = { ok: true; session: AdeSession } | { ok: false; error: string }
 
+/** What the window does right after a new session is made, when the New session dialog asked for it. */
+export interface NewSessionExtras {
+  /** Copy the ignored files Settings → ADE names (.env…) into the new worktree. */
+  copyIgnored?: boolean
+}
+
 /** What happens to a session's worktree when the session is removed. */
 export interface RemoveSessionOptions {
   /** Remove the worktree folder too (git refuses when it has uncommitted changes). */

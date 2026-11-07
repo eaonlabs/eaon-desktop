@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { groupSessions, keepOrder, type AdeConversation, type AdeSession, type NewSessionRequest, type ProjectGroup } from '@shared/adeSessions'
+import { groupSessions, keepOrder, type AdeConversation, type AdeSession, type NewSessionExtras, type NewSessionRequest, type ProjectGroup } from '@shared/adeSessions'
+import { copiedSummary } from '@shared/worktreeCopy'
 import type { NewRemoteSessionRequest } from '@shared/adeRemote'
 import type { TerminalAgentId } from '@shared/terminals'
 import { useApp } from '../../state/store'
@@ -42,7 +43,7 @@ interface SessionsState {
   /** A folder's own session (made when it has none), opened. */
   openFolder: (folder: string) => Promise<void>
   /** Starts with one agent's pane, or a mod's preset of panes (each maybe with a first task). */
-  create: (req: NewSessionRequest, agent: TerminalAgentId | null | PresetPane[]) => Promise<string | null>
+  create: (req: NewSessionRequest, agent: TerminalAgentId | null | PresetPane[], extras?: NewSessionExtras) => Promise<string | null>
   /** Removes a session after closing its terminals; an error to show, or null. */
   remove: (session: AdeSession, deleteWorktree: boolean) => Promise<string | null>
   rename: (session: AdeSession, title: string) => Promise<void>
@@ -132,7 +133,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     void get().loadConversations(session.cwd)
   },
 
-  async create(req, agent) {
+  async create(req, agent, extras) {
     let result: Awaited<ReturnType<typeof window.api.ade.create>>
     try {
       result = await window.api.ade.create(req)
@@ -141,6 +142,9 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     }
     if (!result.ok) return result.error
     const session = result.session
+    // Before any agent starts in it: an agent that begins at once finds its .env there.
+    const told: { text: string; error?: boolean }[] = []
+    if (extras?.copyIgnored) told.push(await copyIgnoredInto(session))
     set((s) => ({ sessions: [...s.sessions, session], creatingIn: undefined, collapsed: { ...s.collapsed, [session.project]: false } }))
     await get().open(session)
     showAde()
@@ -154,6 +158,8 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
       await useTerminals.getState().load()
       useTerminals.getState().add(session.cwd, agent)
     }
+    // One notice for all of it: a second would replace the first.
+    if (told.length > 0) notify(told.map((t) => t.text).join(' '), told.some((t) => t.error) ? 'error' : 'done')
     return null
   },
 
@@ -294,6 +300,19 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     return null
   }
 }))
+
+/** The ignored files Settings → ADE names, copied into a new session's worktree; what to tell the user about it. */
+async function copyIgnoredInto(session: AdeSession): Promise<{ text: string; error?: boolean }> {
+  try {
+    const report = await window.api.adeTools.copyIgnored(session.id)
+    const left = report.skipped.length > 0 ? ` Left out: ${report.skipped.map((s) => `${s.path} (${s.reason})`).slice(0, 3).join(', ')}${report.skipped.length > 3 ? ` and ${report.skipped.length - 3} more` : ''}.` : ''
+    if (report.copied.length === 0) return { text: `No ignored files were copied into the new worktree.${left}` }
+    const n = report.copied.length
+    return { text: `Copied ${n} ${n === 1 ? 'file' : 'files'} into the new worktree: ${copiedSummary(report.copied)}.${left}` }
+  } catch (error) {
+    return { text: `The new session is ready, but its ignored files weren’t copied: ${clean(error)}`, error: true }
+  }
+}
 
 /** The projects the sidebar showed last, so its order holds still while it is on screen (see keepOrder). */
 let shownProjects: string[] = []

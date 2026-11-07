@@ -40,6 +40,7 @@ import { chatCodeApi } from './features/chatCode'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
+import { adeToolsApi } from './features/adeTools'
 import { workersApi } from './features/workers'
 import { channelsApi } from './features/channels'
 import { agentBrowserApi } from './features/agentBrowser'
@@ -344,6 +345,7 @@ const fullApi = {
   wallpaper: wallpaperApi,
   terminals: terminalsApi,
   ade: adeApi,
+  adeTools: adeToolsApi,
   workers: workersApi,
   channels: channelsApi,
   agentBrowser: agentBrowserApi,
