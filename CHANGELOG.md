@@ -43,6 +43,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **A day's rate limit says so at once.** A provider that answered "429, try again in 18 hours" was retried three times, a minute apart, behind "Thinking", before the reply failed. A wait longer than a retry would ever wait now fails straight away.
 - **Retries are visible while they wait.** "The provider is busy (429) — retrying in 60s." showed only once the turn had ended, inside the "Thinking" line. It now shows in the conversation while Eaon waits, until the model answers.
 - **Eaon Lite and Eaon Event say why they stopped.** When Eaon Lite's free requests for the day are used up on your network, it says so, with the wait in hours and how to keep going (an event code in Settings → Model providers → Eaon Event, or another model), instead of "limiting how fast requests can be made. Try again in 1086 min". An event code's limit gives the code's own reason. Short limits read as before.
+- **Text stays readable over a bright see-through wallpaper.** A bright picture behind the window washed out the grey labels, placeholders and buttons, which sank into it. The app now reads how bright the picture is behind the text, and the Tint setting rises only as far as needed to keep it readable. Dark pictures keep the Tint you set.
 
 ## [2026.7.5] — 2026-10-31
 
