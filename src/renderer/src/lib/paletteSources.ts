@@ -52,7 +52,7 @@ function placesSource(): PaletteAction[] {
     { id: 'go:plugins', title: 'Plugins', group: 'Go to', keywords: 'skills mcp connectors integrations', shortcut: 'plugins', run: () => app().setView('plugins') },
     { id: 'go:scheduled', title: 'Scheduled tasks', group: 'Go to', keywords: 'automations cron recurring', run: () => app().setView('scheduled') },
     { id: 'go:pull-requests', title: 'Pull requests', group: 'Go to', keywords: 'github review pr', run: () => app().setView('pull-requests') },
-    { id: 'go:linear', title: 'Linear issues', group: 'Go to', keywords: 'tickets', run: () => app().setView('linear') },
+    { id: 'go:issues', title: 'Issues (Linear, Jira, GitHub)', group: 'Go to', keywords: 'tickets linear jira github', run: () => app().setView('issues') },
     { id: 'view:sidebar', title: 'Show or hide the sidebar', group: 'View', keywords: 'toggle', shortcut: 'toggle-sidebar', run: () => app().toggleSidebar() }
   )
   // The browser panel sits beside Chat and the ADE's terminals only.

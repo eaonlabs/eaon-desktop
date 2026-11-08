@@ -7,6 +7,7 @@ import {
   branchNameProblem,
   groupSessions,
   homeRelative,
+  parallelRuns,
   sessionSubtitle,
   sessionTitle,
   taskFromTerminalTitle,
@@ -119,4 +120,20 @@ test('uncommitted changes add up git’s numstat, count a binary file without li
   const numstat = ['12\t3\tsrc/app.ts', '0\t7\tREADME.md', '-\t-\tassets/logo.png'].join('\n')
   assert.deepEqual(parseChanges(numstat, 'notes.md\nsrc/new.ts\n'), { added: 12, removed: 10, files: 5 })
   assert.deepEqual(parseChanges('', ''), { added: 0, removed: 0, files: 0 })
+})
+
+test('one task for several agents makes a branch and a worktree folder for each, none shared', () => {
+  const runs = parallelRuns('Add search', 'feature/add-search', [
+    { id: 'claude', label: 'Claude Code' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'eaon-code', label: 'Eaon Code' }
+  ])
+  assert.deepEqual(runs, [
+    { agent: 'claude', title: 'Add search', branch: 'feature/add-search' },
+    { agent: 'codex', title: 'Add search (Codex)', branch: 'feature/add-search-codex' },
+    { agent: 'eaon-code', title: 'Add search (Eaon Code)', branch: 'feature/add-search-eaon-code' }
+  ])
+  assert.equal(new Set(runs.map((r) => worktreeFolderFor(r.branch))).size, 3, 'a folder each')
+  for (const r of runs) assert.equal(branchNameProblem(r.branch), null, r.branch)
+  assert.deepEqual(parallelRuns('x', 'feature/x', [{ id: 'claude', label: 'Claude Code' }]), [{ agent: 'claude', title: 'x', branch: 'feature/x' }], 'one agent is just a session')
 })

@@ -186,7 +186,7 @@ async function start(issueId: unknown, projectRaw: unknown): Promise<StartIssueR
 
 /* ------------------------------------------------------------------ pull requests */
 
-function ghPrForBranch(root: string, branch: string): Promise<{ url: string; title: string } | null> {
+export function ghPrForBranch(root: string, branch: string): Promise<{ url: string; title: string } | null> {
   return new Promise((resolve) => {
     const child = spawn('gh', ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'url,title', '--limit', '1'], {
       cwd: root,

@@ -12,6 +12,7 @@ import {
   folderName,
   groupSessions,
   homeRelative,
+  parallelRuns,
   sessionTitle,
   worktreeFolderFor,
   type AdeSession,
@@ -36,8 +37,8 @@ const tidy = (path: string): string => homeRelative(path, knownHome)
  * project folder's current branch.
  */
 export function NewSessionDialog(): JSX.Element | null {
-  const { creatingIn, sessions, close, create } = useAdeSessions(
-    useShallow((s) => ({ creatingIn: s.creatingIn, sessions: s.sessions, close: s.closeNewSession, create: s.create }))
+  const { creatingIn, sessions, close, create, createParallel } = useAdeSessions(
+    useShallow((s) => ({ creatingIn: s.creatingIn, sessions: s.sessions, close: s.closeNewSession, create: s.create, createParallel: s.createParallel }))
   )
   const { recents, chooseFolder } = useCode(useShallow((s) => ({ recents: s.recents, chooseFolder: s.chooseFolder })))
   const { agents, refreshAgents } = useTerminals(useShallow((s) => ({ agents: s.agents, refreshAgents: s.refreshAgents })))
@@ -51,6 +52,9 @@ export function NewSessionDialog(): JSX.Element | null {
   const [agent, setAgent] = useState<TerminalAgentId | null>(null)
   // A mod's session preset picked instead of one agent.
   const [preset, setPreset] = useState<string | null>(null)
+  // What the agent is asked to do first, and the other agents given the same task, each in a worktree of its own.
+  const [task, setTask] = useState('')
+  const [also, setAlso] = useState<TerminalAgentId[]>([])
   const presets = presetsOf(useMods((s) => s.enabled))
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
@@ -70,6 +74,8 @@ export function NewSessionDialog(): JSX.Element | null {
     setError(null)
     setBusy(false)
     setPreset(null)
+    setTask('')
+    setAlso([])
     void refreshAgents().catch(() => undefined)
     void window.api.ade.worktreesRoot().then(
       (info) => {
@@ -114,16 +120,30 @@ export function NewSessionDialog(): JSX.Element | null {
   const problem = branchEdited || title.trim() ? branchNameProblem(effective) : null
   const where = project && effective && root ? `${tidy(root)}/${worktreeFolderFor(folderName(project))}/${worktreeFolderFor(effective)}` : null
 
+  const others = installed.filter((a) => a.id !== agent)
+  // Agents picked to run alongside; one that became the main agent since is no longer "also".
+  const alsoOn = preset ? [] : also.filter((id) => id !== agent && others.some((a) => a.id === id))
+  const needsTask = alsoOn.length > 0 && !task.trim()
+
   const submit = async (): Promise<void> => {
-    if (!project || !title.trim() || problem || busy) return
+    if (!project || !title.trim() || problem || busy || needsTask) return
     setBusy(true)
     setError(null)
     const chosen = presets.find((p) => p.key === preset)
-    const failed = await create(
-      { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) },
-      chosen ? chosen.panes : agent,
-      { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0) }
-    )
+    const extras = { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0), ...(task.trim() && !chosen ? { prompt: task.trim() } : {}) }
+    const request = { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }
+    const failed =
+      alsoOn.length > 0 && agent
+        ? await createParallel(
+            parallelRuns(
+              title.trim(),
+              effective,
+              [agent, ...alsoOn].map((id) => ({ id, label: installed.find((a) => a.id === id)?.label ?? id }))
+            ),
+            request,
+            extras
+          )
+        : await create(request, chosen ? chosen.panes : agent, extras)
     setBusy(false)
     if (failed) setError(failed)
   }
@@ -190,8 +210,8 @@ export function NewSessionDialog(): JSX.Element | null {
           <button type="button" className="btn btn--ghost" onClick={close} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || notGit} onClick={() => void submit()}>
-            {busy ? 'Creating…' : 'Create session'}
+          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || notGit || needsTask} onClick={() => void submit()}>
+            {busy ? 'Creating…' : alsoOn.length > 0 ? `Create ${alsoOn.length + 1} sessions` : 'Create session'}
           </button>
         </>
       }
@@ -291,6 +311,45 @@ export function NewSessionDialog(): JSX.Element | null {
             ))}
           </div>
         </div>
+        <label className="field">
+          <span className="field-label">First task for the agent (optional)</span>
+          <textarea
+            className="input ade-dialog__task"
+            rows={3}
+            value={task}
+            maxLength={4000}
+            placeholder="Add a search box to the docs page and cover it with tests"
+            disabled={Boolean(preset)}
+            onChange={(e) => setTask(e.target.value)}
+          />
+        </label>
+        {!preset && others.length > 0 && (
+          <div className="field">
+            <span className="field-label">Run the same task with more agents</span>
+            <div className="ade-dialog__agents" role="group" aria-label="Run in parallel with">
+              {others.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  aria-pressed={alsoOn.includes(a.id)}
+                  className="ade-dialog__agent"
+                  data-on={alsoOn.includes(a.id) || undefined}
+                  onClick={() => setAlso((current) => (current.includes(a.id) ? current.filter((x) => x !== a.id) : [...current, a.id]))}
+                >
+                  <AgentMark agent={a.id} size={15} />
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <p className="ade-dialog__hint" aria-live="polite">
+              {alsoOn.length === 0
+                ? 'Each agent works in a worktree and branch of its own, so you can compare what they made.'
+                : needsTask
+                  ? 'Write the task above: every agent starts with it.'
+                  : `${alsoOn.length + 1} sessions start from the same point: ${effective || 'the branch'} and ${alsoOn.map((id) => `${effective || 'the branch'}-${id}`).join(', ')}.`}
+            </p>
+          </div>
+        )}
         {presets.length > 0 && (
           <div className="field">
             <span className="field-label">Or a preset from your mods</span>

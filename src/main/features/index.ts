@@ -15,6 +15,7 @@ import { adeFeature } from './ade'
 import { adeToolsFeature } from './adeTools'
 import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
+import { trackersFeature } from './trackers'
 import { workersFeature } from './workers'
 import { workerHostFeature } from './workerHost'
 import { remoteFeature } from './remote'
@@ -83,6 +84,7 @@ export const FEATURES: Feature[] = [
   // Make ADE sessions, so after it.
   prReviewFeature,
   linearFeature,
+  trackersFeature,
   workersFeature,
   // Built on the workers engine, so after it; before the worker computer, which may move them with the workers.
   channelsFeature,

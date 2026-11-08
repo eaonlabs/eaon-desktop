@@ -1956,3 +1956,30 @@ body[data-reduce-motion='on'] .ade-spinner {
 .ade-session--archived:hover > .ade-session__add {
   opacity: 1;
 }
+
+.ade-dialog__task {
+  resize: vertical;
+  min-height: 64px;
+  font: inherit;
+  line-height: 1.45;
+}
+
+/* Reviewer comments in the review panel. */
+.review-feedback__list {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.review-feedback__where {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.review-feedback__body {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}

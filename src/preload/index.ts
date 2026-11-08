@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { PostReviewResult, PrReview, ReviewState, StartReviewResult } from '@shared/prReview'
 import type { LinearIssuesResult, LinearStatus, StartIssueResult } from '@shared/linear'
+import type { TrackerId, TrackerIssuesResult, TrackerStartResult, TrackerStatus } from '@shared/trackers'
 import type {
   Chat,
   DownloadedModel,
@@ -185,6 +186,15 @@ const api = {
     issues: (): Promise<LinearIssuesResult> => ipcRenderer.invoke('linear:issues'),
     start: (issueId: string, project: string): Promise<StartIssueResult> => ipcRenderer.invoke('linear:start', issueId, project),
     sync: (): Promise<void> => ipcRenderer.invoke('linear:sync')
+  },
+  /** Jira and GitHub issues as ADE sessions (shared/trackers.ts). */
+  trackers: {
+    status: (tracker: TrackerId): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:status', tracker),
+    connect: (tracker: TrackerId, input?: { site: string; email: string; token: string }): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:connect', tracker, input),
+    disconnect: (tracker: TrackerId): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:disconnect', tracker),
+    issues: (tracker: TrackerId): Promise<TrackerIssuesResult> => ipcRenderer.invoke('trackers:issues', tracker),
+    start: (tracker: TrackerId, id: string, project: string): Promise<TrackerStartResult> => ipcRenderer.invoke('trackers:start', tracker, id, project),
+    sync: (): Promise<void> => ipcRenderer.invoke('trackers:sync')
   },
   codeIndex: {
     status: (cwd: string | null): Promise<IndexStatus> => ipcRenderer.invoke('index:status', cwd),
