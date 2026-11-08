@@ -24,3 +24,4 @@ resources/cua-driver/
 resources/tokn-cli/
 native/whisper.cpp/
 resources/whisper/
+resources/vm/
