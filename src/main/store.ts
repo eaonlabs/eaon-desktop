@@ -114,6 +114,9 @@ export const defaultSettings: Settings = {
   general: {
     defaultPermissions: true,
     fullAccess: false,
+    commandRules: { allow: [], deny: [] },
+    checks: { enabled: false, command: '' },
+    sandbox: { enabled: false, network: false },
     fileOpenDestination: 'VS Code',
     language: 'Auto detect',
     showInMenuBar: true,
@@ -309,6 +312,7 @@ export const defaultSettings: Settings = {
   effort: 'light',
   approvalMode: 'ask',
   planMode: false,
+  askMode: false,
   work: {
     swarm: false,
     goalMaxIterations: 8,

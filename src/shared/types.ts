@@ -181,6 +181,8 @@ export interface PlanProposal {
   summary: string
   steps: string[]
   status: 'pending' | 'approved' | 'revising'
+  /** The person changed the steps before approving, so the agent is told the plan it follows is theirs. */
+  edited?: boolean
 }
 
 /** The agent's own running checklist (`update_plan`), shown pinned above the composer. */
@@ -300,6 +302,8 @@ export interface Project {
   createdAt: number
   /** The folder its chats work in. Projects made before projects had folders have none until one is chosen. */
   folder?: string | null
+  /** More folders its chats work in beside `folder` (a frontend and its API, a library and its app). The agent reads and changes them without asking, as it does `folder`. */
+  extraFolders?: string[]
 }
 
 export interface Workspace {
@@ -410,6 +414,12 @@ export interface Settings {
   general: {
     defaultPermissions: boolean
     fullAccess: boolean
+    /** Shell commands the person has allowed to run without asking, and ones that may never run (shared/commandRules.ts). */
+    commandRules?: { allow: string[]; deny: string[] }
+    /** After the agent edits files, run the project's typecheck or lint and show the agent what failed (shared/projectChecks.ts). */
+    checks?: { enabled: boolean; command: string }
+    /** Run the agent's shell commands in a macOS sandbox: write only in the work folder, no keys, no internet unless allowed (shared/sandbox.ts). */
+    sandbox?: { enabled: boolean; network: boolean }
     fileOpenDestination: string
     language: string
     showInMenuBar: boolean
@@ -702,6 +712,8 @@ export interface Settings {
   approvalMode: ApprovalMode
   /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */
   planMode: boolean
+  /** Ask mode (Work): read-only, answers questions about the project and never changes it or proposes a plan. Off when Plan is on. */
+  askMode?: boolean
   work: {
     /** Swarm mode: the agent may split work across parallel sub-agents. */
     swarm: boolean
@@ -824,10 +836,14 @@ export type AgentMode = 'chat' | 'work'
 export interface WorkOptions {
   swarm: boolean
   plan: boolean
+  /** Ask mode: read-only, answers only (Settings.askMode). */
+  ask?: boolean
 }
 
 export interface StreamRequest {
   chatId: string
+  /** The project's other folders (Project.extraFolders), for a Work turn. */
+  extraRoots?: string[]
   /** For the "Task finished" notification, so main need not read every chat to find it. */
   chatTitle?: string
   messageId: string
