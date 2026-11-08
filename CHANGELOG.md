@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## Unreleased
+
+### Fixed
+- **Text stays readable over a bright see-through wallpaper.** A bright picture behind the window washed out the grey labels, placeholders and buttons, which sank into it. The app now reads how bright the picture is behind the text, and the Tint setting rises only as far as needed to keep it readable. Dark pictures keep the Tint you set.
+
 ## [2026.7.5] — 2026-10-31
 
 ### Added

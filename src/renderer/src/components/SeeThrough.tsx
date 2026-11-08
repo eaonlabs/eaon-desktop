@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react
 import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
 import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { legibleWash, LEGIBLE_CONTRAST, QUIET_CONTRAST, type Rgb } from '@shared/seeThroughLegibility'
 import { renderStyle, styleInfo, type Paint } from './seeThrough/styles'
 import '../styles/seeThrough.css'
 
@@ -31,6 +32,60 @@ import '../styles/seeThrough.css'
 
 /** A video's styles are drawn at one device pixel a point: a frame is redrawn many times a second. */
 const VIDEO_SCALE = 1
+
+/** The picture is read at this many spots a side: enough to tell how bright it is behind the text. */
+const SAMPLE = 32
+
+/** A moving picture (a video, or a style redrawn as it plays) is read again this often. */
+const RESAMPLE_MS = 2000
+
+/** The picture's colours at SAMPLE × SAMPLE, or null when there is no picture yet, or the browser won't read it back. */
+function sampleOf(plate: HTMLCanvasElement | HTMLVideoElement): Rgb[] | null {
+  if (plate instanceof HTMLVideoElement && plate.readyState < 2) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = SAMPLE
+  canvas.height = SAMPLE
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return null
+  try {
+    ctx.drawImage(plate, 0, 0, SAMPLE, SAMPLE)
+    const { data } = ctx.getImageData(0, 0, SAMPLE, SAMPLE)
+    const spots: Rgb[] = []
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 0) spots.push([data[i], data[i + 1], data[i + 2]])
+    return spots.length > 0 ? spots : null
+  } catch {
+    // A picture from another origin can't be read back: the Tint setting stands.
+    return null
+  }
+}
+
+/** A CSS colour as the browser paints it, sRGB 0–255, whatever form the theme wrote it in. */
+function colourOf(css: string): Rgb | null {
+  const ctx = document.createElement('canvas').getContext('2d')
+  if (!ctx) return null
+  ctx.fillStyle = css
+  ctx.fillRect(0, 0, 1, 1)
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+  return [r, g, b]
+}
+
+/** The page's own colours as the theme gives them right now: its canvas, its primary text, and its quietest grey (labels, placeholders). */
+function themeColours(): { canvas: Rgb; text: Rgb; quiet: Rgb } | null {
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;background:var(--canvas)'
+  document.body.append(probe)
+  const paint = (css: string): string => {
+    const span = document.createElement('span')
+    span.style.color = css
+    probe.append(span)
+    return getComputedStyle(span).color
+  }
+  const canvas = colourOf(getComputedStyle(probe).backgroundColor)
+  const text = colourOf(paint('var(--text)'))
+  const quiet = colourOf(paint('var(--text-4)'))
+  probe.remove()
+  return canvas && text && quiet ? { canvas, text, quiet } : null
+}
 
 /** The title bars: where a press drags the window. Their buttons, fields and tabs don't. */
 const DRAG = '.chat-header, .titlebar, .drag, .dock__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag'
@@ -239,6 +294,36 @@ export function SeeThrough(): JSX.Element | null {
     }
   }, [ready])
 
+  // How bright the picture is behind the text: over a bright one the wash
+  // rises past the Tint setting, only as far as the text needs (seeThroughLegibility.ts).
+  // After the page takes its see-through colours, so the greys measured are the ones shown.
+  const [legible, setLegible] = useState<number | null>(null)
+  useEffect(() => {
+    if (!ready || !plate) {
+      setLegible(null)
+      return
+    }
+    const measure = (): void => {
+      const colours = themeColours()
+      const picture = sampleOf(plate)
+      setLegible(
+        colours && picture
+          ? legibleWash(washOf(tint, light), colours.canvas, picture, [
+              { colour: colours.text, contrast: LEGIBLE_CONTRAST },
+              { colour: colours.quiet, contrast: QUIET_CONTRAST }
+            ])
+          : null
+      )
+    }
+    measure()
+    // A video, or a style redrawn as it plays, changes what lies behind the text.
+    const timer = clip ? window.setInterval(measure, RESAMPLE_MS) : undefined
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, plate, clip, tint, light])
+
   // An entry animation that keeps its last frame (`both`, `forwards`) leaves
   // its element with a live opacity or transform effect, and Chromium makes
   // such an element a backdrop root: frosted glass anywhere inside it blurs
@@ -354,8 +439,9 @@ export function SeeThrough(): JSX.Element | null {
   }, [ready])
 
   if (!on) return null
+  const wash = legible ?? washOf(tint, light)
   return (
-    <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': washOf(tint, light) } as CSSProperties} aria-hidden="true">
+    <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': wash } as CSSProperties} aria-hidden="true">
       <div ref={layer} className="see-through__layer" />
       <div className="see-through__tint" />
     </div>
