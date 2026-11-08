@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Computers: virtual machines for you and your agents.** A new Computers page (in the Workers and ADE sidebars) makes whole Linux and macOS computers that run on this Mac or on your worker computer, a Raspberry Pi among them, apart from your own. Pick the system, the version (Ubuntu 24.04 or 26.04, Debian 13 or 12, or the newest macOS this Mac can run), desktop or terminal only, and how big it is; Eaon downloads the official image, checks it, and sets it up. Watch and use its screen live in Eaon, take snapshots to come back to, and turn on "Agents can use it" so agents in Chat and Workers can run commands in it and see and use its screen, Devin-style, without touching your computer. macOS VMs need a Mac with Apple silicon; Windows VMs come later.
+
 ## [2026.7.5] — 2026-10-31
 
 ### Added

@@ -59,6 +59,7 @@ import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
 import { remoteApi } from './features/remote'
 import { workerHostApi } from './features/workerHost'
+import { vmsApi } from './features/vms'
 import { rcApi } from './features/rc'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
@@ -358,6 +359,7 @@ const fullApi = {
   storage: storageApi,
   remote: remoteApi,
   workerHost: workerHostApi,
+  vms: vmsApi,
   rc: rcApi,
   control: controlApi,
   star: starApi,

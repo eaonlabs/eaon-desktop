@@ -148,6 +148,9 @@ mac:
     # Outside the asar with its executable bit, and signed with the app.
     - from: resources/cua-driver/darwin
       to: cua-driver/darwin
+    # VMs on a Mac (scripts/build-vm-helper.mjs).
+    - from: resources/vm/darwin
+      to: vm/darwin
     # The Liquid Glass icon, compiled by scripts/make-icon.py (CFBundleIconName above).
     - from: resources/Assets.car
       to: Assets.car

@@ -17,6 +17,7 @@ import { ScheduledPage } from './components/ScheduledPage'
 import { PullRequestsPage } from './components/PullRequestsPage'
 import { LinearPage } from './components/LinearPage'
 import { ModelsPage } from './components/ModelsPage'
+import { ComputersPage } from './components/computers/ComputersPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { StoreNotice } from './components/StoreNotice'
@@ -219,6 +220,7 @@ export default function App(): JSX.Element {
               {view === 'linear' && <LinearPage />}
               {view === 'trading' && <TradingDesk />}
               {view === 'models' && <ModelsPage />}
+              {view === 'computers' && <ComputersPage />}
             </ErrorBoundary>
           </div>
           {dock.mounted && (

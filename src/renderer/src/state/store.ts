@@ -29,7 +29,7 @@ import { migrateLegacySchedules } from '../components/scheduled/legacy'
 import { notify } from '../components/Notice'
 import { reportError } from '../components/ErrorBoundary'
 
-export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'linear' | 'models' | 'library' | 'trading'
+export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'linear' | 'models' | 'library' | 'trading' | 'computers'
 
 interface NavEntry {
   view: View
