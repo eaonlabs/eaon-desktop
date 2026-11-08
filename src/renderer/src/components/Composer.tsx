@@ -517,7 +517,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && workIn(paths[0]))
           },
           { id: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
-          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode }) },
+          { id: 'ask-mode', title: 'Ask only', keywords: 'ask question read-only answer explain', description: 'Answer questions about the project; change nothing', section: 'Modes', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, checked: Boolean(settings?.askMode), run: () => void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) }) },
+          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) }) },
           { id: 'swarm', title: 'Swarm', keywords: 'swarm parallel helpers sub-agents', description: 'Split work across parallel helpers', section: 'Modes', icon: <Network size={16} strokeWidth={1.8} />, checked: Boolean(settings?.work.swarm), run: () => void patchSettings({ work: { swarm: !settings?.work.swarm } }) },
           ...permissionItems(
             [
@@ -574,8 +575,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)
+  const askOn = isAgent && Boolean(settings?.askMode) && !planOn
   const swarmOn = isAgent && Boolean(settings?.work.swarm)
-  const hasChips = planOn || swarmOn || goalArmed || shownMentions.length > 0
+  const hasChips = planOn || askOn || swarmOn || goalArmed || shownMentions.length > 0
 
   // The box's parts, laid out per variant below: on the home screen the text
   // sits over a toolbar; in a conversation it is one line between + and send,
@@ -591,7 +593,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           ? 'Edit your message'
           : goalArmed
           ? 'Describe the goal — Eaon keeps working until it is done'
-          : planOn
+          : askOn
+            ? 'Ask about this project — Eaon reads it and answers, and changes nothing'
+            : planOn
             ? 'Describe the task — Eaon researches and proposes a plan first'
             : variant === 'chat'
               ? coding && isAgent
@@ -658,6 +662,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     <div className="composer__chips">
       {goalArmed && <ActiveChip icon={<Target size={13} strokeWidth={2} />} label="Goal" title="The next message is a goal Eaon keeps working on until it is done" onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />}
       {goalArmed && <GoalEndChip value={goalUntil} onChange={setGoalUntil} />}
+      {askOn && <ActiveChip icon={<MessageCircleQuestion size={13} strokeWidth={2} />} label="Ask" title="Eaon answers questions about the project and changes nothing" onClear={() => void patchSettings({ askMode: false })} clearLabel="Turn off Ask mode" />}
       {planOn && <ActiveChip icon={<Lightbulb size={13} strokeWidth={2} />} label="Plan" title="Eaon researches and proposes a plan before changing anything" onClear={() => void patchSettings({ planMode: false })} clearLabel="Turn off Plan mode" />}
       {swarmOn && <ActiveChip icon={<Network size={13} strokeWidth={2} />} label="Swarm" title="Eaon can split work across parallel sub-agents" onClear={() => void patchSettings({ work: { swarm: false } })} clearLabel="Turn off Swarm" />}
       {shownMentions.map((mention) => (
@@ -1173,13 +1178,24 @@ function AddMenu({
             }}
           />
           <MenuItem
+            icon={<MessageCircleQuestion size={16} strokeWidth={1.8} />}
+            title="Ask only"
+            hint={settings?.askMode ? undefined : 'Read, answer, change nothing'}
+            checked={settings?.askMode}
+            onMouseEnter={() => setSub(null)}
+            onClick={() => {
+              void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) })
+              close()
+            }}
+          />
+          <MenuItem
             icon={<Lightbulb size={16} strokeWidth={1.8} />}
             title="Plan first"
             hint={settings?.planMode ? undefined : 'Approve a plan'}
             checked={settings?.planMode}
             onMouseEnter={() => setSub(null)}
             onClick={() => {
-              void patchSettings({ planMode: !settings?.planMode })
+              void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) })
               close()
             }}
           />

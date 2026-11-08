@@ -20,6 +20,9 @@ import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFli
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
 import { openSteps, PLAN_STALE_ROUNDS, planFinishNudge, planReminder } from './planNudge'
+import { checkAfterEdits } from './checks'
+import { workspaceRoots } from '../localTools'
+import { FILE_EDIT_TOOLS } from '@shared/projectChecks'
 import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type TurnOrigin, type UnattendedPolicy } from './policy'
 import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
@@ -702,6 +705,15 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       results[results.length - 1] = { ...last, output: last.output + planReminder(turn.todos!) }
       roundsSincePlan = 0
     }
+    // Files were edited this round: the project's own check runs, and what it says when it fails goes back with the results.
+    if (params.depth === 0 && params.cwd && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
+      const checked = await checkAfterEdits(params.cwd, params.liveSettings?.() ?? params.settings, (turn.checks ??= { runs: 0, failing: false }), signal)
+      if (checked) {
+        const last = results[results.length - 1]
+        results[results.length - 1] = { ...last, output: last.output + checked.text }
+        note(checked.failed ? 'The checks found problems in the edits; the agent is fixing them.' : 'The checks pass now.')
+      }
+    }
     messages.push({ role: 'tool', results })
     if (turn.extraUsage) {
       addUsage(usage, turn.extraUsage)
@@ -938,9 +950,11 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     const raw = request.rawSystem !== undefined
     const mode = request.mode
     const cwd = mode === 'work' && !raw ? await ensureWorkFolder(request.cwd, settings) : ''
-    const readOnly = mode === 'work' && request.work.plan
+    const readOnly = mode === 'work' && (request.work.plan || Boolean(request.work.ask))
     const query: ToolQuery = { mode, cwd: cwd || null, depth: 0, readOnly, settings, request }
-    const offered = raw ? [] : toolsFor(query)
+    // Ask has no plan to present: the tool isn't offered, so a model can't end its answer on one.
+    const asking = mode === 'work' && Boolean(request.work.ask) && !request.work.plan
+    const offered = raw ? [] : toolsFor(query).filter((tool) => !(asking && tool.name === 'present_plan'))
     const tools = options.offer ? offered.filter((tool) => options.offer!(tool.name)) : offered
     const system = raw
       ? (request.rawSystem ?? '')
@@ -951,7 +965,9 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
             projectInstructions: request.projectInstructions,
             guidance: guidanceFor(query, options.offer),
             swarm: request.work.swarm && !readOnly,
-            plan: readOnly,
+            plan: Boolean(request.work.plan),
+            extraRoots: workspaceRoots(cwd),
+            ask: Boolean(request.work.ask),
             goal: request.goal,
             autonomy: settings.approvalMode === 'full' && !options.unattended,
             // A worker speaks as itself rather than as the generic agent.

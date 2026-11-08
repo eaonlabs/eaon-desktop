@@ -13,6 +13,9 @@ import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
 import { SpeechModelRow } from './SpeechModelRow'
 import { CustomInstructions } from './CustomInstructions'
+import { CommandRules } from './CommandRules'
+import { ProjectChecks } from './ProjectChecks'
+import { CommandSandbox } from './CommandSandbox'
 import { versionLabel } from '@shared/version'
 
 export function GeneralPage(): JSX.Element {
@@ -69,6 +72,9 @@ export function GeneralPage(): JSX.Element {
         </Card>
       </Section>
       )}
+      {isWork && <CommandRules />}
+      {isWork && <CommandSandbox />}
+      {isWork && <ProjectChecks />}
 
       <Section label="General">
         <Card>

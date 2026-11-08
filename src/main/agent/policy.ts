@@ -57,7 +57,7 @@ export type Decision =
   | { kind: 'ask'; mutating: true }
   | { kind: 'deny'; reason: string }
 
-export const PLAN_MODE_REFUSAL = 'Plan mode is on, so this tool is disabled. Finish researching and call present_plan.'
+export const PLAN_MODE_REFUSAL = 'This tool is disabled because the chat is read-only (Plan or Ask mode). Keep to reading and researching; in Plan mode, finish by calling present_plan.'
 export const USER_DENIED = 'The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.'
 export const UNATTENDED_READ_ONLY =
   'This run is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
@@ -95,6 +95,8 @@ export interface CallFacts {
   /** Settings → MCP → "Allow all tool permissions" covers it (plugin tools only). */
   preApproved: boolean
   spends: boolean
+  /** The denylist rule that forbids this call, if one does. */
+  denied?: string | null
 }
 
 /**
@@ -110,16 +112,21 @@ export async function callFacts(
 ): Promise<CallFacts> {
   const mutating = isMutating(tool, input, ctx)
   const spends = tool.spends?.(input, ctx) ?? false
-  if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends }
+  const denied = tool.denied?.(input, ctx) ?? null
+  if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends, denied }
+  const catastrophic = (await tool.catastrophic?.(input, ctx)) ?? false
+  // Said to run without asking by the person's allowlist; what can't be undone still asks.
+  const allowed = !catastrophic && !denied && (tool.allowed?.(input, ctx) ?? false)
   return {
     mutating,
-    risky: (tool.risky?.(input, ctx) ?? false) || delegates(tool, input, ctx),
+    denied,
+    risky: !allowed && ((tool.risky?.(input, ctx) ?? false) || delegates(tool, input, ctx)),
     // What can't be undone (a real-money order, a destructive plugin call) is
     // never covered by the blanket plugin pre-approval, in any mode.
-    catastrophic: (await tool.catastrophic?.(input, ctx)) ?? false,
+    catastrophic,
     // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
     // every plugin call in advance. Plan mode and read-only runs still refuse.
-    preApproved: settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins',
+    preApproved: allowed || (settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins'),
     spends
   }
 }
@@ -140,6 +147,8 @@ export function decide(
   // A worker answering a guest may not use this tool at all, mutating or not.
   const gated = policy.toolGate?.(tool, input)
   if (gated) return { kind: 'deny', reason: gated }
+  // The person's denylist: nothing lifts it, not Full access, not a worker's autonomy.
+  if (facts.denied) return { kind: 'deny', reason: facts.denied }
   // Money is spent only for the user's own requests, however much the
   // worker is trusted otherwise — no Approve once lifts this.
   if (facts.spends && (policy.origin === 'guest' || policy.origin === 'delegated')) return { kind: 'deny', reason: SPENDING_REFUSAL }

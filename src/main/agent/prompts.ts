@@ -41,6 +41,8 @@ const SWARM = `SWARM MODE is on. You have spawn_agents, which runs 2–6 sub-age
 
 const PLAN = `PLAN MODE is on. You may only read and research — every tool that changes anything is disabled. Investigate thoroughly, then call present_plan once with concrete steps (the files you will change, the commands you will run, how you will verify) and stop. The user approves the plan before any work starts.`
 
+const ASK = `ASK MODE is on. You can read, search and run read-only commands, but every tool that changes anything is disabled. Answer the question from what the project actually says: look before you answer, name the files and lines you relied on, and say so when you are not sure. Do not write a plan, do not call present_plan, and do not claim to have changed anything. If the user wants a change made, say they can switch to Agent mode (or Plan first) in the message box and you will do it.`
+
 function goalSection(goal: GoalState): string {
   const base = `GOAL MODE is on. Keep working until this goal is achieved:\n"${goal.text}"\nIf you stop before it is done you will be asked to continue. When it is achieved and verified, call goal_complete with the evidence. If you cannot progress without the user, call goal_blocked and say what you need.`
   if (!goal.until) return base
@@ -55,6 +57,10 @@ export interface WorkPromptOptions {
   guidance: string[]
   swarm: boolean
   plan: boolean
+  /** The project's other folders, named in the prompt so the agent knows they are part of the work. */
+  extraRoots?: string[]
+  /** Ask mode: read-only answers, no plan step. */
+  ask?: boolean
   goal: GoalState | null
   /** Sub-agents get a narrower brief; see `swarm.ts`. */
   roleBrief?: string
@@ -70,6 +76,7 @@ export function workSystemPrompt(options: WorkPromptOptions): string {
   return [
     intro,
     `Today is ${today()}. Work folder: ${options.cwd}`,
+    ...(options.extraRoots?.length ? [`This workspace has more folders you work in just as freely (use their full paths): ${options.extraRoots.join(', ')}`] : []),
     '',
     'How to work:',
     '- A question that needs no tools gets a plain answer: no checklist, no tool calls.',
@@ -85,6 +92,7 @@ export function workSystemPrompt(options: WorkPromptOptions): string {
     ...options.guidance,
     options.swarm ? `\n${SWARM}` : '',
     options.plan ? `\n${PLAN}` : '',
+    options.ask && !options.plan ? `\n${ASK}` : '',
     options.goal?.status === 'active' ? `\n${goalSection(options.goal)}` : '',
     options.projectInstructions ? `\nProject instructions:\n${options.projectInstructions}` : ''
   ]
