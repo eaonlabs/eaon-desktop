@@ -25,8 +25,9 @@ import { docPath } from '../storeFiles'
 export function noteFirstRun(): void {
   const current = store.getSettings().onboarding
   if (process.env.EAON_ONBOARDING === 'off') {
-    if (current.setup === 'pending') store.patchSettings({ onboarding: { setup: 'done', tour: 'done', finishedAt: null, whatsNew: WHATS_NEW_RELEASE } })
-    else if (current.whatsNew !== WHATS_NEW_RELEASE) store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE } })
+    // The Mods intro is a first-run screen too: "off" means none of them, or it covers every scenario's first click.
+    if (current.setup === 'pending') store.patchSettings({ onboarding: { setup: 'done', tour: 'done', finishedAt: null, whatsNew: WHATS_NEW_RELEASE, modsIntro: true } })
+    else if (current.whatsNew !== WHATS_NEW_RELEASE || !current.modsIntro) store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE, modsIntro: true } })
     return
   }
   if (!existsSync(docPath('settings.json')) && !existsSync(docPath('chats.json'))) {

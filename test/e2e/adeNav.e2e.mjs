@@ -17,8 +17,8 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
   await page.reload()
   await page.find('.sidebar .nav-item', { text: /^New session$/ })
-  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Linear', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
-  assert.deepEqual(adeItems, ['New session', 'Pull requests', 'Linear', 'Settings'])
+  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
+  assert.deepEqual(adeItems, ['New session', 'Pull requests', 'Issues', 'Settings'])
   await s.shot(page, 'ade-sidebar')
 
   // SSH from the New session dialog.
