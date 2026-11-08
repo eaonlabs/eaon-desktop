@@ -11,6 +11,7 @@ import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
 import { useReview } from './reviewStore'
 import { ReviewChecks } from './ReviewChecks'
+import { ReviewFeedback } from './ReviewFeedback'
 import { ReviewConflicts } from './ReviewConflicts'
 import { AssistButton, AssistHint, NO_MODEL, assistError, useAssistModel } from '../chatCode/assist'
 import { LocalReviewDialog } from '../chatCode/LocalReview'
@@ -491,6 +492,7 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                     </div>
                   )}
                   <ReviewChecks key={cwd} cwd={cwd} checks={state.github.pr.checkRuns} title="Checks" send={sendToAgent} />
+                  {state.github.pr.state === 'OPEN' && <ReviewFeedback key={`${cwd}:${state.github.pr.number}`} cwd={cwd} pr={state.github.pr} send={sendToAgent} />}
                 </div>
               ) : state.ahead === 0 && state.uncommitted === 0 ? (
                 <p className="review__muted">Nothing on this branch yet to open a pull request for.</p>

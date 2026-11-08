@@ -15,6 +15,9 @@ export const chatCodeApi = {
   commits: (cwd: string): Promise<ChatCommits> => ipcRenderer.invoke('chat-code:commits', cwd),
   /** What one commit changed, as git's diff. */
   commitDiff: (cwd: string, sha: string): Promise<ChatDiffResult> => ipcRenderer.invoke('chat-code:commit-diff', cwd, sha),
+  /** One hunk of a file's uncommitted changes: rejected (undone in the files) or kept (staged). */
+  hunk: (cwd: string, file: string, index: number, header: string, fingerprint: string, action: 'reject' | 'keep'): Promise<{ ok: true; note?: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('chat-code:hunk', cwd, file, index, header, fingerprint, action),
   /** Background processes the agent started in the folder (dev servers, watchers). */
   processes: (cwd: string): Promise<ChatProcess[]> => ipcRenderer.invoke('chat-code:processes', cwd),
   stopProcess: (cwd: string, pid: number): Promise<boolean> => ipcRenderer.invoke('chat-code:stop-process', cwd, pid),

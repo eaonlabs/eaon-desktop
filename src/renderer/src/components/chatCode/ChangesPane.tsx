@@ -36,7 +36,7 @@ import { openInCode } from '../ide/ideStore'
 import { joinPath } from '../ide/paths'
 import { preferredTarget, useChatCode } from './chatCodeStore'
 import { agentFiles, editTurns, fileTree, gitFile, partEdit, relativePath, sameScope, toPatch, type AgentEdit, type FileTreeNode, type ReviewScope } from './changes/build'
-import { DiffCard, DiffStat, splitFilePath, type DiffLayout, type LineComments } from './diff/DiffCard'
+import { DiffCard, DiffStat, splitFilePath, type DiffLayout, type HunkHandler, type LineComments } from './diff/DiffCard'
 import type { DiffFileModel, DiffRow } from './diff/model'
 
 /**
@@ -248,6 +248,23 @@ export function ChangesPane(): JSX.Element {
 
   const loaded = useScopeFiles(scope, edits, others, root, folder, status, nonce)
   const files = loaded?.files ?? null
+  // Each hunk of git's uncommitted changes can be kept (staged) or rejected (undone in the file); the diff is read again after.
+  const hunkAction = useMemo(
+    () =>
+      scope.kind === 'git' && folder
+        ? (file: DiffFileModel, action: 'keep' | 'reject', index: number, header: string, fingerprint: string): void => {
+            void window.api.chatCode
+              .hunk(folder, file.path, index, header, fingerprint, action)
+              .then((res) => {
+                if (!res.ok) notify(res.error, 'error')
+                else if (res.note) notify(res.note)
+                setNonce((n) => n + 1)
+              })
+              .catch((e: unknown) => notify(e instanceof Error ? e.message : String(e), 'error'))
+          }
+        : undefined,
+    [scope.kind, folder]
+  )
   const added = files?.reduce((n, f) => n + f.added, 0) ?? 0
   const removed = files?.reduce((n, f) => n + f.removed, 0) ?? 0
 
@@ -372,6 +389,7 @@ export function ChangesPane(): JSX.Element {
                   toggle={toggle}
                   register={register}
                   comments={commentsFor.get(file.key)}
+                  hunkAction={hunkAction}
                 />
               ))}
             </div>
@@ -390,7 +408,8 @@ const FileCard = memo(function FileCard({
   collapsed,
   toggle,
   register,
-  comments
+  comments,
+  hunkAction
 }: {
   file: DiffFileModel
   layout: DiffLayout
@@ -399,11 +418,17 @@ const FileCard = memo(function FileCard({
   toggle: (key: string) => void
   register: (path: string, el: HTMLDivElement | null) => void
   comments: LineComments | undefined
+  /** Set while the diff is git's uncommitted changes: each hunk can be kept or rejected. */
+  hunkAction: ((file: DiffFileModel, action: 'keep' | 'reject', index: number, header: string, fingerprint: string) => void) | undefined
 }): JSX.Element {
   const onToggle = useCallback(() => toggle(file.key), [toggle, file.key])
   const cardRef = useCallback((el: HTMLDivElement | null) => register(file.path, el), [register, file.path])
   const actions = useMemo(() => <FileActions file={file} />, [file])
-  return <DiffCard file={file} layout={layout} wrap={wrap} collapsed={collapsed} onToggle={onToggle} actions={actions} comments={comments} cardRef={cardRef} />
+  const onHunk = useMemo<HunkHandler | undefined>(
+    () => (hunkAction && file.status !== 'added' && !file.binary ? (action, index, header, fingerprint) => hunkAction(file, action, index, header, fingerprint) : undefined),
+    [hunkAction, file]
+  )
+  return <DiffCard file={file} layout={layout} wrap={wrap} collapsed={collapsed} onToggle={onToggle} actions={actions} comments={comments} cardRef={cardRef} onHunk={onHunk} />
 })
 
 const scopeLabel = (scope: ReviewScope, last: number | undefined): string =>

@@ -8,6 +8,7 @@ import type {
   NewSessionResult,
   RemoveSessionOptions
 } from '@shared/adeSessions'
+import type { PrFeedbackResult } from '@shared/prFeedback'
 import type { ManualHostInput, NewRemoteSessionRequest, NewRemoteSessionResult, SshHost } from '@shared/adeRemote'
 import type { ReviewAction, ReviewCheck, ReviewFileText, ReviewLog, ReviewResult } from '@shared/adeReview'
 
@@ -48,6 +49,8 @@ export const adeApi = {
   /** A pull request title and description from the commits `base` doesn't have. */
   prFromCommits: (cwd: string, base: string): Promise<{ title: string; body: string } | { error: string }> => ipcRenderer.invoke('ade:pr-from-commits', cwd, base),
   /** The end of a failed check's log (GitHub Actions only). */
+  /** What reviewers said on a pull request: its open threads and its reviews' own words. */
+  prFeedback: (cwd: string, url: string): Promise<PrFeedbackResult> => ipcRenderer.invoke('ade:pr-feedback', cwd, url),
   checkLog: (cwd: string, check: Pick<ReviewCheck, 'url' | 'name' | 'workflow'>): Promise<ReviewLog> => ipcRenderer.invoke('ade:check-log', cwd, check),
   /** Merges the default branch into this one, fetching it first. */
   updateFromBase: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:update-from-base', cwd),

@@ -1,3 +1,4 @@
+import { hunkFingerprint } from '@shared/hunks'
 import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, MessageSquarePlus, UnfoldVertical } from 'lucide-react'
 import { FileIcon } from '../../agent/FileIcon'
@@ -55,6 +56,7 @@ export const DiffCard = memo(function DiffCard({
   actions,
   comments,
   cardRef,
+  onHunk,
   bare = false
 }: {
   file: DiffFileModel
@@ -65,13 +67,15 @@ export const DiffCard = memo(function DiffCard({
   actions?: ReactNode
   comments?: LineComments
   cardRef?: (el: HTMLDivElement | null) => void
+  /** Offered for each hunk git wrote: keep it (stage it) or reject it (undo it in the file). */
+  onHunk?: HunkHandler
   /** Only the lines: the file is already named around it. */
   bare?: boolean
 }): JSX.Element {
   if (bare) {
     return (
       <div className="dv" data-bare ref={cardRef} data-path={file.path}>
-        <DiffBody file={file} layout={layout} wrap={wrap} comments={comments} />
+        <DiffBody file={file} layout={layout} wrap={wrap} comments={comments} onHunk={onHunk} />
       </div>
     )
   }
@@ -121,12 +125,12 @@ export const DiffCard = memo(function DiffCard({
         )}
         <ChevronDown size={14} strokeWidth={2} className="dv__chev" aria-hidden />
       </div>
-      {!collapsed && <DiffBody file={file} layout={layout} wrap={wrap} comments={comments} />}
+      {!collapsed && <DiffBody file={file} layout={layout} wrap={wrap} comments={comments} onHunk={onHunk} />}
     </div>
   )
 })
 
-function DiffBody({ file, layout, wrap, comments }: { file: DiffFileModel; layout: DiffLayout; wrap: boolean; comments?: LineComments }): JSX.Element {
+function DiffBody({ file, layout, wrap, comments, onHunk }: { file: DiffFileModel; layout: DiffLayout; wrap: boolean; comments?: LineComments; onHunk?: HunkHandler }): JSX.Element {
   const total = useMemo(() => file.blocks.reduce((n, b) => n + (b.type === 'rows' ? b.rows.length : 0), 0), [file.blocks])
   const [forced, setForced] = useState(false)
   if (file.binary) return <div className="dv__note">A binary file: nothing to show line by line.</div>
@@ -141,7 +145,7 @@ function DiffBody({ file, layout, wrap, comments }: { file: DiffFileModel; layou
       </div>
     )
   }
-  return <DiffLines file={file} layout={layout} wrap={wrap} comments={comments} />
+  return <DiffLines file={file} layout={layout} wrap={wrap} comments={comments} onHunk={onHunk} />
 }
 
 interface Reveal {
@@ -159,7 +163,7 @@ function opened(block: Extract<DiffBlock, { type: 'gap' }>, reveal: Reveal | und
   return { head: block.rows.slice(0, head), hidden: block.count - head - tail, tail: block.rows.slice(block.count - tail) }
 }
 
-function DiffLines({ file, layout, wrap, comments }: { file: DiffFileModel; layout: DiffLayout; wrap: boolean; comments?: LineComments }): JSX.Element {
+function DiffLines({ file, layout, wrap, comments, onHunk }: { file: DiffFileModel; layout: DiffLayout; wrap: boolean; comments?: LineComments; onHunk?: HunkHandler }): JSX.Element {
   const [reveals, setReveals] = useState<Record<number, Reveal>>({})
   const lang = languageOf(file.path)
   const body = useRef<HTMLDivElement>(null)
@@ -204,12 +208,20 @@ function DiffLines({ file, layout, wrap, comments }: { file: DiffFileModel; layo
   const lastIndex = file.blocks.length - 1
 
   const content: ReactNode[] = []
+  // A hunk's place among the file's hunks: what main finds it by.
+  let hunkIndex = 0
   file.blocks.forEach((block, index) => {
     if (block.type === 'break') {
       content.push(<div key={`b${index}`} className="dv__break" aria-hidden />)
       return
     }
     if (block.type === 'rows') {
+      if (onHunk && block.header) {
+        const at = hunkIndex++
+        const header = block.header
+        const print = hunkFingerprint(block.rows.map((r) => (r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : ' ') + r.text))
+        content.push(<HunkBar key={`k${index}`} header={header} onKeep={() => onHunk('keep', at, header, print)} onReject={() => onHunk('reject', at, header, print)} />)
+      }
       content.push(<RowRun key={`r${index}`} rows={block.rows} layout={layout} line={line} comments={comments} />)
       return
     }
@@ -244,6 +256,26 @@ function DiffLines({ file, layout, wrap, comments }: { file: DiffFileModel; layo
       style={{ '--dv-digits': digits } as CSSProperties}
     >
       <div className="dv__lines">{content}</div>
+    </div>
+  )
+}
+
+/** What accepting or rejecting a hunk asks of whoever owns the diff: which action, which hunk (its place and its `@@` line). */
+export type HunkHandler = (action: 'keep' | 'reject', index: number, header: string, fingerprint: string) => void
+
+/** The line above a hunk: where it is in the file, and the two choices for it. */
+function HunkBar({ header, onKeep, onReject }: { header: string; onKeep: () => void; onReject: () => void }): JSX.Element {
+  const where = /^@@ [^@]*@@ ?(.*)$/.exec(header)?.[1]
+  const lines = /^@@ -(\d+)/.exec(header)?.[1]
+  return (
+    <div className="dv__hunkbar">
+      <span className="dv__hunkbar-where">{lines ? `Line ${lines}` : 'Hunk'}{where ? ` · ${where}` : ''}</span>
+      <button type="button" className="dv__hunkbtn" onClick={onKeep} title="Keep this change and stage it">
+        Keep
+      </button>
+      <button type="button" className="dv__hunkbtn dv__hunkbtn--reject" onClick={onReject} title="Undo this change in the file">
+        Reject
+      </button>
     </div>
   )
 }
