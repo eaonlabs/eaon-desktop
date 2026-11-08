@@ -99,7 +99,7 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "appearance", title: "See-through", description: "Show a wallpaper through the window, with the panels as frosted glass over it Choose a picture below: on Linux the desktop doesn’t say which wallpaper it shows", section: "Window" },
   { page: "appearance", title: "Wallpaper", description: "A video of your own, filling the screen A picture of your own, filling the screen Your desktop’s wallpaper, lined up with the screen", section: "Window" },
   { page: "appearance", title: "Play the video", description: "Muted, on a loop. It holds still while Eaon is hidden, and with Reduce motion on", section: "Window" },
-  { page: "appearance", title: "Tint", description: "How much of the theme’s colour lies over the wallpaper. Higher is easier to read", section: "Window" },
+  { page: "appearance", title: "Tint", description: "How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable", section: "Window" },
   { page: "appearance", title: "Style", description: "", section: "Window" },
   { page: "appearance", title: "Blur", description: "How soft the page gets behind menus, popovers and frosted panels", section: "Glass" },
   { page: "appearance", title: "Transparency", description: "Solid while your system’s Reduce transparency is on With little blur, glass stays nearly solid so the page’s text never shows through sharp How much of the page shows through them. Lower is easier to read", section: "Glass" },
