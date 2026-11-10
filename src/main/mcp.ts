@@ -9,6 +9,7 @@ import type { McpServer, McpServerStatus, McpTool } from '@shared/types'
 import { store } from './store'
 import { secrets } from './secrets'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
+import { toolEnabled } from '@shared/mcpTools'
 import { McpOAuthProvider, oauthFetch, SignInRequiredError } from './mcpOAuth'
 import { audit } from './enterprise/audit'
 import { mcpCommandAllowed, PolicyError } from './enterprise/policy'
@@ -74,10 +75,21 @@ export function getStatuses(): McpServerStatus[] {
  * whatever order the network allows — unsorted, the same set of tools could
  * serialise differently on every launch.
  */
-export function getTools(): McpTool[] {
+export function getAllTools(): McpTool[] {
   return [...connections.values()]
     .flatMap((connection) => connection.tools)
     .sort((a, b) => a.serverId.localeCompare(b.serverId) || a.name.localeCompare(b.name))
+}
+
+/**
+ * The tools the assistant may use: every connected tool except the ones
+ * turned off in Settings → MCP Servers. Everything that offers tools to a
+ * model (chat, workers, trading) reads this list; Settings reads
+ * `getAllTools` so it can show the ones that are off.
+ */
+export function getTools(): McpTool[] {
+  const servers = new Map(store.getMcpServers().map((server) => [server.id, server]))
+  return getAllTools().filter((tool) => toolEnabled(servers.get(tool.serverId), tool.name))
 }
 
 const nameKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')
@@ -597,6 +609,10 @@ export async function callMcpToolResult(
     ? connections.get(serverId)?.tools.find((t) => t.name === toolName)
     : getTools().find((t) => t.name === toolName)
   if (!tool) throw new Error(`Unknown tool "${toolName}"`)
+  // A model can still name a tool it was offered earlier in the chat.
+  if (!toolEnabled(store.getMcpServers().find((s) => s.id === tool.serverId), tool.name)) {
+    throw new Error(`The tool "${toolName}" is turned off in Settings → MCP Servers.`)
+  }
   const connection = connections.get(tool.serverId)
   if (!connection?.client) throw new Error(`Server for "${toolName}" is not connected`)
 

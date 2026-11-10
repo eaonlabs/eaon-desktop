@@ -36,7 +36,7 @@ import { noteFirstRun } from './features/onboarding'
 import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
-import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
+import { getAllTools, getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
@@ -694,6 +694,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('mcp:statuses', () => getStatuses())
   ipcMain.handle('mcp:tools', () => getTools())
+  // Every connected tool, those turned off included: what Settings lists to switch on and off.
+  ipcMain.handle('mcp:all-tools', () => getAllTools())
   ipcMain.handle('mcp:sync', () => shellPath.then(() => syncMcpServers()))
 
   ipcMain.handle('local-server:status', () => getLocalServerStatus())

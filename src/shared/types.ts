@@ -798,6 +798,8 @@ export interface McpServer {
   /** Used when transport is 'http'. */
   url: string
   enabled: boolean
+  /** Names of this server's tools the user has turned off (shared/mcpTools.ts). Every other tool is on. */
+  disabledTools?: string[]
   /** Bundled servers we ship, shown with an "Official" badge. */
   official: boolean
   /**

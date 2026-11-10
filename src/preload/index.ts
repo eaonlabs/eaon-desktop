@@ -59,6 +59,7 @@ import { agentProvidersApi } from './features/agentProviders'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
+import { importAppsApi } from './features/importApps'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { personalizeApi } from './features/personalize'
@@ -143,6 +144,8 @@ const api = {
     save: (value: McpServer[]): Promise<McpServer[]> => ipcRenderer.invoke('mcp:save', value),
     statuses: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:statuses'),
     tools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:tools'),
+    /** Every connected tool, including those turned off in Settings. */
+    allTools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:all-tools'),
     sync: (): Promise<void> => ipcRenderer.invoke('mcp:sync'),
     onStatus: (handler: (statuses: McpServerStatus[]) => void): (() => void) => {
       const listener = (_e: unknown, payload: McpServerStatus[]): void => handler(payload)
@@ -380,6 +383,7 @@ const fullApi = {
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
+  importApps: importAppsApi,
   providerLogos: providerLogosApi,
   usage: usageApi,
   personalize: personalizeApi,
