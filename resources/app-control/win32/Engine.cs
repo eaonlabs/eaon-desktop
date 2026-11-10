@@ -165,6 +165,22 @@ namespace EaonAppControl
                 if (!node.ContainsKey("value")) node["value"] = range.Current.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 if (!range.Current.IsReadOnly) { node["valueSettable"] = true; actions.Add("increment"); }
             }
+            if (value == null && !info.IsPassword)
+            {
+                // Classic editors (Notepad's "Text Editor") have no ValuePattern, only TextPattern:
+                // their text can be read and typed into, but not set in one go.
+                var text = Pattern(element, TextPattern.Pattern) as TextPattern;
+                if (text != null && (info.ControlType == ControlType.Document || info.ControlType == ControlType.Edit))
+                {
+                    try
+                    {
+                        var typed = Clip(text.DocumentRange.GetText(valueLimit + 1), valueLimit);
+                        if (!string.IsNullOrEmpty(typed)) node["value"] = typed;
+                    }
+                    catch (Exception) { }
+                    actions.Add("inserttext");
+                }
+            }
             var toggle = Pattern(element, TogglePattern.Pattern) as TogglePattern;
             if (toggle != null)
             {

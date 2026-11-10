@@ -78,16 +78,22 @@ try {
   const snap = await call('snapshot', { pid, depth: 12 })
   const all = nodes(snap.tree)
   check(all.length > 3, `snapshot read ${all.length} elements`)
-  const editor = all.find((node) => (node.role === 'Edit' || node.role === 'Document') && node.valueSettable)
+  const typable = (node) => node.valueSettable || (node.actions ?? []).includes('inserttext')
+  const editor = all.find((node) => (node.role === 'Edit' || node.role === 'Document') && typable(node))
   if (!editor) {
     for (const node of all) console.log(`    ${node.n ?? '-'} ${node.role} “${node.title ?? ''}” id=${node.identifier ?? ''} settable=${Boolean(node.valueSettable)} actions=${(node.actions ?? []).join(',')}`)
   }
   check(editor, `found the editor (${editor?.role} “${editor?.title ?? ''}”)`)
 
+  // A control with a settable value takes it at once; a classic editor (Notepad's "Text Editor") is typed into.
   const text = 'Hello from Eaon app control'
-  await call('act', { sid: snap.sid, n: editor.n, action: 'setvalue', value: text })
+  if (editor.valueSettable) await call('act', { sid: snap.sid, n: editor.n, action: 'setvalue', value: text })
+  else {
+    await call('act', { sid: snap.sid, n: editor.n, action: 'inserttext', text })
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
   const read = await call('read', { sid: snap.sid, n: editor.n })
-  check(read.value === text, `wrote into it and read it back (“${read.value}”)`)
+  check((read.value ?? '').trim() === text, `wrote into it and read it back (“${read.value}”)`)
 
   const menu = all.find((node) => node.role === 'MenuBar')
   check(menu || true, menu ? 'its menu bar is in the tree' : 'no classic menu bar (newer Notepad)')
