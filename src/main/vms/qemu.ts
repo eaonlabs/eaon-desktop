@@ -255,14 +255,17 @@ export function createQemuBackend(setup: QemuSetup): VmBackendDriver {
     },
 
     async start(vm, paths, extra) {
-      if (!setup.binary) throw new Error('QEMU isn’t installed on this computer.')
+      // Looked at again each time: KVM can be granted after the host started (a desktop login
+      // gives its user /dev/kvm), and a VM started without it stays slow for as long as it runs.
+      const now = findQemu(setup.arch)
+      if (!now.binary) throw new Error('QEMU isn’t installed on this computer.')
       if (pidOf(paths)) return
       const sshPort = await freePort()
       for (const socket of [paths.vncSocket, paths.qmpSocket]) await rm(socket, { force: true })
       await rm(join(paths.dir, 'qemu.pid'), { force: true })
-      const args = qemuArgs(vm, paths, setup, { sshPort, seedUrl: extra.seedUrl })
+      const args = qemuArgs(vm, paths, now, { sshPort, seedUrl: extra.seedUrl })
       const log = openSync(join(paths.dir, 'qemu.log'), 'a')
-      const child = spawn(setup.binary, args, { detached: true, stdio: ['ignore', log, log] })
+      const child = spawn(now.binary, args, { detached: true, stdio: ['ignore', log, log] })
       closeSync(log)
       let exited: number | null = null
       child.once('exit', (code) => (exited = code ?? -1))

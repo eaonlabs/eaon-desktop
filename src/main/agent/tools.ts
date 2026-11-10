@@ -139,6 +139,12 @@ export interface AgentTool {
    * risky; see `DELEGATING` in agent/policy.ts.
    */
   delegates?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
+   * A rule the user set for this call (a plugin tool's own permission in
+   * Settings → MCP Servers): `allow` skips the approval question, `block`
+   * refuses it. Neither lifts what a tool marks catastrophic; see agent/policy.ts.
+   */
+  permission?: (input: Record<string, unknown>, ctx: ToolContext) => 'allow' | 'block' | undefined
   /** One-line summary for the approval dialog and the thinking trace. */
   describe?: (input: Record<string, unknown>) => string
   /**

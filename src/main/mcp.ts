@@ -9,6 +9,9 @@ import type { McpServer, McpServerStatus, McpTool } from '@shared/types'
 import { store } from './store'
 import { secrets } from './secrets'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
+import { isToolOff, toolPermission, toolRefusal, type McpLogLine } from '@shared/mcpTools'
+import type { McpToolPermission } from '@shared/types'
+import { redactSecrets } from './redact'
 import { McpOAuthProvider, oauthFetch, SignInRequiredError } from './mcpOAuth'
 import { audit } from './enterprise/audit'
 import { mcpCommandAllowed, PolicyError } from './enterprise/policy'
@@ -74,10 +77,74 @@ export function getStatuses(): McpServerStatus[] {
  * whatever order the network allows — unsorted, the same set of tools could
  * serialise differently on every launch.
  */
-export function getTools(): McpTool[] {
+export function getAllTools(): McpTool[] {
   return [...connections.values()]
     .flatMap((connection) => connection.tools)
     .sort((a, b) => a.serverId.localeCompare(b.serverId) || a.name.localeCompare(b.name))
+}
+
+/**
+ * The tools the assistant may use: every connected tool except the ones
+ * turned off in Settings → MCP Servers. Everything that offers tools to a
+ * model (chat, workers, trading) reads this list; Settings reads
+ * `getAllTools` so it can show the ones that are off.
+ */
+export function getTools(): McpTool[] {
+  const servers = new Map(store.getMcpServers().map((server) => [server.id, server]))
+  return getAllTools().filter((tool) => {
+    const server = servers.get(tool.serverId)
+    return !server || !isToolOff(server, tool.name)
+  })
+}
+
+/** What the user set for one tool: `allow`, `block`, or `default` (follow the approval mode). */
+export function mcpToolPermission(serverId: string, toolName: string): McpToolPermission {
+  const server = store.getMcpServers().find((s) => s.id === serverId)
+  return server ? toolPermission(server, toolName) : 'default'
+}
+
+/**
+ * A server's own words, kept to look at when it misbehaves: what it wrote to
+ * stderr (a stdio server's stdout is the protocol itself and isn't shown) and
+ * Eaon's notes on connecting, closing and failing. Bounded in lines and in
+ * line length, with keys and the server's environment values hidden, and
+ * forgotten when the server is removed or Eaon quits. Never written to disk.
+ */
+const LOG_LINES = 300
+const LOG_LINE_CHARS = 2000
+const logs = new Map<string, McpLogLine[]>()
+
+/** Hides tokens in text, and the values of a server's environment variables, which are usually keys. */
+function maskFor(server: McpServer): (text: string) => string {
+  const values = Object.values(server.env ?? {}).filter((value) => value.length >= 4)
+  return (text) => {
+    let out = redactSecrets(text)
+    for (const value of values) out = out.split(value).join('\u2022\u2022\u2022\u2022')
+    return out
+  }
+}
+
+function logLine(serverId: string, stream: McpLogLine['stream'], text: string, mask: (text: string) => string = redactSecrets): void {
+  const line = mask(text).replace(/\s+$/, '').slice(0, LOG_LINE_CHARS)
+  if (!line) return
+  const lines = logs.get(serverId) ?? []
+  lines.push({ at: Date.now(), stream, text: line })
+  if (lines.length > LOG_LINES) lines.splice(0, lines.length - LOG_LINES)
+  logs.set(serverId, lines)
+}
+
+export const getMcpLogs = (serverId: string): McpLogLine[] => [...(logs.get(serverId) ?? [])]
+export const clearMcpLogs = (serverId: string): void => void logs.delete(serverId)
+
+/** Where a server is, for the log: an HTTP address without its query (which can hold a key). */
+function describeTarget(server: McpServer): string {
+  if (server.transport !== 'http') return [server.command, ...server.args].join(' ')
+  try {
+    const url = new URL(server.url)
+    return `${url.origin}${url.pathname}${url.search ? '?\u2026' : ''}`
+  } catch {
+    return server.url
+  }
 }
 
 const nameKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')
@@ -176,10 +243,18 @@ function resolveLaunch(rawCommand: string, rawArgs: string[]): { command: string
  * over the protocol all that arrives is "Connection closed". The stream must
  * be read either way, or a chatty server would fill the pipe and stall.
  */
-function captureStderr(transport: StdioClientTransport): () => string {
+function captureStderr(transport: StdioClientTransport, onLine?: (line: string) => void): () => string {
   let tail = ''
+  // A line can arrive in two chunks; it is logged once it is whole.
+  let pending = ''
   transport.stderr?.on('data', (chunk: Buffer | string) => {
-    tail = (tail + chunk.toString()).slice(-4000)
+    const text = chunk.toString()
+    tail = (tail + text).slice(-4000)
+    if (!onLine) return
+    pending += text
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop()!.slice(-LOG_LINE_CHARS)
+    for (const line of lines) onLine(line)
   })
   return () =>
     tail
@@ -308,6 +383,8 @@ async function settled(serverId: string): Promise<void> {
 async function attemptConnect(server: McpServer, current: () => boolean): Promise<void> {
   const config = configKey(server)
   const previous = connections.get(server.id)?.client
+  const mask = maskFor(server)
+  logLine(server.id, 'info', `Connecting to ${describeTarget(server)}`, mask)
   connections.set(server.id, { client: null, tools: [], config, status: { serverId: server.id, state: 'starting', toolCount: 0 } })
   publish()
   // Replaced above first, so the old client's onclose knows this close was ours.
@@ -351,7 +428,7 @@ async function attemptConnect(server: McpServer, current: () => boolean): Promis
         env: { ...(process.env as Record<string, string>), ...server.env },
         stderr: 'pipe'
       })
-      stderr = captureStderr(transport)
+      stderr = captureStderr(transport, (line) => logLine(server.id, 'stderr', line, mask))
       client = newClient(server.id)
       await client.connect(transport)
     }
@@ -365,6 +442,7 @@ async function attemptConnect(server: McpServer, current: () => boolean): Promis
     }
 
     const live = client
+    logLine(server.id, 'info', `Connected: ${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`, mask)
     connections.set(server.id, {
       client: live,
       tools,
@@ -375,6 +453,7 @@ async function attemptConnect(server: McpServer, current: () => boolean): Promis
     // keep showing "ready" with tools that can no longer be called.
     live.onclose = () => {
       if (connections.get(server.id)?.client !== live) return
+      logLine(server.id, 'error', 'The server closed the connection', mask)
       const output = stderr?.()
       connections.set(server.id, {
         client: null,
@@ -398,6 +477,7 @@ async function attemptConnect(server: McpServer, current: () => boolean): Promis
     if (!current()) return
     // stderr arrives through a pipe; give the last of it a moment to land.
     if (stderr) await new Promise((resolve) => setTimeout(resolve, 50))
+    logLine(server.id, 'error', error instanceof Error ? error.message : String(error), mask)
     connections.set(server.id, {
       client: null,
       tools: [],
@@ -460,6 +540,10 @@ export async function syncMcpServers(): Promise<void> {
   const wanted = new Set(enabled.map((s) => s.id))
 
   // Including servers whose connect is still under way: it gives up when it lands.
+  // A removed server's log goes with it; a switched-off one keeps its last lines.
+  const known = new Set(servers.map((s) => s.id))
+  for (const id of logs.keys()) if (!known.has(id)) logs.delete(id)
+
   const unwanted = [...new Set([...connections.keys(), ...attempts.keys()])].filter((id) => !wanted.has(id))
   for (const id of unwanted) attempts.delete(id)
   await Promise.all(unwanted.map((id) => disconnect(id)))
@@ -599,6 +683,10 @@ export async function callMcpToolResult(
   if (!tool) throw new Error(`Unknown tool "${toolName}"`)
   const connection = connections.get(tool.serverId)
   if (!connection?.client) throw new Error(`Server for "${toolName}" is not connected`)
+  // Turned off or blocked in settings: refused here whoever asks, as well as in the permission policy.
+  const rules = store.getMcpServers().find((s) => s.id === tool.serverId)
+  const refusal = rules ? toolRefusal(rules, tool.name) : null
+  if (refusal) throw new Error(refusal)
 
   // The turn's signal cancels the request (and tells the server so): Stop
   // must not wait out the full timeout on a server that is stuck.

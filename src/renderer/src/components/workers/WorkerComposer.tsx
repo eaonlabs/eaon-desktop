@@ -23,6 +23,7 @@ import { usePurchaseDialog } from '../purchase/purchaseStore'
 import { ElsewhereAsk } from '../agent/ElsewhereAsk'
 import { typingElsewhere, useHoldToTalk } from '../composer/useHoldToTalk'
 import { SpeechSetup } from '../composer/SpeechSetup'
+import { useFitInput } from '../composer/useFitInput'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../../lib/platform'
 import { findLogin, type FoundLogin } from '@shared/workerVault'
@@ -86,6 +87,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
     })
   })
   const dictating = dictation.state !== 'idle'
+  // Text that wraps takes the whole box, with + and send under it.
+  const stacked = useFitInput(box, text, 260, !dictating) && !dictating
   // Hold to talk, as in Chat and the ADE: while this box is on screen and nobody is typing in another field.
   const hold = useHoldToTalk(dictation, {
     ready: () => {
@@ -99,12 +102,6 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const isMain = threadId === MAIN_THREAD
   const working = isMain ? worker.runningMessageId !== null : Boolean(info?.runningMessageId)
 
-  useEffect(() => {
-    const node = box.current
-    if (!node) return
-    node.style.height = 'auto'
-    node.style.height = `${Math.min(node.scrollHeight, 260)}px`
-  }, [text])
 
   // Its browser opens the first time it browses; until then there is nothing to show.
   useEffect(() => {
@@ -277,7 +274,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           }}
         />
       )}
-      <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
+      <div className="composer composer--worker" data-variant="chat" data-stacked={stacked || undefined} data-goal={goalArmed || undefined}>
         {files.length > 0 && (
           <div className="composer__attachments">
             {files.map((path) => (

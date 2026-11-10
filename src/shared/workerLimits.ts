@@ -323,22 +323,6 @@ export function siteVerdict(rules: SiteRules | null | undefined, url: string, op
   return { allowed: true }
 }
 
-/**
- * The hook BetterWright asks about every request its browser makes
- * (`NetworkPolicy`'s `custom`), over rules read fresh each time, so editing a
- * worker's sites applies to a browser that is already open. A connect target
- * the guard resolved from a name (`resolvedFrom`) was judged by that name
- * already; the hook has no opinion on its address.
- */
-export function siteGuard(rulesOf: () => SiteRules | null | undefined): (url: string, details: Record<string, unknown>) => { allowed: false; reason: string } | null {
-  return (url, details) => {
-    if (details && typeof details === 'object' && 'resolvedFrom' in details && details.resolvedFrom) return null
-    const navigation = details?.isNavigation === true || details?.resourceType === 'document'
-    const verdict = siteVerdict(rulesOf(), url, { navigation })
-    return verdict.allowed ? null : { allowed: false, reason: verdict.reason }
-  }
-}
-
 /* ----------------------------------------------------------------- tool rules */
 
 /** `ask`: each call waits for the owner's approval. `block`: the tool isn't offered, and a call is refused. Absent: the worker's freedom level decides. */

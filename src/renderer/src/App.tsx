@@ -31,6 +31,7 @@ import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
 import { TradingDesk } from './components/trading/TradingDesk'
+import { useTradingOn } from './components/trading/useTradingOn'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { GuestWatchPanel, GuestWatchPill } from './components/guestWatch/GuestWatch'
 import { useGuestWatch } from './components/guestWatch/guestWatchStore'
@@ -58,6 +59,7 @@ import { startProviderLogos } from './state/providerLogos'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
+  const { on: tradingOn } = useTradingOn()
   const { ready, initError, view, settingsPage, activeChatId, browserOpen, init, setView, setSettingsPage } = useApp(
     useShallow((s) => ({
       ready: s.ready,
@@ -84,6 +86,11 @@ export default function App(): JSX.Element {
 
   // What Eaon CLI asks of the window (tabs, ADE folders and terminals, settings).
   useEffect(() => installControl(), [])
+
+  // Trading's page isn't there while Trading is off (the CLI or a stale link can still send the window to it).
+  useEffect(() => {
+    if (view === 'trading' && !tradingOn) setView('chat')
+  }, [view, tradingOn, setView])
 
   // A local dev server's link in an ADE terminal opens beside it, in the in-app browser.
   useEffect(() => {
@@ -226,7 +233,7 @@ export default function App(): JSX.Element {
               {view === 'scheduled' && <ScheduledPage />}
               {view === 'pull-requests' && <PullRequestsPage />}
               {view === 'issues' && <IssuesPage />}
-              {view === 'trading' && <TradingDesk />}
+              {view === 'trading' && tradingOn && <TradingDesk />}
               {view === 'models' && <ModelsPage />}
               {view === 'computers' && <ComputersPage />}
             </ErrorBoundary>

@@ -1,5 +1,6 @@
 /** Types shared between the main and renderer processes. */
 
+import type { AppControlSettings } from './appControl'
 import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
@@ -426,6 +427,8 @@ export interface Settings {
     bottomPanel: boolean
     preventSleep: boolean
     suggestedPrompts: boolean
+    /** The Trading desk, its tools and trading workers. Off unless switched on; takes effect after a restart. */
+    trading: boolean
     launchAtLogin: boolean
     /** Which mode the app opens in: a fixed one, or wherever it was left. */
     launchMode: LaunchMode
@@ -532,6 +535,18 @@ export interface Settings {
     banked: boolean
     /** Credit balances and recent token totals in the details. */
     tokens: boolean
+  }
+  /** The foot of the sidebar (SidebarFoot.tsx): Settings → Usage & limits, or right-click it. */
+  sidebarFoot: {
+    show: boolean
+    /** What its figures add up: today, or the last seven days. */
+    period: 'today' | 'week'
+    /** The figure on top, the other under it: tokens, or dollars (spend plus plan use at API rates). Or neither. */
+    figure: 'tokens' | 'dollars' | 'none'
+    /** A bar a day for the last week. */
+    chart: boolean
+    /** The plan usage rings, for the accounts picked above them in Usage & limits. */
+    rings: boolean
   }
   /** Settings → Agent providers. */
   agentProviders: {
@@ -682,7 +697,7 @@ export interface Settings {
     embeddingModelId: string | null
     /** Re-index the project folder automatically when Eaon Work opens it. */
     autoIndex: boolean
-    /** Ceiling on agent tool round-trips per turn — agentic coding needs many. */
+    /** Ceiling on agent tool round-trips per turn — agentic coding needs many. 0 is no limit (a stuck reply still stops). */
     maxToolRounds: number
   }
   shortcuts: Record<string, string | null>
@@ -744,6 +759,8 @@ export interface Settings {
     /** Sharper screenshots cost more tokens per step. */
     quality: 'balanced' | 'sharp'
   }
+  /** Agents operating desktop apps through the accessibility tree (main/features/appControl.ts). */
+  appControl: AppControlSettings
   /** The agent in the user's own browser, through Browser Use (main/features/browserUse.ts). */
   browserUse: {
     enabled: boolean
@@ -802,7 +819,27 @@ export interface McpServer {
    * never kept here, since this file is written to disk in the clear.
    */
   pluginId?: string
+  /**
+   * Tools turned off in Settings → MCP Servers: never offered to the model,
+   * and refused if called. Names as the server gives them.
+   */
+  disabledTools?: string[]
+  /**
+   * Tools with a rule of their own, by name: `allow` skips the approval
+   * question (never for a tool the server marks destructive), `block` refuses
+   * the call. A tool not listed follows the approval mode.
+   */
+  toolPermissions?: Record<string, 'allow' | 'block'>
+  /**
+   * Set on a server that came from a project's own `.mcp.json` or
+   * `.eaon/mcp.json` after the user approved it: the project folder. Its tools
+   * are offered only in chats and tasks in that folder.
+   */
+  projectPath?: string
 }
+
+/** What a tool does when called: `default` follows the approval mode. */
+export type McpToolPermission = 'default' | 'allow' | 'block'
 
 export interface McpTool {
   name: string

@@ -1,6 +1,7 @@
 import { browserUseFeature } from './browserUse'
 import { inAppBrowserFeature } from './inAppBrowser'
 import { computerUseFeature } from './computerUse'
+import { appControlFeature } from './appControl'
 import { discordPresenceFeature } from './discordPresence'
 import { eaonCodeFeature } from './eaonCode'
 import { schedulerFeature } from './scheduler'
@@ -38,6 +39,7 @@ import { agentProvidersFeature } from './agentProviders'
 import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
+import { importAppsFeature } from './importApps'
 import { providerLogosFeature } from './providerLogos'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
@@ -52,6 +54,7 @@ import { chatExportFeature } from './chatExport'
 import { savedPromptsFeature } from './savedPrompts'
 import { chatContextFeature } from './chatContext'
 import { sideQuestionFeature } from './sideQuestion'
+import { mcpToolsFeature } from './mcpTools'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -71,6 +74,7 @@ export const FEATURES: Feature[] = [
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,
+  appControlFeature,
   browserUseFeature,
   inAppBrowserFeature,
   schedulerFeature,
@@ -110,6 +114,7 @@ export const FEATURES: Feature[] = [
   gatewayFeature,
   connectAppsFeature,
   linkAccountsFeature,
+  importAppsFeature,
   providerLogosFeature,
   usageFeature,
   starRepoFeature,
@@ -123,5 +128,6 @@ export const FEATURES: Feature[] = [
   gitHistoryFeature,
   // What Chat's message box pulls in (git, terminals, rules files, prompt commands); reads the chat folders the dock may.
   chatContextFeature,
-  sideQuestionFeature
+  sideQuestionFeature,
+  mcpToolsFeature
 ]

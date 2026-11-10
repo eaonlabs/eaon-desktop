@@ -123,6 +123,7 @@ export const defaultSettings: Settings = {
     bottomPanel: false,
     preventSleep: false,
     suggestedPrompts: true,
+    trading: false,
     launchAtLogin: false,
     launchMode: 'chat'
   },
@@ -204,6 +205,13 @@ export const defaultSettings: Settings = {
     banked: true,
     tokens: true
   },
+  sidebarFoot: {
+    show: true,
+    period: 'today',
+    figure: 'tokens',
+    chart: true,
+    rings: true
+  },
   agentProviders: {
     hidden: [],
     order: [],
@@ -276,9 +284,10 @@ export const defaultSettings: Settings = {
     embeddingProviderId: null,
     embeddingModelId: null,
     autoIndex: true,
-    // Cursor-style exploration burns rounds quickly — search, read, edit,
-    // run tests, react to failures. The old ceiling of 8 cut real work short.
-    maxToolRounds: 40
+    // No limit: real coding work (search, read, edit, run tests, react to
+    // failures) ran past 40 and stopped mid-change. A reply that gets
+    // nowhere is stopped as stuck instead (agent/guards.ts).
+    maxToolRounds: 0
   },
   shortcuts: {
     'new-chat': '⌘N',
@@ -330,6 +339,11 @@ export const defaultSettings: Settings = {
     enabled: false,
     confirmEachAction: true,
     quality: 'balanced'
+  },
+  appControl: {
+    enabled: false,
+    terminalAgents: false,
+    showActions: true
   },
   browserUse: {
     enabled: false,

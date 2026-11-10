@@ -63,7 +63,7 @@ export const LINK_TARGETS: LinkTarget[] = [
     method: 'key',
     apps: ['claude', 'claude-code'],
     blurb: 'Claude models with an API key from the Claude Console.',
-    why: 'For your Claude plan instead, use Claude Agent, which runs through your own Claude Code.'
+    why: 'For your Claude plan instead, use Claude, which runs through your own Claude Code.'
   },
   {
     providerId: 'xai',

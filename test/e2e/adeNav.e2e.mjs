@@ -28,12 +28,16 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await s.shot(page, 'ssh-from-new-session')
   await page.click('.modal button', { text: /^Cancel$/ })
 
-  // Trading, Models and Plugins in Chat.
+  // Models, Library and Plugins in Chat. Trading is off until Settings → General turns it on, and then it is there.
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), chat.id)
   await page.reload()
   await page.find('.sidebar .nav-item', { text: /^New chat$/ })
   const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()))
-  for (const item of ['Models', 'Library', 'Trading', 'Plugins', 'Settings']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
-  await page.click('.sidebar .nav-item', { text: /^Trading$/ })
-  await page.waitFor(() => Boolean(document.querySelector('.tr-desk, .trading, [class*="tr-"]')), { message: 'the Trading page' })
+  for (const item of ['Models', 'Library', 'Plugins', 'Settings']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
+  assert.ok(!chatItems.includes('Trading'), `Trading is off by default: ${JSON.stringify(chatItems)}`)
+  // Switching it on takes effect at the next start: the trading desk is only set up when Eaon opens.
+  await page.eval(() => window.api.settings.patch({ general: { trading: true } }))
+  await app.quit()
+  const again = await s.relaunch(app)
+  await again.page.find('.sidebar .nav-item', { text: /^Trading$/ })
 })

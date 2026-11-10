@@ -4,8 +4,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { capture, dropCheckpoints, restoreTurn, rewindTurns, turnChanges } from '../src/main/features/chatCheckpoints'
-import { checkpointRef, parseNameStatus } from '../src/shared/chatCode'
+import { capture, checkpointDiff, dropCheckpoints, replyDiffs, restoreTurn, rewindTurns, turnChanges } from '../src/main/features/chatCheckpoints'
+import { checkpointRef, parseNameStatus, parseRawNumstat } from '../src/shared/chatCode'
 import { repliesAfter } from '../src/renderer/src/state/chatEdits'
 import type { ChatMessage } from '../src/shared/types'
 
@@ -153,4 +153,87 @@ test('the replies after a message are the ones Edit from here drops', () => {
   const messages = [m('u1', 'user'), m('a1', 'assistant'), m('u2', 'user'), m('a2', 'assistant'), m('u3', 'user'), m('a3', 'assistant')]
   assert.deepEqual(repliesAfter(messages, 'u2'), ['a2', 'a3'])
   assert.deepEqual(repliesAfter(messages, 'nope'), [])
+})
+
+test('git raw and numstat output becomes files with their status and counts', () => {
+  const out = ':100644 100644 87ae6b6 22f6b3b M\0b.bin\0:100644 000000 286c5f5 0000000 D\0gone.txt\0:000000 100644 0000000 3e75765 A\0sp ace*.txt\0-\t-\tb.bin\0' + '0\t1\tgone.txt\0' + '1\t0\tsp ace*.txt\0'
+  assert.deepEqual(
+    parseRawNumstat(out).map((f) => [f.path, f.status, f.added, f.removed, f.binary]),
+    [
+      ['b.bin', 'modified', 0, 0, true],
+      ['gone.txt', 'deleted', 0, 1, false],
+      ['sp ace*.txt', 'added', 1, 0, false]
+    ]
+  )
+  assert.deepEqual(parseRawNumstat(''), [])
+})
+
+test('what a reply changed with commands is counted from its checkpoints, edits or not', async () => {
+  const dir = repo()
+  const rel = (files: { path: string }[]): string[] => files.map((f) => f.path.slice(dir.length + 1).replace(/\\/g, '/'))
+  try {
+    // Reply 1 writes the way a shell command would: no edit call, just the files.
+    await capture(dir, 'r1', 'before')
+    writeFileSync(join(dir, 'src/a.js'), 'one\ntwo\nthree\n')
+    writeFileSync(join(dir, 'src/[id].js'), 'made by cat\n')
+    rmSync(join(dir, 'keep.txt'))
+    mkdirSync(join(dir, 'ignored'))
+    writeFileSync(join(dir, 'ignored/cache'), 'x')
+    await capture(dir, 'r1', 'after')
+
+    const own = await replyDiffs(dir, ['r1', 'missing'])
+    assert.deepEqual(Object.keys(own), ['r1'])
+    const byPath = new Map(own.r1.map((f) => [f.path.slice(dir.length + 1).replace(/\\/g, '/'), f]))
+    assert.deepEqual([...byPath.keys()].sort(), ['keep.txt', 'src/[id].js', 'src/a.js'])
+    assert.deepEqual([byPath.get('src/a.js')!.added, byPath.get('src/a.js')!.removed, byPath.get('src/a.js')!.status], [2, 0, 'modified'])
+    assert.equal(byPath.get('src/[id].js')!.status, 'added')
+    assert.deepEqual([byPath.get('keep.txt')!.removed, byPath.get('keep.txt')!.status], [1, 'deleted'])
+
+    // Reply 2 changes a.js again and puts the new file back as it found it (gone).
+    await capture(dir, 'r2', 'before')
+    writeFileSync(join(dir, 'src/a.js'), 'one\nTWO\nthree\nfour\n')
+    rmSync(join(dir, 'src/[id].js'))
+    await capture(dir, 'r2', 'after')
+
+    // Over both, a.js counts once, from before reply 1 to after reply 2, and the file made and removed isn't there.
+    const both = await checkpointDiff(dir, ['r1', 'r2'])
+    assert.deepEqual(both.covered, ['r1', 'r2'])
+    assert.deepEqual(both.changed, ['r1', 'r2'])
+    assert.deepEqual(rel(both.files), ['keep.txt', 'src/a.js'])
+    const a = both.files.find((f) => f.path.endsWith('a.js'))!
+    assert.deepEqual([a.added, a.removed], [3, 0])
+
+    // The patch, with real line numbers, names the file even when its name looks like a pattern.
+    const patched = await checkpointDiff(dir, ['r1'], { patch: true })
+    const made = patched.files.find((f) => f.path.endsWith('[id].js'))!
+    assert.equal(made.status, 'added')
+    assert.equal(made.hunks[0].lines.some((l) => l.kind === 'add' && l.text === 'made by cat'), true)
+
+    // A reply left out (undone) isn't counted; one with no checkpoints isn't covered.
+    const second = await checkpointDiff(dir, ['r2', 'nope'])
+    assert.deepEqual(second.covered, ['r2'])
+    assert.deepEqual(rel(second.files), ['src/[id].js', 'src/a.js'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the running reply is compared with the folder as it is now', async () => {
+  const dir = repo()
+  try {
+    await capture(dir, 'r1', 'before')
+    writeFileSync(join(dir, 'src/b.js'), 'b\n')
+    assert.deepEqual((await checkpointDiff(dir, ['r1'])).covered, [])
+    const now = await checkpointDiff(dir, ['r1'], { live: 'r1' })
+    assert.deepEqual(now.covered, ['r1'])
+    assert.deepEqual(
+      now.files.map((f) => [f.path.endsWith('b.js'), f.added]),
+      [[true, 1]]
+    )
+    // Not kept: the next look sees the next change.
+    writeFileSync(join(dir, 'src/b.js'), 'b\nc\n')
+    assert.equal((await checkpointDiff(dir, ['r1'], { live: 'r1' })).files[0].added, 2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

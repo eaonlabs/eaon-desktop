@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { resolveSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
+import { useTradingOn } from '../trading/useTradingOn'
 import { TopBar } from '../TopBar'
 import { MessageRow } from '../ChatView'
 import { RowBoundary } from '../ErrorBoundary'
@@ -574,6 +575,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
   const pinned = worker.model ? resolveSelection(worker.model, providers) : null
   const creator = useWorkers((s) => (worker.createdBy ? s.workers.find((w) => w.id === worker.createdBy) : null))
   const servers = useApp((s) => s.mcpServers)
+  const { on: tradingOn } = useTradingOn()
   return (
     <div className="worker-profile">
       <WorkerFace
@@ -611,7 +613,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
             {!pinned ? 'Uses your selected model' : pinned.model ? pinned.model.label : `${pinned.wanted?.label ?? worker.model!.modelId} · unavailable`}
           </span>
         </span>
-        {worker.trading && (
+        {worker.trading && tradingOn && (
           <span className="worker-fact" title={worker.trading.strategy || undefined}>
             <CandlestickChart size={13} strokeWidth={2} />
             <span className="worker-fact__text">

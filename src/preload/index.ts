@@ -30,6 +30,7 @@ import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
+import { appControlApi } from './features/appControl'
 import { browserControlApi } from './features/browserControl'
 import { inAppBrowserApi } from './features/inAppBrowser'
 import { eaonCodeApi } from './features/eaonCode'
@@ -58,6 +59,7 @@ import { agentProvidersApi } from './features/agentProviders'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
+import { importAppsApi } from './features/importApps'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { personalizeApi } from './features/personalize'
@@ -77,6 +79,7 @@ import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 import { enterpriseApi } from './features/enterprise'
 import { modsApi } from './features/mods'
+import { mcpToolsApi } from './features/mcpTools'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -142,6 +145,8 @@ const api = {
     save: (value: McpServer[]): Promise<McpServer[]> => ipcRenderer.invoke('mcp:save', value),
     statuses: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:statuses'),
     tools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:tools'),
+    /** Every connected tool, including those turned off in Settings. */
+    allTools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:all-tools'),
     sync: (): Promise<void> => ipcRenderer.invoke('mcp:sync'),
     onStatus: (handler: (statuses: McpServerStatus[]) => void): (() => void) => {
       const listener = (_e: unknown, payload: McpServerStatus[]): void => handler(payload)
@@ -355,6 +360,7 @@ const fullApi = {
   pluginAuth: pluginsApi,
   scheduler: schedulerApi,
   computerUse: computerUseApi,
+  appControl: appControlApi,
   browserControl: browserControlApi,
   inAppBrowser: inAppBrowserApi,
   eaonCode: eaonCodeApi,
@@ -378,6 +384,7 @@ const fullApi = {
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
+  importApps: importAppsApi,
   providerLogos: providerLogosApi,
   usage: usageApi,
   personalize: personalizeApi,
@@ -401,7 +408,8 @@ const fullApi = {
   searchReplace: searchReplaceApi,
   gitHistory: gitHistoryApi,
   chatContext: chatContextApi,
-  sideQuestion: sideQuestionApi
+  sideQuestion: sideQuestionApi,
+  mcpTools: mcpToolsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

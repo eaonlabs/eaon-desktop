@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react'
-import { create } from 'zustand'
-import type { TurnChanges, TurnRestore } from '@shared/chatCode'
+import type { TurnRestore } from '@shared/chatCode'
 import type { ChatMessage } from '@shared/types'
 import { useApp } from '../../state/store'
 import { repliesAfter } from '../../state/chatEdits'
@@ -8,47 +6,9 @@ import { useChatCode } from './chatCodeStore'
 
 /**
  * Undoing a coding reply's file changes, by the checkpoints main takes
- * around each reply (main/features/chatCheckpoints.ts). A reply's card asks
- * once whether it has them; a reply that just ended is asked again when its
- * after checkpoint lands.
+ * around each reply (main/features/chatCheckpoints.ts). Whether a reply has
+ * them, and what they hold, its card asks through diskChanges.ts.
  */
-
-const asked = new Map<string, Promise<TurnChanges>>()
-const key = (folder: string, replyId: string): string => `${folder}\n${replyId}`
-
-/** Bumped per reply when its after checkpoint is written, so its card asks again. */
-const useLanded = create<Record<string, number>>(() => ({}))
-let listening = false
-function listen(): void {
-  if (listening || !window.api?.chat?.onCheckpoint) return
-  listening = true
-  window.api.chat.onCheckpoint((replyId) => {
-    for (const k of [...asked.keys()]) if (k.endsWith(`\n${replyId}`)) asked.delete(k)
-    useLanded.setState({ [replyId]: Date.now() })
-  })
-}
-
-/** What the reply changed by its checkpoints; null while asking, or with no folder. */
-export function useTurnChanges(folder: string | null, replyId: string): TurnChanges | null {
-  listen()
-  const landed = useLanded((s) => s[replyId] ?? 0)
-  const [changes, setChanges] = useState<TurnChanges | null>(null)
-  useEffect(() => {
-    if (!folder) return
-    let live = true
-    const k = key(folder, replyId)
-    let pending = asked.get(k)
-    if (!pending) {
-      pending = window.api.chatCode.turnChanges(folder, replyId).catch((): TurnChanges => ({ available: false, files: [] }))
-      asked.set(k, pending)
-    }
-    void pending.then((c) => live && setChanges(c))
-    return () => {
-      live = false
-    }
-  }, [folder, replyId, landed])
-  return folder ? changes : null
-}
 
 /** Undo or redo a reply's changes; on success the reply is marked and git's status read again. */
 export async function restoreReply(folder: string, replyId: string, direction: 'undo' | 'redo', force = false): Promise<TurnRestore> {

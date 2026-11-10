@@ -9,6 +9,8 @@ import type { NeutralImage } from '../../providers/adapters/types'
 import { opensPrivateNetwork } from '../browser/privateTarget'
 import { isCheckoutStep, purchaseCovers, redactPaymentSecrets } from '../payments/access'
 import { nothingDue } from '../payments/checkout'
+import { siteVerdict, type SiteRules } from '@shared/workerLimits'
+import { SiteGuard } from './sites'
 
 /**
  * Every worker's own web browser, driven through BetterWright
@@ -90,6 +92,8 @@ interface Session {
   parked: { url: string; title: string; index: number; frame: NativeImage | null } | null
   /** Set while the user is showing the worker a task (Teach): the steps so far, and how to stop listening. */
   recording: { steps: string[]; stop: () => void } | null
+  /** The worker's allowed and blocked sites, held on this browser's traffic while it has any (sites.ts). */
+  sites: SiteGuard
 }
 
 type FrameListener = (image: NativeImage) => void
@@ -572,8 +576,10 @@ export class WorkerBrowsers {
       parkTimer: null,
       parked: null,
       recording: null,
-      passkeys: null
+      passkeys: null,
+      sites: new SiteGuard(contents.session, () => this.siteRulesOf(workerId))
     }
+    fresh.sites.sync()
     // There are no tabs. A link with target=_blank or a window.open() would
     // otherwise become a real, visible window on the user's screen, in this
     // agent's session, which the agent never sees — and which stops
@@ -768,6 +774,23 @@ export class WorkerBrowsers {
   }
 
   /** Where the workers' passkeys are kept (the vault); without it a worker's browser has no authenticator. */
+  /** The sites a worker may and may not open (set by the workers service from its settings). */
+  private siteRulesOf: (workerId: string) => SiteRules | null | undefined = () => null
+  setSiteRules(rulesOf: (workerId: string) => SiteRules | null | undefined): void {
+    this.siteRulesOf = rulesOf
+  }
+
+  /** Puts each browser's site rules in force, or takes them off: called whenever a worker's settings may have changed. */
+  syncSites(): void {
+    for (const session of this.sessions.values()) if (!session.window.isDestroyed()) session.sites.sync()
+  }
+
+  /** Why the worker's browser may not open `url`, in words for the model, or null when it may. */
+  siteRefusal(workerId: string, url: string): string | null {
+    const verdict = siteVerdict(this.siteRulesOf(workerId), url, { navigation: true })
+    return verdict.allowed ? null : verdict.reason
+  }
+
   private passkeyStore: PasskeyStore | null = null
   setPasskeyStore(store: PasskeyStore): void {
     this.passkeyStore = store
@@ -1251,7 +1274,8 @@ export class WorkerBrowsers {
           /* not a URL we can look up */
         }
       }
-      throw new BrowserStepError(netErrorAdvice(error.code, url, resolves))
+      // A site the owner blocked says so, rather than "it was blocked".
+      throw new BrowserStepError((error.code.includes('ERR_BLOCKED_BY_CLIENT') ? this.siteRefusal(workerId, url) : null) ?? netErrorAdvice(error.code, url, resolves))
     }
     if (outcome === 'arrived') await this.landed(workerId)
     return outcome
@@ -2371,6 +2395,12 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
           now ? ` (it is on ${now} now)` : ''
         }. Here it is as it stands; decide your next step from this.\n\n${await browsers.snapshot(id)}`
       }
+      // The owner's allowed and blocked sites: refused here in words, before the page is touched
+      // (a link the page offers is held by the browser's own traffic guard; see sites.ts).
+      if (['open', 'capture_site', 'download'].includes(action) && str(input.url)) {
+        const refusal = browsers.siteRefusal(id, /^[a-z][\w+.-]*:/i.test(str(input.url)) ? str(input.url) : `https://${str(input.url)}`)
+        if (refusal) return { text: refusal, isError: true }
+      }
       const target = browsers.describe(id, input.ref)
       const detail = str(input.url) || (target ? `${target.role} "${target.name}"` : str(input.ref)) || str(input.key) || str(input.text)
       // Element steps that keep failing on this page are stopped here, however they are interleaved.
@@ -2532,7 +2562,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
     const download = browsers.takeDownload(id)
     if (download) lines.push(downloadNote(download))
     const failedLoad = browsers.takeLoadError(id)
-    if (failedLoad) lines.push(netErrorAdvice(failedLoad.description, failedLoad.url))
+    if (failedLoad) lines.push((failedLoad.description.includes('ERR_BLOCKED_BY_CLIENT') ? browsers.siteRefusal(id, failedLoad.url) : null) ?? netErrorAdvice(failedLoad.description, failedLoad.url))
     if (browsers.pendingChooser(id)) lines.push('That opened a file picker. To choose a file, use upload {ref, path} on the same element; nothing was chosen yet.')
     if (moved) {
       const note = await browsers.pageNoteDeep(id)

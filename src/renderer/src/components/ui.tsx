@@ -673,7 +673,8 @@ export function Slider({
   label: string
   onChange: (value: number) => void
 }): JSX.Element {
-  const fill = ((value - min) / (max - min)) * 100
+  // A range with nowhere to go (min = max) shows as full rather than empty.
+  const fill = max > min ? ((value - min) / (max - min)) * 100 : 100
   return (
     <div className="slider">
       <input

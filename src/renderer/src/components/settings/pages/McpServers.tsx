@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Download, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { Card, ConfirmDialog, Modal, Row, Section, Select, Switch } from '../../ui'
-import type { McpServer, McpServerStatus } from '@shared/types'
+import type { McpServer, McpServerStatus, McpTool } from '@shared/types'
+import { toolEnabled, withAllTools, withTool } from '@shared/mcpTools'
 import { joinArgs, splitArgs } from '@shared/plugins'
+import { ImportList, useImportServers } from '../../ImportServers'
 
 const blank = (): McpServer => ({
   id: '',
@@ -24,6 +26,7 @@ export function McpServersPage(): JSX.Element {
   // Removing forgets the server's settings and the tokens in its environment, so it asks first.
   const [removing, setRemoving] = useState<McpServer | null>(null)
   const [adding, setAdding] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     void window.api.mcp.statuses().then(setStatuses)
@@ -52,10 +55,16 @@ export function McpServersPage(): JSX.Element {
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h1 className="settings__h1">MCP Servers</h1>
-        <button className="pill-btn" style={{ marginTop: 24 }} onClick={() => setAdding(true)}>
-          <Plus size={14} strokeWidth={2} />
-          Add MCP server
-        </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 24 }}>
+          <button className="pill-btn" onClick={() => setImporting(true)}>
+            <Download size={14} strokeWidth={2} />
+            Import from another app
+          </button>
+          <button className="pill-btn" onClick={() => setAdding(true)}>
+            <Plus size={14} strokeWidth={2} />
+            Add MCP server
+          </button>
+        </div>
       </div>
 
       <Section>
@@ -128,6 +137,9 @@ export function McpServersPage(): JSX.Element {
                 onToggle={(on) =>
                   void saveMcpServers(mcpServers.map((s) => (s.id === server.id ? { ...s, enabled: on } : s)))
                 }
+                onTools={(disabledTools) =>
+                  void saveMcpServers(mcpServers.map((s) => (s.id === server.id ? { ...s, disabledTools } : s)))
+                }
               />
             </div>
           ))
@@ -144,6 +156,7 @@ export function McpServersPage(): JSX.Element {
         }}
         onSave={upsert}
       />
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
       <ConfirmDialog
         open={removing !== null}
         onClose={() => setRemoving(null)}
@@ -162,13 +175,15 @@ function ServerCard({
   status,
   onEdit,
   onDelete,
-  onToggle
+  onToggle,
+  onTools
 }: {
   server: McpServer
   status: McpServerStatus
   onEdit: () => void
   onDelete: () => void
   onToggle: (on: boolean) => void
+  onTools: (disabledTools: string[] | undefined) => void
 }): JSX.Element {
   const dotColor =
     status.state === 'ready'
@@ -264,7 +279,72 @@ function ServerCard({
           <Switch label={server.name} checked={server.enabled} onChange={onToggle} />
         </div>
       </div>
+      {status.state === 'ready' && status.toolCount > 0 && <ToolList server={server} status={status} onChange={onTools} />}
     </Card>
+  )
+}
+
+/**
+ * A server's tools, each on or off. A tool that is off is never offered to
+ * the assistant, in chats or by workers, and a call to it is refused. The
+ * server itself stays connected, so turning one back on is instant.
+ */
+function ToolList({ server, status, onChange }: { server: McpServer; status: McpServerStatus; onChange: (disabledTools: string[] | undefined) => void }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [tools, setTools] = useState<McpTool[]>([])
+
+  // Read when opened and whenever the server's tool count moves (it reconnected, or announced new tools).
+  useEffect(() => {
+    if (!open) return
+    let live = true
+    void window.api.mcp.allTools().then((all) => live && setTools(all.filter((t) => t.serverId === server.id)))
+    return () => {
+      live = false
+    }
+  }, [open, server.id, status.toolCount])
+
+  const off = (server.disabledTools ?? []).filter((name) => tools.length === 0 || tools.some((t) => t.name === name)).length
+  const names = tools.map((t) => t.name)
+  return (
+    <div className="mcp-tools">
+      <button type="button" className="mcp-tools__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <ChevronDown size={14} strokeWidth={2} className="mcp-tools__chevron" data-open={open || undefined} aria-hidden="true" />
+        Tools
+        <span className="mcp-tools__count">
+          {status.toolCount}
+          {server.disabledTools?.length ? ` · ${off} off` : ''}
+        </span>
+      </button>
+      {open && (
+        <div className="mcp-tools__list">
+          {tools.length === 0 ? (
+            <div className="row__desc">Loading tools…</div>
+          ) : (
+            <>
+              <div className="mcp-tools__bulk">
+                <button type="button" className="mcp-tools__link" onClick={() => onChange(withAllTools(server, names, true))}>
+                  Turn all on
+                </button>
+                <button type="button" className="mcp-tools__link" onClick={() => onChange(withAllTools(server, names, false))}>
+                  Turn all off
+                </button>
+              </div>
+              {tools.map((tool) => (
+                <div key={tool.name} className="mcp-tools__row">
+                  <div className="mcp-tools__body">
+                    <span className="mcp-tools__name">{tool.name}</span>
+                    {tool.destructive && <span className="badge">Can delete</span>}
+                    {tool.readOnly && <span className="badge">Read only</span>}
+                    {tool.description && <span className="mcp-tools__desc">{tool.description}</span>}
+                  </div>
+                  <Switch label={`${tool.name} on ${server.name}`} checked={toolEnabled(server, tool.name)} onChange={(on) => onChange(withTool(server, tool.name, on))} />
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -420,5 +500,52 @@ function TimeoutField({ value, onChange }: { value: number; onChange: (seconds: 
       onBlur={commit}
       onKeyDown={(e) => e.key === 'Enter' && commit()}
     />
+  )
+}
+
+/** Import from another app, from Settings: the same list the setup offers, scanned fresh each time it opens. */
+function ImportDialog({ onClose }: { onClose: () => void }): JSX.Element {
+  const state = useImportServers()
+  const [done, setDone] = useState<string | null>(null)
+  const bring = async (): Promise<void> => {
+    const result = await state.run()
+    if (!result) return
+    setDone(result.added.length > 0 ? `Added ${result.added.join(', ')}.` : 'Nothing new to add.')
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      width={520}
+      title="Import from another app"
+      actions={
+        done ? (
+          <button className="btn btn--provider" onClick={onClose}>
+            Done
+          </button>
+        ) : (
+          <>
+            <button className="btn btn--provider-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn btn--provider" disabled={state.count === 0 || state.working} onClick={() => void bring()}>
+              Import {state.count > 0 ? state.count : ''} {state.count === 1 ? 'server' : 'servers'}
+            </button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <p className="row__desc">{done}</p>
+      ) : (
+        <>
+          <p className="row__desc" style={{ marginTop: 0 }}>
+            The MCP servers set up in Claude, Cursor, Windsurf, VS Code and Gemini CLI. Only their server lists are read.
+          </p>
+          <ImportList state={state} />
+          {state.error && <p className="row__desc" style={{ color: 'var(--danger)' }}>{state.error}</p>}
+        </>
+      )}
+    </Modal>
   )
 }

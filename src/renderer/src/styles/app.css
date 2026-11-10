@@ -835,6 +835,80 @@ a:hover {
   text-align: center;
 }
 
+/* The foot (SidebarFoot.tsx): today's use over a bar a day for the week,
+   and the plans' usage rings beside it; each can be turned off. */
+.sidebar-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 7px 7px;
+  border-top: 1px solid var(--border-soft);
+}
+.sidebar-foot__gap {
+  flex: 1;
+}
+.today {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--text);
+  transition: background var(--dur) var(--ease);
+}
+.today:hover {
+  background: var(--hover);
+}
+.today__bars {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  width: 26px;
+  height: 26px;
+  padding: 6px 3px;
+  border-radius: 7px;
+  background: var(--hover);
+}
+.today:hover .today__bars {
+  background: var(--active);
+}
+.today__bars > span {
+  flex: 1;
+  height: 1px;
+  border-radius: 1px;
+  background: var(--text-3);
+}
+.today__bars > span[data-today] {
+  background: var(--accent);
+}
+.today__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.today__main,
+.today__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today__main {
+  font-size: var(--fs-base);
+  font-variant-numeric: tabular-nums;
+}
+.today__sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 .sidebar__empty {
   padding: 0 8px;
   height: var(--nav-row-h);

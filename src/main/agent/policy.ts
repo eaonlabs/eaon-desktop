@@ -65,6 +65,8 @@ export const UNATTENDED_CATASTROPHIC =
   'This action could do lasting damage (spending money, entering a card number or password, sudo, erasing a disk, force-pushing, a plugin action marked destructive), so it never runs without the user\'s approval. Do not work around it. If it is needed, ask with ask_user, passing approve_tool and approve_input with this exact call; once approved you may make it once. Carry on with the rest meanwhile.'
 export const UNATTENDED_RISKY =
   'This action needs the user\'s approval, and this run has nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
+export const BLOCKED_TOOL =
+  'The user blocked this tool in settings, so it was not run. Do not retry it or look for another way around it; if it is needed, tell the user which tool and why.'
 export const SPENDING_REFUSAL =
   'Spending money is only ever for the user\'s own requests. This turn carries work from someone else (a guest in a chat app, or a colleague handing work over), so nothing may be bought or paid for in it. Tell the user what was asked for instead.'
 
@@ -92,11 +94,13 @@ export interface CallFacts {
   mutating: boolean
   risky: boolean
   catastrophic: boolean
-  /** Settings → MCP → "Allow all tool permissions" covers it (plugin tools only). */
+  /** Settings → MCP → "Allow all tool permissions" covers it (plugin tools only), or the tool's own rule is Always allow. */
   preApproved: boolean
   spends: boolean
   /** The denylist rule that forbids this call, if one does. */
   denied?: string | null
+  /** The user blocked this tool (Settings → MCP Servers): it never runs, mutating or not. */
+  blocked?: boolean
 }
 
 /**
@@ -113,6 +117,8 @@ export async function callFacts(
   const mutating = isMutating(tool, input, ctx)
   const spends = tool.spends?.(input, ctx) ?? false
   const denied = tool.denied?.(input, ctx) ?? null
+  const rule = tool.permission?.(input, ctx)
+  if (rule === 'block') return { mutating, risky: false, catastrophic: false, preApproved: false, spends, blocked: true }
   if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends, denied }
   const catastrophic = (await tool.catastrophic?.(input, ctx)) ?? false
   // Said to run without asking by the person's allowlist; what can't be undone still asks.
@@ -126,7 +132,8 @@ export async function callFacts(
     catastrophic,
     // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
     // every plugin call in advance. Plan mode and read-only runs still refuse.
-    preApproved: allowed || (settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins'),
+    // A tool's own Always allow does the same for that one tool.
+    preApproved: allowed || (settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins') || (rule === 'allow' && !denied),
     spends
   }
 }
@@ -149,6 +156,7 @@ export function decide(
   if (gated) return { kind: 'deny', reason: gated }
   // The person's denylist: nothing lifts it, not Full access, not a worker's autonomy.
   if (facts.denied) return { kind: 'deny', reason: facts.denied }
+  if (facts.blocked) return { kind: 'deny', reason: BLOCKED_TOOL }
   // Money is spent only for the user's own requests, however much the
   // worker is trusted otherwise — no Approve once lifts this.
   if (facts.spends && (policy.origin === 'guest' || policy.origin === 'delegated')) return { kind: 'deny', reason: SPENDING_REFUSAL }
