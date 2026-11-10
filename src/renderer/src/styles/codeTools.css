@@ -961,3 +961,133 @@ button.ws-row:hover,
     animation: none;
   }
 }
+
+/* The card's Running part (chatCode/RunningPart.tsx): what the agent left running here. */
+.ws-card__label {
+  padding: 4px 10px 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.ws-row--proc {
+  gap: 8px;
+  padding-right: 4px;
+}
+.ws-row__icon--live {
+  position: relative;
+}
+.ws-row__icon--live::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--diff-add-fg, #3fb950);
+  box-shadow: 0 0 0 1.5px var(--surface-2);
+}
+.ws-row__label--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.ws-proc__btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  max-width: 130px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.ws-proc__btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-proc__btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ws-proc__btn--stop {
+  width: 24px;
+  justify-content: center;
+  padding: 0;
+}
+.ws-proc__btn--stop:hover {
+  color: var(--danger);
+}
+
+/* ---- Quick Open (⌘P): a file by name (chatCode/QuickOpen.tsx) ---- */
+
+.code-search.quick-open {
+  width: min(560px, 100%);
+  max-height: min(460px, 70vh);
+}
+.quick-open__key {
+  flex: none;
+  color: var(--text-4, var(--text-3));
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+}
+.quick-open__results {
+  flex: 0 1 auto;
+  padding: 4px;
+}
+.quick-open__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-align: left;
+  white-space: nowrap;
+}
+.quick-open__row[data-current] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.quick-open__icon {
+  display: inline-flex;
+  flex: none;
+}
+.quick-open__name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+}
+.quick-open__dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+}
+.quick-open__name b,
+.quick-open__dir b {
+  color: var(--accent-text, var(--link));
+  font-weight: 600;
+}
+.quick-open__empty {
+  padding: 18px 14px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* The card's Rules part (chatCode/RulesPart.tsx): a rules file found and left out reads quieter. */
+.ws-row--muted,
+.ws-row--muted .ws-row__icon {
+  color: var(--text-3);
+}

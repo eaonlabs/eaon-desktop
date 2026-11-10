@@ -1,6 +1,7 @@
 import type { AppIcon, ApprovalMode, Chat, ChatMessage, EffortLevel, LaunchMode, McpServer, Project, Settings, ThemeMode, Workspace } from '@shared/types'
 import type { Repaired } from './storeFiles'
 import type { AgentPermission } from '@shared/agentPermissions'
+import { cleanToolRules } from '@shared/mcpTools'
 
 /**
  * Checks for each of the store's own documents, run on every read of the file
@@ -63,6 +64,8 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
   'agentProviders.permissions': values<AgentPermission>({ own: true, ask: true, edits: true, auto: true, full: true }),
   'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true }),
+  'sidebarFoot.period': values<Settings['sidebarFoot']['period']>({ today: true, week: true }),
+  'sidebarFoot.figure': values<Settings['sidebarFoot']['figure']>({ tokens: true, dollars: true, none: true }),
   'onboarding.setup': values<Settings['onboarding']['setup']>({ pending: true, done: true, skipped: true }),
   'onboarding.tour': values<Settings['onboarding']['tour']>({ pending: true, done: true, skipped: true })
 }
@@ -79,7 +82,7 @@ const SETTINGS_RANGES: Record<string, [number, number]> = {
   'appearance.glass.blur': [0, 100],
   'appearance.glass.transparency': [0, 100],
   'mcp.toolCallTimeoutSeconds': [1, 3_600],
-  'codeIndex.maxToolRounds': [1, 1_000],
+  'codeIndex.maxToolRounds': [0, 1_000],
   'context.compactAt': [0.05, 0.99],
   'context.keepFullToolTurns': [0, 100],
   'work.goalMaxIterations': [1, 10_000],
@@ -335,6 +338,20 @@ export function repairMcpServers(raw: unknown): Repaired<McpServer[]> | null {
       }
       if (typeof server.official !== 'boolean') {
         server.official = false
+        counts.fixed++
+      }
+      // Per-tool rules and the project a server came from: kept only if well-formed.
+      if (server.disabledTools !== undefined || server.toolPermissions !== undefined) {
+        const clean = cleanToolRules(server)
+        if (JSON.stringify([server.disabledTools, server.toolPermissions]) !== JSON.stringify([clean.disabledTools, clean.toolPermissions])) {
+          delete server.disabledTools
+          delete server.toolPermissions
+          Object.assign(server, clean)
+          counts.fixed++
+        }
+      }
+      if (server.projectPath !== undefined && (typeof server.projectPath !== 'string' || !server.projectPath)) {
+        delete server.projectPath
         counts.fixed++
       }
       return server

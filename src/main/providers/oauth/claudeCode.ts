@@ -48,7 +48,7 @@ export const claudeCodeFlow: OAuthFlow = {
 
   async signOut() {
     // Signing Claude Code out would sign out its terminals too: that is the user's to do.
-    throw new Error('Claude Agent uses Claude Code’s own sign-in. To sign out, run claude auth logout in a terminal.')
+    throw new Error('Claude uses Claude Code’s own sign-in. To sign out, run claude auth logout in a terminal.')
   },
 
   isSignedIn: () => onClaudePlan(claudeCodeStatus()),

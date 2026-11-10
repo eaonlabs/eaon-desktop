@@ -6,16 +6,18 @@ import {
   type UsageAgents,
   type UsageCounts,
   type UsageDay,
+  type UsageCustomRange,
   type UsageModelRow,
-  type UsageRange,
+  type UsageProjectRow,
   type UsageSource,
   type UsageSourceRow,
+  type UsageSpan,
   type UsageTool,
   type UsageToolRow,
   type UsageTotals
 } from '@shared/usage'
 import type { AgentRunDays } from './agentRuns'
-import { emptyCounts, localDay, type LedgerDays, type LedgerSources } from './ledger'
+import { emptyCounts, localDay, type LedgerDays, type LedgerProjects, type LedgerSources } from './ledger'
 import { shownProviderId } from '../../eaonAddress'
 
 /**
@@ -83,7 +85,7 @@ export function costOf(counts: UsageCounts, price: ToknPrice): number {
   )
 }
 
-const tokensOf = (c: UsageCounts): number => c.input + c.output + c.cacheRead + c.cacheWrite + (c.cacheWrite1h ?? 0)
+export const tokensOf = (c: UsageCounts): number => c.input + c.output + c.cacheRead + c.cacheWrite + (c.cacheWrite1h ?? 0)
 
 /** How each provider's requests are paid for; see `Billing`. */
 export type BillingOf = (providerId: string) => Billing
@@ -195,14 +197,13 @@ export function syncAgents(days: AgentRunDays): ToknAgentDay[] {
 }
 
 /** Agents and the longest one for Settings → Usage, over everything counted and over the range. */
-export function agentStats(days: AgentRunDays, range: UsageRange, now: Date = new Date()): UsageAgents {
-  const today = localDay(now)
-  const rangeStart = shiftDay(today, -(range - 1))
+export function agentStats(days: AgentRunDays, range: UsageSpan, now: Date = new Date()): UsageAgents {
+  const [rangeStart, rangeEnd] = spanBounds(range, now)
   const stats: UsageAgents = { runs: 0, runsInRange: 0, totalMs: 0, longestMs: 0, longestDay: null }
   for (const entry of syncAgents(days)) {
     stats.runs += entry.runs
     stats.totalMs += entry.totalMs
-    if (entry.day >= rangeStart && entry.day <= today) stats.runsInRange += entry.runs
+    if (entry.day >= rangeStart && entry.day <= rangeEnd) stats.runsInRange += entry.runs
     if (entry.longestMs > stats.longestMs) {
       stats.longestMs = entry.longestMs
       stats.longestDay = entry.day
@@ -224,7 +225,7 @@ export interface Summary {
  * (what it would have cost; never added to spend), local use as nothing.
  * Null cost: Tokn has no price for the model.
  */
-function priceRow(modelId: string, counts: UsageCounts, billing: Billing, pricing: ToknPricing): { priced: ReturnType<typeof priceOf>; cost: number | null } {
+export function priceRow(modelId: string, counts: UsageCounts, billing: Billing, pricing: ToknPricing): { priced: ReturnType<typeof priceOf>; cost: number | null } {
   if (billing === 'local') return { priced: null, cost: 0 }
   const priced = priceOf(modelId, pricing)
   // No Tokn price: what the tool worked out itself (Cursor's export, opencode), if it did.
@@ -232,14 +233,9 @@ function priceRow(modelId: string, counts: UsageCounts, billing: Billing, pricin
 }
 
 /** What Settings → Usage shows for the last `range` days, today included. */
-export function summarize(days: LedgerDays, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): Summary {
+export function summarize(days: LedgerDays, range: UsageSpan, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): Summary {
   const today = localDay(now)
-  const span: string[] = []
-  for (let i = range - 1; i >= 0; i--) {
-    // Built from the calendar date at noon, so no daylight-saving change can
-    // repeat or skip a day.
-    span.push(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12)))
-  }
+  const span = spanDays(range, now)
 
   const byModel = new Map<string, UsageModelRow>()
   const daily: UsageDay[] = []
@@ -282,6 +278,12 @@ export function summarize(days: LedgerDays, range: UsageRange, pricing: ToknPric
     totals.requests += entry.requests
     if (day === today) todayTotals = { costUsd: entry.costUsd, planUsd: entry.planUsd, tokens: entry.tokens, requests: entry.requests }
     daily.push(entry)
+  }
+
+  // A custom range that leaves today out doesn't blank the Today tile.
+  if (!span.includes(today)) {
+    const day = dailyTotals({ [today]: days[today] ?? {} }, pricing, billingOf).get(today)
+    if (day) todayTotals = { costUsd: day.costUsd, planUsd: day.planUsd ?? 0, tokens: day.tokens, requests: day.requests }
   }
 
   // Spend first (what was billed), then plans by what they stood for, then
@@ -365,20 +367,14 @@ export function withCliDays(eaon: LedgerDays, cli: LedgerDays, codexLogged: bool
 }
 
 /** The last `range` days, today included, each as `byDay` has it or empty. */
-export function rangeDays(byDay: Map<string, UsageDay>, range: UsageRange, now: Date = new Date()): UsageDay[] {
-  const out: UsageDay[] = []
-  for (let i = range - 1; i >= 0; i--) {
-    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
-    out.push(byDay.get(day) ?? { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 })
-  }
-  return out
+export function rangeDays(byDay: Map<string, UsageDay>, range: UsageSpan, now: Date = new Date()): UsageDay[] {
+  return spanDays(range, now).map((day) => byDay.get(day) ?? { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 })
 }
 
 /** The range by tool (Eaon, Claude Code, Codex), priced like the totals; only tools with any use. */
-export function summarizeTools(days: LedgerDays, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageToolRow[] {
+export function summarizeTools(days: LedgerDays, range: UsageSpan, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageToolRow[] {
   const rows = new Map<UsageTool, UsageToolRow>()
-  for (let i = range - 1; i >= 0; i--) {
-    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
+  for (const day of spanDays(range, now)) {
     for (const [providerId, models] of Object.entries(days[day] ?? {})) {
       const tool = toolOf(providerId)
       const row = rows.get(tool) ?? { tool, usd: 0, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
@@ -398,10 +394,9 @@ export function summarizeTools(days: LedgerDays, range: UsageRange, pricing: Tok
 }
 
 /** The range's use by what it was for (chats, scheduled tasks, workers, trading), priced like the totals. */
-export function summarizeSources(sources: LedgerSources, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageSourceRow[] {
+export function summarizeSources(sources: LedgerSources, range: UsageSpan, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageSourceRow[] {
   const rows = new Map<UsageSource, UsageSourceRow>()
-  for (let i = range - 1; i >= 0; i--) {
-    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
+  for (const day of spanDays(range, now)) {
     for (const [source, providers] of Object.entries(sources[day] ?? {}) as [UsageSource, LedgerDays[string]][]) {
       const row = rows.get(source) ?? { source, requests: 0, tokens: 0, costUsd: 0, planUsd: 0 }
       for (const [providerId, models] of Object.entries(providers)) {
@@ -420,8 +415,131 @@ export function summarizeSources(sources: LedgerSources, range: UsageRange, pric
   return [...rows.values()].filter((row) => row.requests > 0).sort((a, b) => b.costUsd + b.planUsd - (a.costUsd + a.planUsd) || b.requests - a.requests)
 }
 
+/**
+ * The range's Eaon use by project folder, priced like the totals. What the
+ * project split doesn't account for (requests from before it was kept, or
+ * made outside a chat or a task) is worked out by subtraction per day,
+ * provider and model, and shown as `unattributed`.
+ */
+export function summarizeProjects(
+  days: LedgerDays,
+  projects: LedgerProjects,
+  range: UsageSpan,
+  pricing: ToknPricing,
+  billingOf: BillingOf,
+  now: Date = new Date()
+): UsageProjectRow[] {
+  const rows = new Map<string, UsageProjectRow>()
+  const rowFor = (kind: UsageProjectRow['kind'], path: string): UsageProjectRow => {
+    const key = kind === 'folder' ? `folder ${path}` : kind
+    let row = rows.get(key)
+    if (!row) rows.set(key, (row = { kind, path: kind === 'folder' ? path : '', requests: 0, tokens: 0, costUsd: 0, planUsd: 0 }))
+    return row
+  }
+  const priced = (row: UsageProjectRow, providerId: string, modelId: string, counts: UsageCounts): void => {
+    const billing = billingOf(providerId)
+    const { cost } = priceRow(modelId, counts, billing, pricing)
+    if (billing === 'plan') row.planUsd += cost ?? 0
+    else row.costUsd += cost ?? 0
+    row.requests += counts.requests
+    row.tokens += tokensOf(counts)
+  }
+  for (const day of spanDays(range, now)) {
+    const claimed: LedgerDays[string] = {}
+    for (const [project, providers] of Object.entries(projects[day] ?? {})) {
+      const row = rowFor(project === '' ? 'none' : 'folder', project)
+      for (const [providerId, models] of Object.entries(providers)) {
+        for (const [modelId, counts] of Object.entries(models)) {
+          priced(row, providerId, modelId, counts)
+          add(((claimed[providerId] ??= {})[modelId] ??= emptyCounts()), counts)
+        }
+      }
+    }
+    for (const [providerId, models] of Object.entries(days[day] ?? {})) {
+      for (const [modelId, counts] of Object.entries(models)) {
+        const left = remaining(counts, claimed[providerId]?.[modelId])
+        if (left.requests > 0 || tokensOf(left) > 0) priced(rowFor('unattributed', ''), providerId, modelId, left)
+      }
+    }
+  }
+  const order = (row: UsageProjectRow): number => (row.kind === 'unattributed' ? 1 : 0)
+  return [...rows.values()]
+    .filter((row) => row.requests > 0 || row.tokens > 0)
+    .sort((a, b) => order(a) - order(b) || b.costUsd + b.planUsd - (a.costUsd + a.planUsd) || b.tokens - a.tokens || a.path.localeCompare(b.path))
+}
+
+/** `counts` less what `taken` already accounts for, never below zero. */
+function remaining(counts: UsageCounts, taken: UsageCounts | undefined): UsageCounts {
+  if (!taken) return counts
+  const less = (a: number | undefined, b: number | undefined): number => Math.max(0, (a ?? 0) - (b ?? 0))
+  const left: UsageCounts = {
+    requests: less(counts.requests, taken.requests),
+    input: less(counts.input, taken.input),
+    output: less(counts.output, taken.output),
+    cacheRead: less(counts.cacheRead, taken.cacheRead),
+    cacheWrite: less(counts.cacheWrite, taken.cacheWrite)
+  }
+  const unreported = Math.min(less(counts.unreported, taken.unreported), left.requests)
+  if (unreported > 0) left.unreported = unreported
+  const write1h = less(counts.cacheWrite1h, taken.cacheWrite1h)
+  if (write1h > 0) left.cacheWrite1h = write1h
+  const reported = less(counts.reportedCost, taken.reportedCost)
+  if (reported > 0) left.reportedCost = reported
+  return left
+}
+
+/** A custom range is never longer than the ledger keeps (see ledger.ts KEEP_DAYS). */
+export const MAX_SPAN_DAYS = 400
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+/** A real calendar day, not just one shaped like it (`2026-02-30`). */
+function isDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !DAY_PATTERN.test(value)) return false
+  const [y, m, d] = value.split('-').map(Number)
+  return localDay(new Date(y, m - 1, d, 12)) === value
+}
+
+/**
+ * The range a window asked for, made safe: a preset stays one, a custom range
+ * is put in order, kept to days that are real, not after today and within the
+ * days the ledger keeps. Anything else is the 30-day preset.
+ */
+export function normalizeSpan(raw: unknown, now: Date = new Date()): UsageSpan {
+  if (raw === 7 || raw === 30 || raw === 90) return raw
+  const asked = raw as Partial<UsageCustomRange> | null
+  if (typeof raw !== 'object' || raw === null || !isDay(asked?.from) || !isDay(asked?.to)) return 30
+  const today = localDay(now)
+  const oldest = shiftDay(today, -(MAX_SPAN_DAYS - 1))
+  let [from, to] = asked.from! <= asked.to! ? [asked.from!, asked.to!] : [asked.to!, asked.from!]
+  if (to > today) to = today
+  if (from > today) from = today
+  if (from < oldest) from = oldest
+  if (to < from) to = from
+  return { from, to }
+}
+
+/** Every day of a span, oldest first. A preset ends today; a custom range is as given. */
+export function spanDays(span: UsageSpan, now: Date = new Date()): string[] {
+  const out: string[] = []
+  if (typeof span === 'number') {
+    // Built from the calendar date at noon, so no daylight-saving change can
+    // repeat or skip a day.
+    for (let i = span - 1; i >= 0; i--) out.push(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12)))
+    return out
+  }
+  for (let day = span.from; day <= span.to && out.length < MAX_SPAN_DAYS; day = shiftDay(day, 1)) out.push(day)
+  return out
+}
+
+/** A span's first and last day. */
+function spanBounds(span: UsageSpan, now: Date): [string, string] {
+  if (typeof span !== 'number') return [span.from, span.to]
+  const today = localDay(now)
+  return [shiftDay(today, -(span - 1)), today]
+}
+
 /** The day `n` days after (or before) `day`, as a local calendar day. */
-function shiftDay(day: string, n: number): string {
+export function shiftDay(day: string, n: number): string {
   const [y, m, d] = day.split('-').map(Number)
   return localDay(new Date(y, m - 1, d + n, 12))
 }
@@ -448,11 +566,11 @@ export function calendar(byDay: Map<string, UsageDay>, now: Date = new Date(), w
  * them: a streak is consecutive days with any request, and the current one
  * still stands if it reached yesterday, since today isn't over.
  */
-export function activity(byDay: Map<string, UsageDay>, range: UsageRange, now: Date = new Date()): UsageActivity {
+export function activity(byDay: Map<string, UsageDay>, range: UsageSpan, now: Date = new Date()): UsageActivity {
   // Any use makes a day active, as on Tokn: a tool's day can come with tokens but no request count.
   const active = [...byDay.values()].filter((d) => d.requests > 0 || d.tokens > 0 || d.costUsd > 0).sort((a, b) => a.day.localeCompare(b.day))
   const today = localDay(now)
-  const rangeStart = shiftDay(today, -(range - 1))
+  const [rangeStart, rangeEnd] = spanBounds(range, now)
 
   let longest = 0
   let run = 0
@@ -479,7 +597,7 @@ export function activity(byDay: Map<string, UsageDay>, range: UsageRange, now: D
   )
   return {
     activeDays: active.length,
-    activeInRange: active.filter((d) => d.day >= rangeStart && d.day <= today).length,
+    activeInRange: active.filter((d) => d.day >= rangeStart && d.day <= rangeEnd).length,
     currentStreak: current,
     longestStreak: longest,
     busiest,

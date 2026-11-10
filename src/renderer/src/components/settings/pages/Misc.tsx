@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Select } from '../../ui'
-import { formatShortcut, isMacPlatform } from '../../../lib/keys'
+import { useBindingLabel } from '../../../lib/bindings'
 import { SEARCH_ENGINES, isSearchEngine, toBrowserUrl, type SearchEngine } from '../../../lib/browserUrl'
 
 /* -------------------------------------------------------- Browser settings */
@@ -15,6 +15,7 @@ import { SEARCH_ENGINES, isSearchEngine, toBrowserUrl, type SearchEngine } from 
  */
 export function BrowserSettingsPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const panelKey = useBindingLabel('toggle-browser')
   const saved = settings?.browser.homepage ?? ''
   // Saved when the field is left or Enter is pressed, not on every keystroke,
   // so a half-typed address is never what a new tab opens.
@@ -32,8 +33,7 @@ export function BrowserSettingsPage(): JSX.Element {
     <>
       <h1 className="settings__h1">Browser</h1>
       <p className="settings__lede">
-        The browser panel beside a chat. Open it from the message box's + menu, or with{' '}
-        {formatShortcut({ modifiers: ['shift', 'mod'], key: 'B' }, isMacPlatform())}.
+        The browser panel beside a chat. Open it from the message box's + menu{panelKey ? `, or with ${panelKey}` : ''}.
       </p>
       <Section>
         <Card>

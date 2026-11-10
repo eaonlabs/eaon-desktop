@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CallGuard, callSignature, MAX_IDENTICAL_FAILURES } from '../src/main/agent/guards'
+import { CallGuard, callSignature, MAX_IDENTICAL_FAILURES, MAX_IDLE_ROUNDS } from '../src/main/agent/guards'
 import { goalBudgetExceeded } from '../src/main/agent/loop'
 import type { NeutralMessage } from '../src/main/providers/adapters/types'
 import type { Settings } from '@shared/types'
@@ -71,4 +71,27 @@ test('goal budgets: time and tokens, with 0 meaning no limit', () => {
   assert.match(goalBudgetExceeded(settings(60, 1000), 0, usage(10, 10), 60 * 60_000) ?? '', /time limit of 60 min/)
   assert.match(goalBudgetExceeded(settings(60, 1000), 0, usage(900, 100), 1000) ?? '', /token limit of 1,000/)
   assert.equal(goalBudgetExceeded(settings(0, 0), 0, usage(1e9, 1e9), 1e12), null)
+})
+
+test('rounds that change nothing and learn nothing new count up to stuck; anything new starts over', () => {
+  const guard = new CallGuard()
+  guard.record('read_file', { path: 'a.ts' }, 'done', 'A', false)
+  assert.equal(guard.endRound(), 0, 'a first call is new')
+  guard.record('read_file', { path: 'a.ts' }, 'done', 'A', false)
+  assert.equal(guard.endRound(), 1, 'the same call for the same result is not')
+  guard.record('run_command', { command: 'tail build.log' }, 'done', 'step 1', false)
+  assert.equal(guard.endRound(), 0)
+  guard.record('run_command', { command: 'tail build.log' }, 'done', 'step 2', false)
+  assert.equal(guard.endRound(), 0, 'a watched log that moved on is news')
+  for (let i = 1; i < MAX_IDLE_ROUNDS; i++) {
+    guard.record('read_file', { path: 'a.ts' }, 'done', 'A', false)
+    assert.equal(guard.endRound(), i)
+  }
+  // A change: what was read before may read differently now.
+  guard.record('edit_file', { path: 'a.ts' }, 'done', 'Edited', true)
+  assert.equal(guard.endRound(), 0)
+  guard.record('read_file', { path: 'a.ts' }, 'done', 'A', false)
+  assert.equal(guard.endRound(), 0, 'the first read after a change is new again')
+  // A round of only refused calls (nothing recorded) is idle too.
+  assert.equal(guard.endRound(), 1)
 })

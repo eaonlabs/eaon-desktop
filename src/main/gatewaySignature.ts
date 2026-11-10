@@ -62,7 +62,8 @@ export function noteGatewayClock(response: Response, receivedAt = Date.now()): v
 }
 
 let version: string | null | undefined
-const appVersion = (): string | null => {
+/** This copy of Eaon's version, as the gateway is told it. */
+export const appVersion = (): string | null => {
   if (version === undefined) {
     try {
       version = app.getVersion() || null

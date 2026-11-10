@@ -3,8 +3,9 @@ import type { NeutralMessage } from '../providers/adapters/types'
 /**
  * Checks the loop applies to tool calls so a model cannot spin in place:
  * the same failing call re-issued unchanged, the same observation re-read
- * into context, or a goal declared done straight after an unchecked change.
- * Pure bookkeeping — the loop decides what to do with the answers.
+ * into context, rounds in a row that get nowhere, or a goal declared done
+ * straight after an unchecked change. Pure bookkeeping — the loop decides
+ * what to do with the answers.
  */
 
 /** JSON with sorted keys, so `{a,b}` and `{b,a}` are the same call. */
@@ -40,9 +41,21 @@ const DEDUPE_MIN_CHARS = 400
  */
 const DEDUPE_LOOKBACK_RESULTS = 5
 
+/**
+ * Rounds in a row that may go by without changing anything or learning
+ * anything new (a call not made since the last change, or one whose result
+ * is different this time, like a build log being watched) before the reply
+ * is called stuck. With no step limit, this ends a reply going round in circles.
+ */
+export const MAX_IDLE_ROUNDS = 12
+
 export class CallGuard {
   private failures = new Map<string, { count: number; last: string }>()
   private observations = new Map<string, { id: string; output: string }>()
+  /** Calls made since the last change, with what each returned last. */
+  private tried = new Map<string, string>()
+  private progressed = false
+  private idle = 0
 
   /** Before a call runs: a reason to refuse it, or null to go ahead. */
   refuse(name: string, input: Record<string, unknown>): string | null {
@@ -60,14 +73,20 @@ export class CallGuard {
    * should hear that it is repeating itself.
    */
   record(name: string, input: Record<string, unknown>, status: 'done' | 'denied' | 'error', output: string, changedSomething: boolean): string | null {
+    const signature = callSignature(name, input)
     // A successful change (an edit, a command that did something) can make a
     // call that failed before succeed now, so every failure count starts over.
     if (changedSomething && status === 'done') {
       this.failures.clear()
       this.observations.clear()
+      this.tried.clear()
+      this.progressed = true
       return null
     }
-    const signature = callSignature(name, input)
+    if (this.tried.get(signature) !== output) {
+      this.tried.set(signature, output)
+      this.progressed = true
+    }
     if (status === 'done') {
       this.failures.delete(signature)
       return null
@@ -78,6 +97,16 @@ export class CallGuard {
     return count === 2
       ? '\n\n[Note: this identical call has now failed twice. Retrying it unchanged will not help — change the approach.]'
       : null
+  }
+
+  /**
+   * After each round of calls: how many rounds in a row now have changed
+   * nothing and only repeated calls for the same results as before.
+   */
+  endRound(): number {
+    this.idle = this.progressed ? 0 : this.idle + 1
+    this.progressed = false
+    return this.idle
   }
 
   /**

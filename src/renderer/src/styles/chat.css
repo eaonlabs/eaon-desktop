@@ -320,12 +320,13 @@
 .chip--model {
   gap: 7px;
   padding-right: 8px;
-  /* Model ids are unbounded ("nemotron 3 super 120b extended"), and with
-     `white-space: nowrap` on .chip an unbounded one pushed the whole toolbar
-     out of shape. Cap the chip and let the name ellipsize; the effort label
-     stays fixed so it is the name that gives way, not the setting. */
+  /* Model names are unbounded ("Google: Nano Banana 2 (Gemini 3.1 Flash Image)"),
+     and with `white-space: nowrap` on .chip an unbounded one pushed the whole
+     toolbar out of shape. The chip takes the toolbar's free room so the name
+     shows whole, and yields when there is none: only then does it ellipsize.
+     The labels beside it drop out before that, at the composer's narrow widths. */
   min-width: 0;
-  max-width: 220px;
+  max-width: 420px;
 }
 .chip--model .chip__model {
   min-width: 0;
@@ -405,51 +406,94 @@
   gap: 6px;
 }
 
+/* In a conversation: one pill, + at one end and send at the other, with
+   what Eaon may do and the model under it. Round ends while it is one line;
+   once the text wraps it takes the whole width, the buttons a row under it. */
 .composer[data-variant='chat'] {
-  padding: 6px;
-  border-radius: 22px;
+  padding: 5px;
+  border-radius: 24px;
 }
 .composer__row {
   display: flex;
   align-items: flex-end;
   gap: 6px;
 }
-/* One line, the buttons sit on the box's midline; more lines, they stay at
-   the bottom by the last one. + matches send's size, so each sits in the
-   middle of its own rounded end of the pill. */
-.composer__row > .composer__round,
-.composer__row > .send {
+/* + and the mic are soft discs, send the solid one: each sits in the middle
+   of its rounded end while the box is one line, and by the last line after. */
+.composer__row > .composer__round {
+  width: 34px;
+  height: 34px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.composer__row > .composer__round:hover,
+.composer__row > .composer__round[data-open='true'] {
+  background: color-mix(in srgb, var(--fg) 11%, transparent);
+}
+.composer__row > .composer__mic {
+  width: 30px;
+  height: 30px;
   margin-bottom: 2px;
 }
-.composer__row > .composer__round:not(.composer__mic) {
-  width: 32px;
-  height: 32px;
+.composer__row > .send {
+  width: 34px;
+  height: 34px;
+  margin-left: 0;
 }
-/* The mic is smaller than send: lifted by half the difference. */
-.composer__row > .composer__mic {
-  margin-bottom: 4px;
-}
-.composer[data-variant='chat'] .composer__input {
+.composer__row .composer__input {
   flex: 1;
   min-width: 0;
-  min-height: 36px;
-  padding: 8px 4px 7px;
+  min-height: 34px;
+  padding: 7px 4px 6px;
 }
-.composer[data-variant='chat'] .voice-bar {
+.composer__row .voice-bar {
   flex: 1;
 }
+.composer[data-stacked] .composer__row {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.composer[data-stacked] .composer__row .composer__input {
+  order: -1;
+  flex-basis: 100%;
+  padding: 7px 9px 2px;
+}
+.composer[data-stacked] .composer__row > :first-child {
+  margin-right: auto;
+}
+.composer--worker[data-variant='chat'] .composer__row > .composer__round {
+  background: none;
+}
 
-/* Under the box in a conversation: what Eaon may do, and with which model. */
+/* Under the box in a conversation: what Eaon may do on the left; the model,
+   its effort and window, and how full the context is on the right. */
 .composer__meta {
   display: flex;
   align-items: center;
   gap: 4px;
   height: 34px;
-  margin-top: 4px;
-  padding: 0 2px;
+  margin-top: 6px;
+  padding: 0 8px;
 }
 .composer__meta .chip--model {
-  color: var(--text-2);
+  color: var(--text);
+}
+.composer__meta .chip--model .chip__effort,
+.composer__meta .chip--model .chip__window {
+  color: var(--text-3);
+}
+.chip--model .chip__window {
+  flex: none;
+  margin-left: -3px;
+  color: var(--text-3);
+}
+.composer__meta .chip--model .chip__chevron {
+  color: var(--text-3);
+}
+.composer__meta > .context-meter {
+  margin-left: 4px;
+}
+.composer__meta > .composer-pill {
+  font-size: var(--fs-base);
 }
 
 /* Over the box: the project, and the chat's changes. */
@@ -734,8 +778,8 @@
   align-self: flex-end;
   max-width: 78%;
   background: var(--surface-2);
-  border-radius: 18px;
-  padding: 8px 15px;
+  border-radius: 20px;
+  padding: 10px 16px;
   font-size: var(--fs-base);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -812,6 +856,14 @@
 /* The composer sheds its labels when it gets narrow (e.g. browser panel open). */
 .composer-stack {
   container-type: inline-size;
+}
+/* The model's name outlasts the labels beside it: its window here, and its
+   effort too in the new-chat toolbar, which has less room to spare. */
+@container (max-width: 560px) {
+  .chip--model .chip__window,
+  .composer__toolbar .chip--model .chip__effort {
+    display: none;
+  }
 }
 @container (max-width: 430px) {
   .chip__label,
@@ -1067,4 +1119,62 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   .msg--assistant[data-streaming='true'] > * {
     animation: none;
   }
+}
+
+/* ⌘S's saved prompts: a menu over the box (state/stash.ts). */
+.composer__stash-anchor {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.stash-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.stash-row > .menu__item {
+  flex: 1;
+  min-width: 0;
+  padding-right: 30px;
+}
+.stash-row__drop {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.stash-row:hover .stash-row__drop,
+.stash-row__drop:focus-visible {
+  opacity: 1;
+}
+.stash-row__drop:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* The header's crumb: the project, then the chat. */
+.chat-header__project {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-header__crumb {
+  flex: none;
+  margin: 0 -2px;
+  color: var(--text-4, var(--text-3));
+  font-size: var(--fs-base);
 }

@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
-import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
+import { isLastingIssue, isLongLimit, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
 import { describeModelsRefresh, foldDatedAliases, hasCredentials } from '@shared/modelSelection'
 import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
-import { activeCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
+import { activeCode, codeRefused, forgetCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -27,8 +27,9 @@ import { oauthFlow } from './oauth'
 import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
+import { appVersion } from '../gatewaySignature'
 import { providerAllowed } from '../enterprise/policy'
-import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
+import { GATEWAY_REFUSED, goesToEaonGateway, hideEaonAddress, isEaonGateway } from '../eaonAddress'
 import { targetsPrivateNetwork } from '../netGuard'
 
 /**
@@ -127,6 +128,30 @@ export function onModelUsage(listener: UsageListener): () => void {
   return () => usageListeners.delete(listener)
 }
 
+type RequestGate = (provider: Provider, modelId: string) => void
+const requestGates = new Set<RequestGate>()
+
+/**
+ * A check made before every model request Eaon sends to a provider, other
+ * apps' through the Local API Server included. A gate refuses a request by
+ * throwing (a `ProviderIssueError`, so the chat or the app gets its words);
+ * the Usage budget's hard cap is one (features/usage).
+ */
+export function onBeforeModelRequest(gate: RequestGate): () => void {
+  requestGates.add(gate)
+  return () => requestGates.delete(gate)
+}
+
+function gated(adapter: Adapter, provider: Provider): Adapter {
+  return {
+    ...adapter,
+    async turn(request) {
+      for (const gate of requestGates) gate(provider, request.modelId)
+      return adapter.turn(request)
+    }
+  }
+}
+
 function tracked(adapter: Adapter, provider: Provider): Adapter {
   return {
     ...adapter,
@@ -161,6 +186,7 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
   if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
   // Eaon Event's daily allowance, for Eaon's own requests and other apps' through its local server alike.
   if (provider.id === FREE_PROVIDER_ID) adapter = withFreeLimits(adapter)
+  adapter = gated(adapter, provider)
   return options.track === false ? adapter : tracked(adapter, provider)
 }
 
@@ -399,7 +425,10 @@ function setListed(id: string, models: ModelInfo[], at = Date.now()): void {
  * Records what a check of a provider found. A success clears a failed check;
  * a lasting failure (expired sign-in, rejected key, no credit, no models)
  * makes the provider "Needs attention" until something works again; a
- * passing one (offline, timeout, outage, rate limit) changes nothing.
+ * passing one (offline, timeout, outage, rate limit) changes nothing. Eaon's
+ * gateway's limit for the day is kept until it ends (`until`): on a shared
+ * network it can run out before anyone here sent a thing, and "Ready" then
+ * wasn't true.
  * Returns true when the stored state changed.
  */
 export function noteProviderHealth(id: string, issue: ProviderIssue | null, at = Date.now()): boolean {
@@ -409,9 +438,11 @@ export function noteProviderHealth(id: string, issue: ProviderIssue | null, at =
     editOverride(id, (override) => ({ ...override, health: { ok: true, issue: null, checkedAt: at } }))
     return true
   }
-  if (!isLastingIssue(issue.kind)) return false
-  if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message) return false
-  const health: ProviderHealth = { ok: false, issue, checkedAt: at }
+  const limit = isLongLimit(issue) && goesToEaonGateway(getProvider(id) ?? { id, baseUrl: '' })
+  if (!isLastingIssue(issue.kind) && !limit) return false
+  const version = appVersion() ?? undefined
+  if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message && current.version === version) return false
+  const health: ProviderHealth = { ok: false, issue, checkedAt: at, ...(version ? { version } : {}), ...(limit ? { until: at + issue.retryAfterMs! } : {}) }
   editOverride(id, (override) => ({ ...override, health }))
   return true
 }
@@ -423,6 +454,23 @@ export function clearProviderHealth(id: string): void {
     const { health: _health, ...rest } = override
     return rest
   })
+}
+
+/**
+ * At launch: what Eaon's gateway said to another version of Eaon no longer
+ * applies. Its refusal was about that copy ("only answers up-to-date
+ * copies"), and updating is the fix it asked for, but nothing else clears it:
+ * the gateway has no key to re-enter, and a provider that needs attention is
+ * left alone by the background refresh. So an update opened to Eaon Lite's
+ * "Needs attention" until someone pressed Refresh. The gateway is asked
+ * again as soon as Eaon starts (freshness.ts).
+ */
+export function forgetOtherVersionsGatewayChecks(): void {
+  const version = appVersion() ?? undefined
+  for (const provider of listProviders().filter(goesToEaonGateway)) {
+    const health = store.getProviderConfig()[provider.id]?.health
+    if (health && !health.ok && health.version !== version) clearProviderHealth(provider.id)
+  }
 }
 
 /** A listing that failed: the kept list becomes "the last one that worked", and a lasting failure marks the provider. */
@@ -592,6 +640,8 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   try {
     models = await fetchListing(provider)
   } catch (error) {
+    // An event code the gateway ended is forgotten, as a chat forgets it (freeCredits.ts), rather than asked about every ten minutes.
+    if (providerId === FREE_PROVIDER_ID && codeRefused(error)) forgetCode()
     const issue = classifyProviderError(error, provider, 'listing')
     listingFailed(providerId, issue)
     throw new ProviderIssueError(issue)

@@ -598,8 +598,9 @@ function LogoSection({ provider }: { provider: Provider }): JSX.Element {
 
 /**
  * What the last check found wrong, at the top of the provider: an expired
- * sign-in, a rejected key, no credit, no models. Stored credentials alone
- * don't make a provider look connected after a check failed.
+ * sign-in, a rejected key, no credit, no models, Eaon's gateway's limit for
+ * the day. Stored credentials alone don't make a provider look connected
+ * after a check failed.
  */
 function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | null {
   const refreshProviders = useApp((s) => s.refreshProviders)
@@ -611,7 +612,7 @@ function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | nu
     <div className="provider-attention" role="status">
       <TriangleAlert size={15} strokeWidth={1.9} />
       <div className="provider-attention__body">
-        <span className="provider-attention__title">Needs attention</span>
+        <span className="provider-attention__title">{readiness.label}</span>
         <span>
           {readiness.reason}
           {checked ? ` Checked ${ago(checked)}.` : ''}
@@ -1024,8 +1025,8 @@ function KeySection({
   onStatus: (status: { ok: boolean; message: string } | null) => void
 }): JSX.Element {
   // Narrow: a whole-store subscription re-renders this (and every model row) per streamed token.
-  const { refreshProviders, selectModel, settings } = useApp(
-    useShallow((s) => ({ refreshProviders: s.refreshProviders, selectModel: s.selectModel, settings: s.settings }))
+  const { refreshProviders, selectModel, settings, setProviderFocus } = useApp(
+    useShallow((s) => ({ refreshProviders: s.refreshProviders, selectModel: s.selectModel, settings: s.settings, setProviderFocus: s.setProviderFocus }))
   )
   const [key, setKey] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -1139,6 +1140,11 @@ function KeySection({
           <Info size={13} strokeWidth={2} />
           <span>
             {meta.noSignInReason}
+            {meta.planProvider && (
+              <button className="provider-link provider-no-signin__action" onClick={() => setProviderFocus(meta.planProvider!)}>
+                Use my Claude plan
+              </button>
+            )}
             {meta.planInAde && (
               <button className="provider-link provider-no-signin__action" onClick={() => void openInAde(meta.planInAde!)}>
                 Open {PLAN_CLI[meta.planInAde]} in the ADE

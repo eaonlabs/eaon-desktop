@@ -130,7 +130,7 @@ export async function runEngineChat(input: EngineChatInput, deps: EngineChatDeps
     others.length ? `\n\nAttached files:\n${others.map((path) => `- ${path}`).join('\n')}` : ''
   ].join('')
 
-  const plan = request.mode === 'work' && request.work.plan
+  const plan = request.mode === 'work' && (request.work.plan || Boolean(request.work.ask))
   const access: EngineAccess = plan ? 'read-only' : input.settings.approvalMode === 'full' ? 'autonomous' : 'safe'
   const model = request.modelId || null
 

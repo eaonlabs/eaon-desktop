@@ -126,18 +126,18 @@ export function CodeIndexPage(): JSX.Element {
         <Card>
           <Row
             title="Maximum tool steps"
-            description="How many times the agent may search, read, edit or run commands within a single reply before it must stop."
+            description="How many times the agent may search, read, edit or run commands within a single reply. With no limit it keeps going until it’s done, and stops only when it’s going round in circles."
           >
             <Select
               width={140}
               value={String(config.maxToolRounds)}
               onChange={(value) => void patchSettings({ codeIndex: { ...config, maxToolRounds: Number(value) } })}
               options={[
-                { value: '10', label: '10' },
-                { value: '25', label: '25' },
+                { value: '0', label: 'No limit' },
                 { value: '40', label: '40' },
-                { value: '80', label: '80' },
-                { value: '150', label: '150' }
+                { value: '100', label: '100' },
+                { value: '250', label: '250' },
+                { value: '500', label: '500' }
               ]}
             />
           </Row>

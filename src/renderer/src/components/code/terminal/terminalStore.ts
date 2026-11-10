@@ -43,6 +43,12 @@ interface TerminalsState {
   /** What runs in a pane changed under it — its logo and label follow. */
   setAgent: (paneId: string, agent: TerminalAgentId, program?: string) => void
   toggleMaximized: (paneId: string) => void
+  /**
+   * A session was archived: its shells end, but its panes stay in the layout,
+   * each marked to reopen the conversation it was in (`conversations`, by pane
+   * id), so restoring the session brings them back as they were.
+   */
+  park: (cwd: string, conversations: Record<string, string | null>) => void
   /** Two panes trade places in a folder's grid. */
   swap: (cwd: string, a: string, b: string) => void
   setDragging: (paneId: string | null) => void
@@ -149,6 +155,22 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
 
   toggleMaximized(paneId) {
     set((s) => ({ maximized: s.maximized === paneId ? null : paneId }))
+  },
+
+  park(cwd, conversations) {
+    const panes = get().layout[cwd] ?? []
+    if (panes.length === 0) return
+    for (const pane of panes) terminals.dispose(pane.id)
+    // A task given on the command line was given; the conversation it began is the one to come back to.
+    const kept = panes.map((pane) => {
+      const resume = conversations[pane.id] ?? pane.resume
+      return resume ? { ...withoutPrompt(pane), resume } : withoutPrompt(pane)
+    })
+    const programs = { ...get().programs }
+    for (const pane of panes) delete programs[pane.id]
+    const layout = { ...get().layout, [cwd]: kept }
+    set((s) => ({ layout, programs, maximized: panes.some((p) => p.id === s.maximized) ? null : s.maximized }))
+    persist(layout)
   },
 
   swap(cwd, a, b) {

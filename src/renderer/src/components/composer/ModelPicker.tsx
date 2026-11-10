@@ -238,7 +238,7 @@ export function ModelPicker({
 
   return (
     <>
-      <Popover anchor={anchor} open={open} onClose={onClose} placement="top-start" width={296} className="mp">
+      <Popover anchor={anchor} open={open} onClose={onClose} placement="top-start" width={340} className="mp">
         <div className="mp__tabs">
           <div className="mp__tabs-scroll" ref={tabs} role="tablist" aria-label="Providers">
             <button
@@ -456,7 +456,7 @@ export function ModelPicker({
                     data-attention={option.availability !== 'ready' || undefined}
                     role="option"
                     aria-selected={isCurrent}
-                    title={option.reason ?? option.model?.description ?? (option.label !== option.modelId ? option.modelId : undefined)}
+                    title={[option.label, option.reason ?? option.model?.description ?? (option.label !== option.modelId ? option.modelId : undefined)].filter(Boolean).join('\n')}
                     onMouseMove={() => i !== active && setActive(i)}
                     onClick={() => pick(option)}
                   >

@@ -177,7 +177,7 @@ export function addFreeTokens(tokens: number, now = Date.now()): void {
 }
 
 /** The gateway turned the code off or it ended there: say so, rather than "the key was rejected". */
-const codeRefused = (error: unknown): boolean =>
+export const codeRefused = (error: unknown): boolean =>
   error instanceof ProviderHttpError && error.status === 401 && /code_ended|The code ".*" (ended|has been turned off)/.test(error.message)
 
 /** Eaon Event's adapter, with the code's allowance in front of it. */

@@ -56,3 +56,52 @@ export function revealLabel(platform: string = typeof window !== 'undefined' ? w
   if (platform === 'win32') return 'Show in File Explorer'
   return 'Show in folder'
 }
+
+/** Drag types an editor's file tree uses (VS Code and its forks): files as links, not as File objects. */
+const EDITOR_DRAG_TYPES = ['resourceurls', 'codefiles', 'application/vnd.code.uri-list']
+
+/** Whether a drag is files from an editor's tree, as far as can be told before the drop. */
+export const editorDrag = (types: readonly string[]): boolean => types.some((t) => EDITOR_DRAG_TYPES.includes(t.toLowerCase()))
+
+/** A `file://` URL as a path on this computer, or null for anything else. */
+export function filePathOf(uri: string): string | null {
+  let url: URL
+  try {
+    url = new URL(uri.trim())
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'file:') return null
+  const path = decodeURIComponent(url.pathname)
+  // Windows: file:///C:/x → C:/x.
+  return /^\/[a-z]:\//i.test(path) ? path.slice(1) : path || null
+}
+
+/**
+ * The local files a drop carries as links: an editor's resource list, or a
+ * uri-list made only of file:// links. A web link, or text, gives none and
+ * drops as text.
+ */
+export function droppedFilePaths(data: Pick<DataTransfer, 'getData' | 'types'>): string[] {
+  const lists: string[] = []
+  for (const type of ['resourceurls', 'application/vnd.code.uri-list']) {
+    if (!data.types.includes(type)) continue
+    const raw = data.getData(type)
+    try {
+      const parsed: unknown = JSON.parse(raw)
+      if (Array.isArray(parsed)) lists.push(...parsed.filter((u): u is string => typeof u === 'string'))
+      continue
+    } catch {
+      lists.push(...raw.split(/\r?\n/))
+    }
+  }
+  if (lists.length === 0 && data.types.includes('text/uri-list')) {
+    const uris = data
+      .getData('text/uri-list')
+      .split(/\r?\n/)
+      .filter((line) => line.trim() && !line.startsWith('#'))
+    // Only when every link is a file: a web link dragged in stays text.
+    if (uris.length > 0 && uris.every((u) => u.trim().startsWith('file:'))) lists.push(...uris)
+  }
+  return [...new Set(lists.map(filePathOf).filter((p): p is string => Boolean(p)))]
+}

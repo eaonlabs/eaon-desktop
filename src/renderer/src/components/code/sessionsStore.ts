@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { AdeConversation, AdeSession, NewSessionRequest } from '@shared/adeSessions'
+import { groupSessions, keepOrder, splitArchived, type AdeConversation, type AdeSession, type NewSessionExtras, type NewSessionRequest, type ParallelRun, type ProjectGroup } from '@shared/adeSessions'
+import { copiedSummary } from '@shared/worktreeCopy'
 import type { NewRemoteSessionRequest } from '@shared/adeRemote'
 import type { TerminalAgentId } from '@shared/terminals'
 import { useApp } from '../../state/store'
@@ -38,10 +39,23 @@ interface SessionsState {
   show: (session: AdeSession) => Promise<void>
   /** A folder's own session (made when it has none), opened. */
   openFolder: (folder: string) => Promise<void>
-  create: (req: NewSessionRequest, agent: TerminalAgentId | null) => Promise<string | null>
+  /** Starts with one agent's pane (maybe with a first task). */
+  create: (req: NewSessionRequest, agent: TerminalAgentId | null, extras?: NewSessionExtras) => Promise<string | null>
+  /** The same task given to several agents, each in a session and worktree of its own; the first one is shown. */
+  createParallel: (runs: ParallelRun[], req: NewSessionRequest, extras?: NewSessionExtras) => Promise<string | null>
   /** Removes a session after closing its terminals; an error to show, or null. */
   remove: (session: AdeSession, deleteWorktree: boolean) => Promise<string | null>
+  /** The ADE shows another session because `session` is gone from the list (removed, or archived). */
+  leave: (session: AdeSession) => Promise<void>
   rename: (session: AdeSession, title: string) => Promise<void>
+  /**
+   * Moves a session to the Archived group: its terminals end (each pane keeps
+   * its place and the conversation it was in), nothing on disk is touched.
+   * An error to show, or null.
+   */
+  archive: (session: AdeSession) => Promise<string | null>
+  /** Brings an archived session back and shows it, its terminals starting again on their conversations. An error, or null. */
+  restore: (session: AdeSession) => Promise<string | null>
   /** Takes a project and all its sessions off the sidebar; nothing on disk is deleted. An error, or null. */
   removeProject: (project: string) => Promise<string | null>
   loadConversations: (cwd: string) => Promise<void>
@@ -128,7 +142,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     void get().loadConversations(session.cwd)
   },
 
-  async create(req, agent) {
+  async create(req, agent, extras) {
     let result: Awaited<ReturnType<typeof window.api.ade.create>>
     try {
       result = await window.api.ade.create(req)
@@ -137,13 +151,36 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     }
     if (!result.ok) return result.error
     const session = result.session
+    // Before any agent starts in it: an agent that begins at once finds its .env there.
+    const told: { text: string; error?: boolean }[] = []
+    if (extras?.copyIgnored) told.push(await copyIgnoredInto(session))
     set((s) => ({ sessions: [...s.sessions, session], creatingIn: undefined, collapsed: { ...s.collapsed, [session.project]: false } }))
     await get().open(session)
     showAde()
     if (agent) {
       await useTerminals.getState().load()
-      useTerminals.getState().add(session.cwd, agent)
+      useTerminals.getState().add(session.cwd, agent, undefined, extras?.prompt)
     }
+    // One notice for all of it: a second would replace the first.
+    if (told.length > 0) notify(told.map((t) => t.text).join(' '), told.some((t) => t.error) ? 'error' : 'done')
+    return null
+  },
+
+  async createParallel(runs, req, extras) {
+    const made: string[] = []
+    for (const run of runs) {
+      const failed = await get().create({ ...req, title: run.title, branch: run.branch }, run.agent as TerminalAgentId, extras)
+      if (failed) {
+        // The first one failing is the dialog's error; a later one leaves what was made and says so.
+        if (made.length === 0) return failed
+        notify(`${made.length} of ${runs.length} agents started. ${run.title}: ${failed}`, 'error')
+        break
+      }
+      made.push(run.branch)
+    }
+    // The dialog shows the first agent's session, whichever was made last.
+    const first = get().sessions.find((s) => s.project === req.project && s.branch === made[0])
+    if (first) await get().open(first)
     return null
   },
 
@@ -169,12 +206,49 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     if (!result.ok) return result.error
     set((s) => ({ sessions: s.sessions.filter((x) => x.id !== session.id) }))
     // The session on screen went: show its project's own folder, or another session, or nothing.
-    if (useCode.getState().cwd === session.cwd) {
-      const rest = get().sessions
-      const next = rest.find((x) => x.cwd === session.project) ?? rest.find((x) => x.project === session.project) ?? rest[0]
-      if (next) await get().open(next)
-      else useCode.setState({ cwd: null })
+    if (useCode.getState().cwd === session.cwd) await get().leave(session)
+    return null
+  },
+
+  async leave(session) {
+    // Never into an archived session: it has no terminals to show.
+    const rest = splitArchived(get().sessions).live.filter((x) => x.id !== session.id)
+    const next = rest.find((x) => x.cwd === session.project) ?? rest.find((x) => x.project === session.project) ?? rest[0]
+    if (next) await get().open(next)
+    else useCode.setState({ cwd: null })
+  },
+
+  async archive(session) {
+    await useTerminals.getState().load()
+    const panes = useTerminals.getState().layout[session.cwd] ?? []
+    // Which conversation each pane is in, as main last saw it: what restoring brings back.
+    const held: Record<string, string | null> =
+      panes.length > 0 ? await window.api.terminals.conversations(panes.map((p) => p.id)).catch(() => ({})) : {}
+    let archived: AdeSession | null
+    try {
+      archived = await window.api.adeTools.archive(session.id)
+    } catch (error) {
+      return clean(error)
     }
+    if (!archived) return 'That session isn’t in the ADE any more.'
+    const done = archived
+    useTerminals.getState().park(session.cwd, held)
+    set((s) => ({ sessions: s.sessions.map((x) => (x.id === done.id ? done : x)) }))
+    if (useCode.getState().cwd === session.cwd) await get().leave(session)
+    return null
+  },
+
+  async restore(session) {
+    let restored: AdeSession | null
+    try {
+      restored = await window.api.adeTools.restore(session.id)
+    } catch (error) {
+      return clean(error)
+    }
+    if (!restored) return 'That session isn’t in the ADE any more.'
+    const back = restored
+    set((s) => ({ sessions: s.sessions.map((x) => (x.id === back.id ? back : x)), collapsed: { ...s.collapsed, [back.project]: false } }))
+    await get().show(back)
     return null
   },
 
@@ -284,6 +358,34 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     return null
   }
 }))
+
+/** The ignored files Settings → ADE names, copied into a new session's worktree; what to tell the user about it. */
+async function copyIgnoredInto(session: AdeSession): Promise<{ text: string; error?: boolean }> {
+  try {
+    const report = await window.api.adeTools.copyIgnored(session.id)
+    const left = report.skipped.length > 0 ? ` Left out: ${report.skipped.map((s) => `${s.path} (${s.reason})`).slice(0, 3).join(', ')}${report.skipped.length > 3 ? ` and ${report.skipped.length - 3} more` : ''}.` : ''
+    if (report.copied.length === 0) return { text: `No ignored files were copied into the new worktree.${left}` }
+    const n = report.copied.length
+    return { text: `Copied ${n} ${n === 1 ? 'file' : 'files'} into the new worktree: ${copiedSummary(report.copied)}.${left}` }
+  } catch (error) {
+    return { text: `The new session is ready, but its ignored files weren’t copied: ${clean(error)}`, error: true }
+  }
+}
+
+/** The projects the sidebar showed last, so its order holds still while it is on screen (see keepOrder). */
+let shownProjects: string[] = []
+
+/**
+ * The sidebar's projects in the order it lists them. The sidebar and the
+ * keyboard (ADE shortcuts: open session 3) both read it here, so "3" is the
+ * third row you see.
+ */
+export function orderedGroups(sessions: AdeSession[], recents: string[]): ProjectGroup[] {
+  // Archived sessions are not in the tree: they have a group of their own.
+  const next = keepOrder(groupSessions(splitArchived(sessions).live, recents), shownProjects)
+  shownProjects = next.map((g) => g.project)
+  return next
+}
 
 /** "New session" from the sidebar or the collapsed rail: the dialog, for the project on screen. */
 export async function openNewSession(): Promise<void> {

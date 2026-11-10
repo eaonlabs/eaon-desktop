@@ -863,6 +863,7 @@ test('the feature registers every IPC channel and stops its timers', () => {
     'email:resend-code',
     'email:send',
     'email:set-options',
+    'email:set-trigger',
     'email:set-worker-address',
     'email:sign-up',
     'email:state',

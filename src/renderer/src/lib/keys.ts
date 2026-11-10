@@ -12,6 +12,8 @@ export interface Shortcut {
   label: string
   modifiers: Modifier[]
   key: string
+  /** The modifiers on Windows and Linux when they differ from a Mac's (⌘F is Ctrl+Shift+F in a terminal, where Ctrl+F is the shell's). */
+  otherModifiers?: Modifier[]
 }
 
 export const SHORTCUTS: Shortcut[] = [
@@ -40,6 +42,26 @@ export const CHAT_SHORTCUTS: Shortcut[] = [
   { id: 'pick-model', label: 'Pick a model, with the model menu open', modifiers: ['mod'], key: '1–9' }
 ]
 
+/**
+ * In the ADE (the terminals' view), handled where they act: the window-level
+ * keys in CodeView (shared/adeKeys.ts says which chord is which) and the
+ * terminal's own key handler (code/terminal/registry.ts). They work with a
+ * terminal focused too: the terminal lets them through instead of sending
+ * them to the shell.
+ */
+export const ADE_SHORTCUTS: Shortcut[] = [
+  { id: 'ade-find', label: 'Find in the focused terminal’s output', modifiers: ['mod'], key: 'F', otherModifiers: ['shift', 'mod'] },
+  { id: 'ade-pane-next', label: 'Focus the next terminal', modifiers: ['shift', 'mod'], key: ']' },
+  { id: 'ade-pane-prev', label: 'Focus the previous terminal', modifiers: ['shift', 'mod'], key: '[' },
+  { id: 'ade-maximize', label: 'Fill the view with the focused terminal, or give the grid back', modifiers: ['shift', 'mod'], key: 'Enter' },
+  { id: 'ade-session-n', label: 'Open session 1–9 in the sidebar, counted from the top', modifiers: ['alt', 'mod'], key: '1–9' },
+  { id: 'ade-session-next', label: 'Open the next session', modifiers: ['alt', 'mod'], key: '↓' },
+  { id: 'ade-session-prev', label: 'Open the previous session', modifiers: ['alt', 'mod'], key: '↑' },
+  { id: 'ade-new-session', label: 'New session', modifiers: ['shift', 'mod'], key: 'N' },
+  // A file path in a terminal (src/app.ts:42) opens beside the terminals when clicked.
+  { id: 'ade-path-external', label: 'Open a file path in a terminal in your editor, not beside the terminals', modifiers: ['mod'], key: 'click' }
+]
+
 /** In the message box; listed with the others so the page is complete. */
 export const COMPOSER_SHORTCUTS: Shortcut[] = [
   { id: 'send', label: 'Send the message', modifiers: [], key: 'Enter' },
@@ -50,8 +72,9 @@ export const COMPOSER_SHORTCUTS: Shortcut[] = [
 ]
 
 /** How a shortcut is written on this platform: ⇧⌘A on a Mac, Ctrl+Shift+A elsewhere. */
-export function formatShortcut(shortcut: Pick<Shortcut, 'modifiers' | 'key'>, mac: boolean): string {
-  const has = (m: Modifier): boolean => shortcut.modifiers.includes(m)
+export function formatShortcut(shortcut: Pick<Shortcut, 'modifiers' | 'key' | 'otherModifiers'>, mac: boolean): string {
+  const modifiers = !mac && shortcut.otherModifiers ? shortcut.otherModifiers : shortcut.modifiers
+  const has = (m: Modifier): boolean => modifiers.includes(m)
   if (mac) {
     // Apple's order: Control, Option, Shift, Command.
     const key = shortcut.key === 'Enter' ? '↩' : shortcut.key

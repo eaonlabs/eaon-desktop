@@ -226,7 +226,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await s.shot(page, 'pr-review-posted')
 
     // Linear: connect with a key, see the issue, start it in the project the review cloned.
-    await page.click('.sidebar .nav-item', { text: /^Linear$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.find('.linear-connect')
     await s.shot(page, 'linear-connect')
     await page.fill('.linear-connect input', KEY)
@@ -252,7 +252,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await s.shot(page, 'linear-agent-in-ade')
 
     // The page now says the issue is in the ADE.
-    await page.click('.sidebar .nav-item', { text: /^Linear$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.find('.linear-started', { text: 'In the ADE', timeout: 20_000 })
     await page.click('.pr-row__title', { text: 'Add search to the docs' })
     await page.find('.linear-actions button', { text: /Open session/ })
@@ -269,7 +269,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
         { message: `the session, after ${what}`, timeout: 10_000 }
       )
     // The pages in the ADE's own sidebar (Models, Plugins and Trading are in Chat's).
-    for (const pageName of ['Pull requests', 'Linear']) {
+    for (const pageName of ['Pull requests', 'Issues']) {
       await page.click('.sidebar .nav-item', { text: new RegExp(`^${pageName}$`) })
       await page.waitFor((name) => document.querySelector('.sidebar .nav-item[data-active]')?.textContent?.trim() === name, { args: [pageName], message: `${pageName} open` })
       await page.click('.ade-session[data-active] .ade-session__row')
@@ -278,7 +278,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
     await page.click('.ade-session:not([data-active]) .ade-session__row')
     await sessionShown('clicking another session from Pull requests')
-    await page.click('.sidebar .nav-item', { text: /^Linear$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.click('.ade-session[data-active] .ade-agent')
     await sessionShown('clicking an agent from Linear')
     await s.shot(page, 'back-to-the-session')

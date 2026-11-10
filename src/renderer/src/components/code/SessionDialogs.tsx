@@ -12,11 +12,13 @@ import {
   folderName,
   groupSessions,
   homeRelative,
+  parallelRuns,
   sessionTitle,
   worktreeFolderFor,
   type AdeSession,
   type ProjectGroup
 } from '@shared/adeSessions'
+import { copiedSummary, type CopyPlan } from '@shared/worktreeCopy'
 import type { TerminalAgentId } from '@shared/terminals'
 import { arrangeAgents } from '../../lib/agentPrefs'
 import { useApp } from '../../state/store'
@@ -34,8 +36,8 @@ const tidy = (path: string): string => homeRelative(path, knownHome)
  * project folder's current branch.
  */
 export function NewSessionDialog(): JSX.Element | null {
-  const { creatingIn, sessions, close, create } = useAdeSessions(
-    useShallow((s) => ({ creatingIn: s.creatingIn, sessions: s.sessions, close: s.closeNewSession, create: s.create }))
+  const { creatingIn, sessions, close, create, createParallel } = useAdeSessions(
+    useShallow((s) => ({ creatingIn: s.creatingIn, sessions: s.sessions, close: s.closeNewSession, create: s.create, createParallel: s.createParallel }))
   )
   const { recents, chooseFolder } = useCode(useShallow((s) => ({ recents: s.recents, chooseFolder: s.chooseFolder })))
   const { agents, refreshAgents } = useTerminals(useShallow((s) => ({ agents: s.agents, refreshAgents: s.refreshAgents })))
@@ -47,9 +49,16 @@ export function NewSessionDialog(): JSX.Element | null {
   const [branch, setBranch] = useState('')
   const [branchEdited, setBranchEdited] = useState(false)
   const [agent, setAgent] = useState<TerminalAgentId | null>(null)
+  // What the agent is asked to do first, and the other agents given the same task, each in a worktree of its own.
+  const [task, setTask] = useState('')
+  const [also, setAlso] = useState<TerminalAgentId[]>([])
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The ignored files (.env…) the project has that Settings → ADE names, and whether to copy them in.
+  const [copyPlan, setCopyPlan] = useState<CopyPlan | null>(null)
+  const [copyOn, setCopyOn] = useState(false)
+  const [copyDefault, setCopyDefault] = useState(false)
 
   // A fresh form each time it opens, in the project it was opened from.
   useEffect(() => {
@@ -60,6 +69,8 @@ export function NewSessionDialog(): JSX.Element | null {
     setBranchEdited(false)
     setError(null)
     setBusy(false)
+    setTask('')
+    setAlso([])
     void refreshAgents().catch(() => undefined)
     void window.api.ade.worktreesRoot().then(
       (info) => {
@@ -70,6 +81,24 @@ export function NewSessionDialog(): JSX.Element | null {
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // What this project would copy into the worktree, looked at when a project is picked.
+  useEffect(() => {
+    if (!open || !project) return setCopyPlan(null)
+    let live = true
+    void Promise.all([window.api.adeTools.previewCopy(project), window.api.adeTools.copySettings()]).then(
+      ([plan, settings]) => {
+        if (!live) return
+        setCopyPlan(plan)
+        setCopyDefault(settings.enabled)
+        setCopyOn(settings.enabled)
+      },
+      () => live && setCopyPlan(null)
+    )
+    return () => {
+      live = false
+    }
+  }, [open, project])
 
   const installed = arrangeAgents(agents, useApp.getState().settings?.agentProviders).filter((a) => a.installed && a.id !== 'shell')
   useEffect(() => {
@@ -86,11 +115,29 @@ export function NewSessionDialog(): JSX.Element | null {
   const problem = branchEdited || title.trim() ? branchNameProblem(effective) : null
   const where = project && effective && root ? `${tidy(root)}/${worktreeFolderFor(folderName(project))}/${worktreeFolderFor(effective)}` : null
 
+  const others = installed.filter((a) => a.id !== agent)
+  // Agents picked to run alongside; one that became the main agent since is no longer "also".
+  const alsoOn = also.filter((id) => id !== agent && others.some((a) => a.id === id))
+  const needsTask = alsoOn.length > 0 && !task.trim()
+
   const submit = async (): Promise<void> => {
-    if (!project || !title.trim() || problem || busy) return
+    if (!project || !title.trim() || problem || busy || needsTask) return
     setBusy(true)
     setError(null)
-    const failed = await create({ project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }, agent)
+    const extras = { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0), ...(task.trim() ? { prompt: task.trim() } : {}) }
+    const request = { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }
+    const failed =
+      alsoOn.length > 0 && agent
+        ? await createParallel(
+            parallelRuns(
+              title.trim(),
+              effective,
+              [agent, ...alsoOn].map((id) => ({ id, label: installed.find((a) => a.id === id)?.label ?? id }))
+            ),
+            request,
+            extras
+          )
+        : await create(request, agent, extras)
     setBusy(false)
     if (failed) setError(failed)
   }
@@ -157,8 +204,8 @@ export function NewSessionDialog(): JSX.Element | null {
           <button type="button" className="btn btn--ghost" onClick={close} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || notGit} onClick={() => void submit()}>
-            {busy ? 'Creating…' : 'Create session'}
+          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || notGit || needsTask} onClick={() => void submit()}>
+            {busy ? 'Creating…' : alsoOn.length > 0 ? `Create ${alsoOn.length + 1} sessions` : 'Create session'}
           </button>
         </>
       }
@@ -214,6 +261,28 @@ export function NewSessionDialog(): JSX.Element | null {
             : (problem ??
               `A new branch${own?.branch ? ` from ${own.branch}` : ''}, in its own folder${where ? ` (${where})` : ''}. Your project folder isn’t touched.`)}
         </p>
+        {copyPlan && (copyPlan.copy.length > 0 || copyPlan.skipped.length > 0) && !notGit && (
+          <div className="field">
+            {copyPlan.copy.length > 0 && (
+              <label className="ade-dialog__check">
+                <input type="checkbox" checked={copyOn} onChange={(e) => setCopyOn(e.target.checked)} />
+                <span>
+                  Copy {copyPlan.copy.length === 1 ? 'an ignored file' : `${copyPlan.copy.length} ignored files`} from the project into the new folder:{' '}
+                  <code>{copiedSummary(copyPlan.copy.map((f) => f.path))}</code>. Git ignores {copyPlan.copy.length === 1 ? 'it' : 'them'}, so a fresh checkout doesn’t have {copyPlan.copy.length === 1 ? 'it' : 'them'}.
+                </span>
+              </label>
+            )}
+            {copyPlan.skipped.length > 0 && (
+              <p className="ade-dialog__hint">
+                Not copied: {copyPlan.skipped.slice(0, 3).map((f) => `${f.path} (${f.reason})`).join(', ')}
+                {copyPlan.skipped.length > 3 ? ` and ${copyPlan.skipped.length - 3} more` : ''}.
+              </p>
+            )}
+            <p className="ade-dialog__hint">
+              Which files count is set in Settings → ADE{copyDefault ? '; copying is ticked by default' : ''}. Dependency folders and files over 1 MB are never copied.
+            </p>
+          </div>
+        )}
         <div className="field">
           <span className="field-label">Start with</span>
           <div className="ade-dialog__agents" role="radiogroup" aria-label="Start with">
@@ -233,6 +302,44 @@ export function NewSessionDialog(): JSX.Element | null {
             ))}
           </div>
         </div>
+        <label className="field">
+          <span className="field-label">First task for the agent (optional)</span>
+          <textarea
+            className="input ade-dialog__task"
+            rows={3}
+            value={task}
+            maxLength={4000}
+            placeholder="Add a search box to the docs page and cover it with tests"
+            onChange={(e) => setTask(e.target.value)}
+          />
+        </label>
+        {others.length > 0 && (
+          <div className="field">
+            <span className="field-label">Run the same task with more agents</span>
+            <div className="ade-dialog__agents" role="group" aria-label="Run in parallel with">
+              {others.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  aria-pressed={alsoOn.includes(a.id)}
+                  className="ade-dialog__agent"
+                  data-on={alsoOn.includes(a.id) || undefined}
+                  onClick={() => setAlso((current) => (current.includes(a.id) ? current.filter((x) => x !== a.id) : [...current, a.id]))}
+                >
+                  <AgentMark agent={a.id} size={15} />
+                  {a.label}
+                </button>
+              ))}
+            </div>
+            <p className="ade-dialog__hint" aria-live="polite">
+              {alsoOn.length === 0
+                ? 'Each agent works in a worktree and branch of its own, so you can compare what they made.'
+                : needsTask
+                  ? 'Write the task above: every agent starts with it.'
+                  : `${alsoOn.length + 1} sessions start from the same point: ${effective || 'the branch'} and ${alsoOn.map((id) => `${effective || 'the branch'}-${id}`).join(', ')}.`}
+            </p>
+          </div>
+        )}
         {error && (
           <p className="ade-dialog__error" role="alert">
             {error}
@@ -279,6 +386,51 @@ export function RenameSessionDialog({ session, onClose }: { session: AdeSession;
         </label>
         <p className="ade-dialog__hint">Leave it empty to name it after its branch again.</p>
       </form>
+    </Modal>
+  )
+}
+
+/** Archive: out of the list, terminals ended, nothing deleted; the Archived group at the foot of the sidebar brings it back. */
+export function ArchiveSessionDialog({ session, onClose }: { session: AdeSession; onClose: () => void }): JSX.Element {
+  const archive = useAdeSessions((s) => s.archive)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const confirm = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    const failed = await archive(session)
+    setBusy(false)
+    if (failed) setError(failed)
+    else onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={() => !busy && onClose()}
+      title={`Archive “${sessionTitle(session)}”?`}
+      width={460}
+      actions={
+        <>
+          <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--primary" onClick={() => void confirm()} disabled={busy}>
+            {busy ? 'Archiving…' : 'Archive'}
+          </button>
+        </>
+      }
+    >
+      <div className="ade-dialog">
+        <p className="ade-dialog__lede">
+          It moves to Archived at the foot of the sidebar and its terminals close. {session.worktree ? `Its worktree folder (${tidy(session.cwd)})${session.branch ? ` and the branch ${session.branch}` : ''} stay` : 'Its folder stays where it is'}, and so do the Claude Code and Codex conversations.
+          Restoring it opens its terminals again, each on the conversation it was in.
+        </p>
+        {error && (
+          <p className="ade-dialog__error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
     </Modal>
   )
 }

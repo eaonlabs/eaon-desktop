@@ -1,4 +1,4 @@
-import type { ThemePalette } from '@shared/types'
+import type { Settings, ThemePalette } from '@shared/types'
 
 /** The four values a theme writes into settings for one appearance. */
 export type Palette = Pick<ThemePalette, 'accent' | 'background' | 'foreground' | 'contrast'>
@@ -233,3 +233,27 @@ export const THEMES: Theme[] = [
     dark: { accent: '#F252A6', background: '#261547', foreground: '#FBECFF', contrast: 54, textFade: 0.98 }
   }
 ]
+/**
+ * Choosing a theme or mode takes the app back from the ADE's terminal theme,
+ * which restyles the app while it is picked: the terminals go back to
+ * following the app (`eaon`), so the two never disagree.
+ */
+export function releaseAde(settings: Settings | null): Partial<Settings> {
+  if (!settings || settings.ade.theme === 'eaon') return {}
+  return { ade: { ...settings.ade, theme: 'eaon', appBefore: null } }
+}
+
+/**
+ * What picking `theme` writes to the settings. Both appearances move
+ * together, so switching Light/Dark never drops you into a different theme.
+ * `textFade` belongs to the theme, not the stored palette (`useTheme()` looks
+ * it up by preset name).
+ */
+export function themePatch(theme: Theme, settings: Settings | null): Omit<Partial<Settings>, 'appearance'> & { appearance: { light: Partial<ThemePalette>; dark: Partial<ThemePalette> } } {
+  const { textFade: _lightFade, ...light } = theme.light
+  const { textFade: _darkFade, ...dark } = theme.dark
+  return {
+    appearance: { light: { preset: theme.name, ...light }, dark: { preset: theme.name, ...dark } },
+    ...releaseAde(settings)
+  }
+}

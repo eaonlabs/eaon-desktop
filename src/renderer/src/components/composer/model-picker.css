@@ -1,6 +1,6 @@
 /* The composer's model picker (ModelPicker.tsx) and its effort slider
-   (ReasoningEffort.tsx). Sizes are taken from the reference design: a 296px
-   panel, a 41px tab row, a 29px search row, 27px model rows (seven before it
+   (ReasoningEffort.tsx). A 340px panel, wide enough for nearly every model's
+   name; a 41px tab row, a 29px search row, 27px model rows (seven before it
    scrolls) and the effort row. */
 
 .menu.mp {
@@ -518,15 +518,17 @@
   max-width: 100%;
 }
 .ms__label {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  margin-right: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: left;
 }
+/* Where the model comes from gives way before its name does. */
 .ms__via {
-  flex: none;
-  max-width: 40%;
+  flex: 0 1000 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-3);

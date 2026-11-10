@@ -17,6 +17,7 @@ import {
   type ReviewState
 } from '@shared/adeReview'
 import { remoteLocation } from '@shared/adeRemote'
+import { FEEDBACK_QUERY, parseFeedback, parsePrUrl, type PrFeedbackResult } from '@shared/prFeedback'
 import { problemOf, type Runner } from './runner'
 
 /**
@@ -35,7 +36,7 @@ const RUN_FIELDS = 'databaseId,name,workflowName,status,conclusion,url'
 const MAX_RESOLVE_BYTES = 100_000
 
 /** The default branch to measure against and open pull requests into: origin's HEAD, else main or master. */
-async function defaultBranch(run: Runner, cwd: string): Promise<{ ref: string; name: string } | null> {
+export async function defaultBranch(run: Runner, cwd: string): Promise<{ ref: string; name: string } | null> {
   const head = await run(cwd, 'git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (head.ok && head.stdout.trim()) {
     const ref = head.stdout.trim()
@@ -70,6 +71,20 @@ async function branchRuns(run: Runner, cwd: string, branch: string | null): Prom
     return runsFromGh(JSON.parse(res.stdout))
   } catch {
     return []
+  }
+}
+
+/** What reviewers said on a pull request (shared/prFeedback.ts), asked of GitHub through gh. */
+export async function prFeedback(run: Runner, cwd: string, url: unknown): Promise<PrFeedbackResult> {
+  const pr = parsePrUrl(url)
+  if (!pr) return { ok: false, error: 'That isn’t a GitHub pull request.' }
+  const res = await run(cwd, 'gh', ['api', 'graphql', '-F', `owner=${pr.owner}`, '-F', `name=${pr.name}`, '-F', `number=${pr.number}`, '-f', `query=${FEEDBACK_QUERY}`], 30_000)
+  if (!res.ok) return { ok: false, error: problemOf(res, 'GitHub didn’t give the reviewers’ comments.') }
+  try {
+    const parsed = parseFeedback(JSON.parse(res.stdout))
+    return parsed ? { ok: true, ...parsed } : { ok: false, error: 'GitHub’s answer had no pull request in it.' }
+  } catch {
+    return { ok: false, error: 'GitHub’s answer couldn’t be read.' }
   }
 }
 

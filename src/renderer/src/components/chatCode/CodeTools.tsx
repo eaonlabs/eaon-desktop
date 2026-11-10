@@ -20,6 +20,7 @@ import { scriptIcon } from '@shared/chatCode'
 import { MenuItem, MenuSeparator, Modal, Popover, useDisclosure } from '../ui'
 import { notify } from '../Notice'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
+import { isKey } from '../../lib/bindings'
 import { preferredTarget, useChatCode } from './chatCodeStore'
 
 /** Chat's coding keys, while a Chat page is on screen. */
@@ -29,22 +30,25 @@ export function CodeKeys(): null {
 }
 
 /**
- * ⌘J shows and hides the terminal; ⇧⌘F finds across the project. Not over a
- * dialog, and not from the in-app browser, which keeps its own keys.
+ * ⌘J shows and hides the terminal; ⇧⌘F finds across the project (both can be
+ * changed in Settings → Keyboard shortcuts); ⌘P opens a file by name. Not
+ * over a dialog, and not from the in-app browser, which keeps its own keys.
  */
 function useCodeKeys(): void {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey) return
-      const key = event.key.toLowerCase()
+      if (!(event.metaKey || event.ctrlKey)) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('.browser') || document.querySelector('[role="dialog"][aria-modal="true"]')) return
-      if (key === 'j' && !event.shiftKey) {
+      if (isKey('toggle-terminal', event)) {
         event.preventDefault()
         useChatCode.getState().toggleDrawer()
-      } else if (key === 'f' && event.shiftKey) {
+      } else if (isKey('find-project', event)) {
         event.preventDefault()
         useChatCode.getState().setSearchOpen(true)
+      } else if (event.key.toLowerCase() === 'p' && !event.shiftKey && !event.altKey) {
+        event.preventDefault()
+        useChatCode.getState().setQuickOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)

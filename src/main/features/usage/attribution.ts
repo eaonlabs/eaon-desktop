@@ -10,12 +10,33 @@ import type { UsageSource } from '@shared/usage'
  * Anything unwrapped (a chat in a window, a title) counts as `chat`.
  */
 
-const current = new AsyncLocalStorage<UsageSource>()
+interface Attribution {
+  source?: UsageSource
+  /** The project folder the run is for; `''` when it has none. Unset: nobody said, so the request can't be placed. */
+  project?: string
+}
+
+const current = new AsyncLocalStorage<Attribution>()
 
 export function withUsageSource<T>(source: UsageSource, run: () => T): T {
-  return current.run(source, run)
+  return current.run({ ...current.getStore(), source }, run)
+}
+
+/**
+ * The project folder a run is for, so Settings → Usage can say which project
+ * the requests were for. `runAgent` wraps every chat, task, worker and
+ * scheduled run in it with the run's folder (`''` when it has none); a
+ * request made outside any run (a chat's title) carries none and is counted
+ * as unattributed.
+ */
+export function withUsageProject<T>(project: string, run: () => T): T {
+  return current.run({ ...current.getStore(), project }, run)
 }
 
 export function usageSource(): UsageSource {
-  return current.getStore() ?? 'chat'
+  return current.getStore()?.source ?? 'chat'
+}
+
+export function usageProject(): string | undefined {
+  return current.getStore()?.project
 }

@@ -74,5 +74,8 @@ test('the settings that nothing read are gone from Settings', () => {
   const panel = read('browser/BrowserPanel.tsx')
   assert.ok(!panel.includes('importedFromChrome'), 'the browser panel still has its fake Import')
   // Shortcuts are a reference of the keys that work, not editable bindings nothing applied.
-  assert.ok(!read('settings/pages/Shortcuts.tsx').includes('patchSettings'))
+  // The shortcuts page saves only `shortcuts`, which the app reads for every bound key (shared/keybindings).
+  const shortcuts = read('settings/pages/Shortcuts.tsx')
+  assert.deepEqual([...shortcuts.matchAll(/patchSettings\(\{ (\w+):/g)].map((m) => m[1]), ['shortcuts'])
+  assert.ok(read('../../../shared/keybindings.ts').includes('export function effectiveBinding'), 'the shortcuts setting is no longer read')
 })

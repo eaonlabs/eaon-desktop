@@ -4,6 +4,7 @@ import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import type { Feature } from './types'
 import type { LibraryFileStat } from '@shared/library'
+import { captureChoice, electronCapture, listCaptureChoices } from './screenshot'
 
 /**
  * The Library page: everything the user has attached to chats and workers.
@@ -60,7 +61,13 @@ const PASTED_MAX_BYTES = 50 * 1024 * 1024
  * under the app's data rather than a temp folder, so the chat that shows it
  * can still show it after the system clears temp files.
  */
-export async function savePastedImage(data: unknown, type: unknown, folder = join(app.getPath('userData'), 'Pasted')): Promise<string> {
+export async function savePastedImage(
+  data: unknown,
+  type: unknown,
+  folder = join(app.getPath('userData'), 'Pasted'),
+  /** What the file is called before its time: a screenshot from the picker is not "pasted". */
+  label = 'Pasted image'
+): Promise<string> {
   const ext = typeof type === 'string' ? PASTED_TYPES[type] : undefined
   if (!ext) throw new Error('Only PNG, JPEG, GIF and WebP images can be pasted.')
   const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : null
@@ -69,8 +76,26 @@ export async function savePastedImage(data: unknown, type: unknown, folder = joi
   await mkdir(folder, { recursive: true })
   // Readable in the attachment chip, and unique without asking the disk.
   const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.')
-  const path = join(folder, `Pasted image ${stamp} ${Math.random().toString(36).slice(2, 6)}${ext}`)
+  const path = join(folder, `${label} ${stamp} ${Math.random().toString(36).slice(2, 6)}${ext}`)
   await writeFile(path, bytes)
+  return path
+}
+
+/** Text pasted into a message box past this many characters is attached as a file rather than typed in (renderer: composer). */
+const PASTED_TEXT_MAX = 20 * 1024 * 1024
+
+/**
+ * A long paste (a log, a stack trace, a whole file) becomes an attachment,
+ * so the box stays usable and the agent reads it when it needs to. Saved
+ * beside pasted images, for the same reason.
+ */
+export async function savePastedText(text: unknown, folder = join(app.getPath('userData'), 'Pasted')): Promise<string> {
+  if (typeof text !== 'string' || !text.trim()) throw new Error('The pasted text was empty.')
+  if (text.length > PASTED_TEXT_MAX) throw new Error('The pasted text is too large to attach.')
+  await mkdir(folder, { recursive: true })
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.')
+  const path = join(folder, `Pasted text ${stamp} ${Math.random().toString(36).slice(2, 6)}.txt`)
+  await writeFile(path, text, 'utf8')
   return path
 }
 
@@ -101,6 +126,18 @@ export const libraryFeature: Feature = {
       if (error) throw new Error(error)
     })
     ipcMain.handle('library:save-pasted', (_e, data: unknown, type: unknown) => savePastedImage(data, type))
+    ipcMain.handle('library:save-pasted-text', (_e, text: unknown) => savePastedText(text))
+    // The message box's screenshot button: what can be captured, then the one picture chosen, saved as an attachment.
+    ipcMain.handle('library:capture-choices', () => listCaptureChoices(electronCapture()))
+    ipcMain.handle('library:capture-attach', async (_e, id: unknown): Promise<{ ok: true; path: string } | { ok: false; permission: boolean; message: string }> => {
+      const shot = await captureChoice(id, electronCapture())
+      if (!shot.ok) return shot
+      try {
+        return { ok: true, path: await savePastedImage(shot.png, 'image/png', undefined, 'Screenshot') }
+      } catch (error) {
+        return { ok: false, permission: false, message: error instanceof Error ? error.message : 'The screenshot couldn’t be saved.' }
+      }
+    })
     ipcMain.handle('library:reveal', (_e, path: string) => {
       if (typeof path === 'string' && path) shell.showItemInFolder(path)
     })

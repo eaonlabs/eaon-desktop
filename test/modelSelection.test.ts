@@ -134,7 +134,7 @@ test('selection: nothing chosen gets a default — a ready favorite, then a rece
 })
 
 test('selection: Claude Agent is never the default, only what the user picked; alone, it asks for a pick', () => {
-  const claude = provider('claude-agent', { name: 'Claude Agent', kind: 'claude-agent', auth: 'oauth', signedIn: true, hasKey: false })
+  const claude = provider('claude-agent', { name: 'Claude', kind: 'claude-agent', auth: 'oauth', signedIn: true, hasKey: false })
   // Ahead of the others in the list, and still passed over.
   assert.equal(defaultModel([claude, provider('openai')])?.provider.id, 'openai')
   assert.equal(defaultModel([claude, provider('openai')], { recents: ['claude-agent:claude-agent-b'] })?.model.id, 'claude-agent-b')
@@ -142,7 +142,7 @@ test('selection: Claude Agent is never the default, only what the user picked; a
   assert.equal(alone.status, 'none')
   assert.equal(alone.model, null)
   assert.equal(alone.action, 'choose-model')
-  assert.match(alone.reason ?? '', /Claude Agent uses your Claude plan/)
+  assert.match(alone.reason ?? '', /Claude uses your Claude plan/)
   // Chosen, it is used like any other.
   assert.equal(resolveSelection({ providerId: 'claude-agent', modelId: 'claude-agent-a' }, [claude]).status, 'selected')
 })

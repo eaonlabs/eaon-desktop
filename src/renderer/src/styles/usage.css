@@ -194,8 +194,29 @@
 
 .usage-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin: 18px 0 12px;
+}
+.usage-range {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px 12px;
+  margin: -4px 0 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.usage-range label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-range .input {
+  width: 140px;
 }
 
 .usage-tiles {
@@ -629,4 +650,103 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+/* Token split: one bar of input, output and the two cache kinds. */
+.usage-split {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.usage-split__bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.usage-split__seg {
+  flex-basis: 0;
+  min-width: 3px;
+}
+.usage-split__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.usage-split__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-split__legend strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.usage-split__legend em {
+  font-style: normal;
+}
+.usage-split__legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.usage-split [data-part='input'] {
+  background: var(--accent);
+}
+.usage-split [data-part='output'] {
+  background: var(--warn, #e0a458);
+}
+.usage-split [data-part='cacheRead'] {
+  background: #5fb58b;
+}
+.usage-split [data-part='cacheWrite'] {
+  background: #a78bd6;
+}
+.usage-split + .usage-footnote,
+.usage-split .usage-footnote {
+  margin-top: 10px;
+}
+
+/* Monthly budget: how much of the month's limit is used. */
+.usage-meter {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+.usage-meter__bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.usage-meter__bar > div {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.usage-meter[data-level='warn'] .usage-meter__bar > div {
+  background: var(--warn, #e0a458);
+}
+.usage-meter[data-level='over'] .usage-meter__bar > div {
+  background: var(--danger);
+}
+.usage-meter__text {
+  margin-top: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.usage-meter__text strong {
+  color: var(--text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .usage-meter__bar > div {
+    transition: none;
+  }
 }

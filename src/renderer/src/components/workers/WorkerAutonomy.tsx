@@ -405,7 +405,7 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
             <span>
               <span className="worker-memory__label">{routine.name}</span>{' '}
               {plan && <>{plan.maxAmount === 0 ? 'free only' : `up to ${formatMoney(plan.maxAmount, plan.currency)}`} on {plan.site} · {plan.autopilot ? 'autopilot · ' : ''}</>}
-              {when} · next {relativeTime(routine.nextAt, now)}
+              {when} · {routine.paused ? 'paused' : `next ${relativeTime(routine.nextAt, now)}`}
               {last && !last.ok && <span className="worker-memory__failed"> · last run failed</span>}
             </span>
             {plan && (

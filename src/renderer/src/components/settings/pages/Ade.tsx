@@ -12,6 +12,7 @@ import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../cod
 import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 import { HoldToTalkRows } from './HoldToTalk'
+import { WorktreeCopySection } from './AdeWorktreeCopy'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
@@ -209,6 +210,7 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <WorktreeCopySection />
       <DictationSection />
       <TerminalThemeSection />
     </>

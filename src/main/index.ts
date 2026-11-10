@@ -1,3 +1,6 @@
+// First, before anything else loads: a start that only runs tokn (the
+// background sync's scheduled task) does that and exits here.
+import './toknJobStart'
 import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, protocol, screen } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -11,7 +14,7 @@ import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
 import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
 import { forgetLogo, noteBaseUrlChanged } from './providers/logos'
-import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
+import { clearProviderHealth, editModels, forgetOtherVersionsGatewayChecks, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { fileResponse } from './fileResponse'
 import { WALLPAPER_SCHEME } from '@shared/wallpaper'
@@ -22,7 +25,9 @@ import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
+import { capture as captureCheckpoint, captureBefore } from './features/chatCheckpoints'
 import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
+import { approvalGate, approvalNotice, finishedNotice, type NoticeText } from '@shared/chatNotice'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
@@ -31,7 +36,7 @@ import { noteFirstRun } from './features/onboarding'
 import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
-import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
+import { getAllTools, getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
@@ -62,6 +67,9 @@ import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl }
 import { trustSystemNetwork } from './netTrust'
 import { onClaudePlanChange } from './engines/claude/status'
 import { versionLabel } from '@shared/version'
+import { effectiveBinding, toAccelerator } from '@shared/keybindings'
+import { withPersonalInstructions } from './features/personalize'
+import { instructionsWithRules } from './features/chatContext'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -401,7 +409,11 @@ async function openReleaseNotes(): Promise<void> {
   await shell.openExternal(url)
 }
 
-function buildMenu(): void {
+/**
+ * `bare`: with no accelerators, while Settings → Keyboard shortcuts is waiting
+ * for a new key (the menu would take a key already in it before the page saw it).
+ */
+function buildMenu(bare = false): void {
   // About Eaon says the release's name, 2026.7.2.1, not the semver under it (shared/version.ts). Both
   // fields alike, so macOS shows the one version rather than "2026.7.2.1 (2026.7.3)".
   const label = versionLabel(app.getVersion())
@@ -421,6 +433,14 @@ function buildMenu(): void {
       if (!window.isDestroyed()) window.webContents.send(channel)
     })
   }
+  // The keys of the commands in this menu are the ones saved in Settings →
+  // Keyboard shortcuts, or their defaults; the menu is built again when one
+  // changes (the settings:patch handler). A command left without a key has none.
+  const saved = store.getSettings().shortcuts
+  const key = (id: string): { accelerator?: string } => {
+    const accelerator = bare ? null : toAccelerator(effectiveBinding(id, saved, isMac), isMac)
+    return accelerator ? { accelerator } : {}
+  }
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -428,7 +448,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendOrOpen('menu:settings') },
+        { label: 'Settings…', ...key('settings'), click: () => sendOrOpen('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -439,19 +459,19 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendOrOpen('menu:new-chat') },
+        { label: 'New Chat', ...key('new-chat'), click: () => sendOrOpen('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
-        { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
+        { label: 'New Window', ...key('new-window'), click: () => void createWindow() },
         { type: 'separator' },
-        { label: 'Archive Chat', accelerator: 'Shift+CmdOrCtrl+A', click: () => send('menu:archive-chat') }
+        { label: 'Archive Chat', ...key('archive-chat'), click: () => send('menu:archive-chat') }
       ]
     },
     { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-sidebar') },
-        { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
+        { label: 'Toggle Sidebar', ...key('toggle-sidebar'), click: () => send('menu:toggle-sidebar') },
+        { label: 'Toggle Browser Panel', ...key('toggle-browser'), click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
         // Not in a packaged build: a "paste this into the console" scam would
@@ -543,6 +563,9 @@ const SECURITY_SETTINGS = new Set(['general', 'mcp', 'localServer', 'remote', 'c
  * Each value is the one now in force; a request the organization's policy
  * held back is recorded as denied, with what was asked for.
  */
+/** Trading started this launch, and hasn't been switched off since. */
+let tradingRunning = false
+
 function auditSettingsChange(patch: Partial<Settings>, next: Settings): void {
   const keys = Object.keys(patch ?? {})
   const security = keys.filter((key) => SECURITY_SETTINGS.has(key))
@@ -591,14 +614,24 @@ function registerIpc(): void {
   })
   onStoreHealth((health) => broadcast('store:health', health))
   ipcMain.handle('settings:get', (): Settings => forRenderer(store.getSettings()))
+  // Settings → Keyboard shortcuts is listening for a key: the menu's own keys are held back until it has one.
+  ipcMain.handle('app:shortcuts-recording', (_e, on: unknown) => buildMenu(on === true))
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
+  ipcMain.handle('trading:available', (): boolean => tradingRunning)
   ipcMain.handle('settings:patch', (e, raw: Partial<Settings>): Settings => {
     const patch = withoutKeys(raw)
     const next = store.patchSettings(patch)
+    // Switched off while it runs: stop its sessions and broker link now. Switching on again takes a restart.
+    if (patch.general?.trading === false && tradingRunning) {
+      tradingRunning = false
+      void FEATURES.find((f) => f.id === 'trading')?.shutdown?.()
+    }
     auditSettingsChange(patch, next)
     if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
+    // The menu's accelerators are its commands' keys.
+    if (patch.shortcuts) buildMenu()
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     if (patch.cliUsage && patch.cliUsage.claudeEverywhere !== undefined) applyClaudeEverywhere(next.cliUsage.claudeEverywhere)
     broadcast('settings:changed', forRenderer(next), e.sender)
@@ -657,6 +690,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('mcp:statuses', () => getStatuses())
   ipcMain.handle('mcp:tools', () => getTools())
+  // Every connected tool, those turned off included: what Settings lists to switch on and off.
+  ipcMain.handle('mcp:all-tools', () => getAllTools())
   ipcMain.handle('mcp:sync', () => shellPath.then(() => syncMcpServers()))
 
   ipcMain.handle('local-server:status', () => getLocalServerStatus())
@@ -809,7 +844,10 @@ function registerIpc(): void {
         if (!event.sender.isDestroyed()) event.sender.send('chat:event', { type: 'done', messageId: request.messageId } satisfies StreamEvent)
         return
       }
-      await streamChat(event, request, stopped.signal)
+      // The project's rules files (AGENTS.md…) follow the instructions typed into it (features/chatContext), then the
+      // user's custom instructions and memory (features/personalize).
+      const instructions = withPersonalInstructions(request, await instructionsWithRules(request))
+      await streamChat(event, { ...request, projectInstructions: instructions }, stopped.signal)
     } finally {
       if (chatStreams.get(request.messageId) === stopped) chatStreams.delete(request.messageId)
     }
@@ -831,13 +869,24 @@ function registerIpc(): void {
     sender.once('destroyed', abandon)
     sender.once('render-process-gone', abandon)
     const started = Date.now()
+    // A coding chat's folder is checkpointed around the reply, so its changes can be undone.
+    const checkpointed = request.cwd ? await captureBefore(request.cwd, request.messageId) : false
     try {
-      const outcome = await runAgent(request, batch.emit, { signal })
-      notifyIfAway(request, outcome.error, Date.now() - started)
+      // A call waiting on the person's OK is told to them if they have looked away.
+      const emit = (payload: StreamEvent): void => {
+        if (payload.type === 'approval-request' && approvalOnce(payload.messageId, Date.now())) notifyIfAway(approvalNotice(request, payload))
+        batch.emit(payload)
+      }
+      const outcome = await runAgent(request, emit, { signal })
+      notifyIfAway(finishedNotice(request, outcome.error, Date.now() - started))
     } finally {
       sender.removeListener('destroyed', abandon)
       sender.removeListener('render-process-gone', abandon)
       batch.flush()
+      if (checkpointed && request.cwd) {
+        const ended = await captureCheckpoint(request.cwd, request.messageId, 'after').catch(() => false)
+        if (ended && !sender.isDestroyed()) sender.send('chat:checkpoint', { messageId: request.messageId })
+      }
     }
   }
   ipcMain.handle('chat:cancel', (_e, messageId: string) => {
@@ -916,21 +965,27 @@ function registerIpc(): void {
 }
 
 /**
- * A Work task that ran for a while and finished while the user was in another
- * app gets a system notification — the whole point of handing work to an
- * agent is not having to watch it.
+ * A Work task that finished, or a call waiting on the user's OK, while they
+ * were in another app gets a system notification: the whole point of handing
+ * work to an agent is not having to watch it. What it says is
+ * shared/chatNotice.ts's; Settings → General's switch turns it off.
  */
-function notifyIfAway(request: StreamRequest, error: string | undefined, elapsedMs: number): void {
-  if (request.mode !== 'work' || elapsedMs < 20_000) return
+const approvalOnce = approvalGate()
+/** Held until clicked or closed: a collected notification loses its click handler. */
+const shownNotices = new Set<Notification>()
+function notifyIfAway(text: NoticeText | null): void {
+  if (!text) return
   if (!store.getSettings().notifications.taskComplete || !Notification.isSupported()) return
   if (openWindows().some((window) => window.isFocused())) return
-  const notification = new Notification({
-    title: error ? 'Task stopped with an error' : 'Task finished',
-    body: request.chatTitle || 'Eaon'
-  })
+  const notification = new Notification(text)
+  shownNotices.add(notification)
   // The window may have been closed since (macOS keeps the app running), and
   // showing a destroyed one throws in the main process.
-  notification.on('click', () => openMainWindow())
+  notification.on('click', () => {
+    shownNotices.delete(notification)
+    openMainWindow()
+  })
+  notification.on('close', () => shownNotices.delete(notification))
   notification.show()
 }
 
@@ -1038,6 +1093,8 @@ app.whenReady().then(async () => {
   step('app icon', () => applyAppIcon(store.getSettings().appearance.appIcon, appWindows))
   // Migrations due, plus the repairs that run every launch; see migrations.ts.
   step('store', () => prepareStore())
+  // Eaon Lite refused an older copy of Eaon: not this one, until the gateway says so again.
+  step('gateway checks', forgetOtherVersionsGatewayChecks)
   step('launch mode', () => store.applyLaunchMode())
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.
@@ -1071,8 +1128,12 @@ app.whenReady().then(async () => {
       audit('feature.blocked', { feature: feature.id, policy: gate }, { via: 'system', outcome: 'denied' })
       continue
     }
+    // Trading is off unless switched on (Settings → General): the module doesn't start, so it has no
+    // engine, tools, broker link or IPC. Switching it on takes a restart.
+    if (feature.id === 'trading' && !store.getSettings().general.trading) continue
     try {
       await feature.register(featureContext)
+      if (feature.id === 'trading') tradingRunning = true
     } catch (error) {
       console.error(`[features] ${feature.id} failed to start:`, error)
     }

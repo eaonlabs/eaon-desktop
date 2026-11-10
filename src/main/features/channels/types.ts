@@ -30,7 +30,12 @@ export interface IncomingMessage {
   /** WhatsApp: the user's own "Message yourself" chat. */
   selfChat?: boolean
   files: IncomingFile[]
-  /** Something sent that the worker can't read yet: "a voice message", "a sticker". */
+  /**
+   * A voice note (Telegram, WhatsApp): Ogg Opus audio the service turns into
+   * text on this computer before the worker sees it.
+   */
+  voice?: { download: () => Promise<Buffer>; seconds: number | null; size: number | null }
+  /** Something sent that the worker can't read yet: "a sticker", "a location". */
   unsupported?: string
 }
 

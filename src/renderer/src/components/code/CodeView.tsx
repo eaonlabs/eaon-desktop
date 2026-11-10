@@ -6,6 +6,7 @@ import { useCode } from './codeStore'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import { ReviewPanel, useReview } from './ReviewPanel'
 import { useAdeDock } from '../ide/adeDock'
+import { useAdeKeys } from './useAdeKeys'
 
 /**
  * The ADE: a grid of real terminals in one project folder, each running a
@@ -14,6 +15,7 @@ import { useAdeDock } from '../ide/adeDock'
 export function CodeView(): JSX.Element {
   const { cwd, initialised } = useCode(useShallow((s) => ({ cwd: s.cwd, initialised: s.initialised })))
   const reviewing = useReview((s) => s.open)
+  useAdeKeys()
 
   useEffect(() => {
     void useCode.getState().init()

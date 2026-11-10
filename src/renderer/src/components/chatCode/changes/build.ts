@@ -1,6 +1,7 @@
 import type { ChatMessage, ChatToolPart } from '@shared/types'
 import type { ReviewFile } from '@shared/adeReview'
 import type { FileChange } from '../../agent/FilesChanged'
+import { isPatchCall, patchChanges } from './patch'
 import { blocksFromHunks, countChanges, diffLines, splitLines, toBlocks, unwindEdits, type DiffBlock, type DiffFileModel, type DiffRow, type EditStep } from '../diff/model'
 
 /**
@@ -9,9 +10,15 @@ import { blocksFromHunks, countChanges, diffLines, splitLines, toBlocks, unwindE
  * whole chat, one turn, or what git says is uncommitted.
  */
 
-export type ReviewScope = { kind: 'chat' } | { kind: 'turn'; turn: number } | { kind: 'git' }
+export type ReviewScope =
+  | { kind: 'chat' }
+  | { kind: 'turn'; turn: number }
+  | { kind: 'git' }
+  /** One commit on the branch, against its parent. */
+  | { kind: 'commit'; sha: string; short: string; subject: string }
 
-export const sameScope = (a: ReviewScope, b: ReviewScope): boolean => a.kind === b.kind && (a.kind !== 'turn' || (b.kind === 'turn' && a.turn === b.turn))
+export const sameScope = (a: ReviewScope, b: ReviewScope): boolean =>
+  a.kind === b.kind && (a.kind !== 'turn' || (b.kind === 'turn' && a.turn === b.turn)) && (a.kind !== 'commit' || (b.kind === 'commit' && a.sha === b.sha))
 
 /** One file edit the agent made, and the turn it made it in (1-based, counting the chat's replies). */
 export interface AgentEdit extends EditStep {
@@ -33,6 +40,17 @@ export function partEdit(part: ChatToolPart, turn: number, at?: number): AgentEd
   if (part.name === 'write_file' && typeof part.input.content === 'string')
     return { path, turn, ...when, kind: 'write', before: part.before ?? '', after: part.input.content, ...(part.before !== undefined ? { seen: true } : {}) }
   return null
+}
+
+/** A finished call's edits: an edit or write is one, a patch or multi-edit one per change it made. */
+export function partEdits(part: ChatToolPart, turn: number, at?: number): AgentEdit[] {
+  if (!isPatchCall(part)) {
+    const edit = partEdit(part, turn, at)
+    return edit ? [edit] : []
+  }
+  const when = at === undefined ? {} : { at }
+  // A patch's added or deleted file carries its whole text, so what was there before it is known.
+  return patchChanges(part).map((c) => ({ path: c.file, turn, ...when, kind: c.write ? 'write' : 'edit', before: c.before, after: c.after, ...(c.write ? { seen: true } : {}), ...(c.replaceAll ? { replaceAll: true } : {}) }))
 }
 
 /**
@@ -76,10 +94,7 @@ export function collectEdits(messages: ChatMessage[]): AgentEdit[] {
   for (const message of messages) {
     if (message.role !== 'assistant') continue
     turn++
-    for (const part of message.parts) {
-      const edit = part.type === 'tool' ? partEdit(part, turn) : null
-      if (edit) edits.push(edit)
-    }
+    for (const part of message.parts) if (part.type === 'tool') edits.push(...partEdits(part, turn))
   }
   return edits
 }

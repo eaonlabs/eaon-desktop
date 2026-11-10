@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleAlert, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { LINK_TARGETS, type LinkMethod } from '@shared/linkAccounts'
-import { providerReadiness } from '@shared/modelSelection'
+import { isProviderUsable, providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
 import type { ToknAccount } from '@shared/usage'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp } from '../../state/store'
 import { ToknMark, useToknAccount } from '../account/ToknAccount'
 import { LinkAccounts } from '../LinkAccounts'
+import { ImportList, useImportServers } from '../ImportServers'
 import { WorkersGlyph } from '../ModeSwitch'
 import { Switch } from '../ui'
 import { ADE_LENGTH, CHAT_LENGTH, MiniApp, WORKERS_LENGTH, reduceMotion, type Scene } from './MiniApp'
@@ -41,6 +42,7 @@ const STEPS = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'tokn', label: 'Tokn profile' },
   { id: 'models', label: 'Models' },
+  { id: 'import', label: 'Import' },
   { id: 'look', label: 'Appearance' },
   { id: 'ready', label: 'Finish' }
 ] as const
@@ -98,15 +100,26 @@ function Setup(): JSX.Element {
   const root = useRef<HTMLDivElement>(null)
   const mini = useRef<HTMLDivElement>(null)
 
-  const index = STEPS.findIndex((s) => s.id === step)
+  // The import step is there only if another app has servers to bring over; the scan is quick, so it
+  // settles before the first step is read, and until then the step is counted in.
+  const [anyToImport, setAnyToImport] = useState<boolean | null>(null)
+  useEffect(() => {
+    void window.api.importApps
+      .scan()
+      .then((apps) => setAnyToImport(apps.some((app) => app.servers.some((server) => !server.duplicate))))
+      .catch(() => setAnyToImport(false))
+  }, [])
+  const steps = anyToImport === false ? STEPS.filter((s) => s.id !== 'import') : STEPS
+
+  const index = steps.findIndex((s) => s.id === step)
   const go = (to: Step): void => {
-    const target = STEPS.findIndex((s) => s.id === to)
+    const target = steps.findIndex((s) => s.id === to)
     setDirection(target >= index ? 1 : -1)
     setReached((r) => Math.max(r, target))
     setStep(to)
   }
-  const next = (): void => go(STEPS[Math.min(index + 1, STEPS.length - 1)].id)
-  const back = (): void => go(STEPS[Math.max(index - 1, 0)].id)
+  const next = (): void => go(steps[Math.min(index + 1, steps.length - 1)].id)
+  const back = (): void => go(steps[Math.max(index - 1, 0)].id)
 
   // The welcome plays its three places in turn; picking one starts it over from there.
   useEffect(() => {
@@ -119,6 +132,8 @@ function Setup(): JSX.Element {
     void refreshProviders()
   }, [refreshProviders])
   const ready = providers.filter((p) => providerReadiness(p).state === 'ready')
+  // Eaon Lite on a network that has used up its day: still shown, with why, rather than gone or "Ready".
+  const eaonWaiting = providers.find((p) => wayOf(p) === 'eaon' && isProviderUsable(p) && providerReadiness(p).state === 'attention') ?? null
 
   const scene: Scene = step === 'welcome' ? PLACES[place].scene : step === 'tokn' ? 'tokn' : step === 'models' ? 'models' : 'home'
 
@@ -191,7 +206,7 @@ function Setup(): JSX.Element {
           </div>
           <ol className="onboarding__steps" style={{ '--at': index } as CSSProperties}>
             <span className="onboarding__indicator" aria-hidden="true" />
-            {STEPS.map((s, i) => {
+            {steps.map((s, i) => {
               const state = i === index ? 'current' : i <= reached ? 'done' : 'todo'
               return (
                 <li key={s.id}>
@@ -221,7 +236,7 @@ function Setup(): JSX.Element {
       <main className="onboarding__main">
         <div className="onboarding__titlebar" />
         <div className="onboarding__progress" aria-hidden="true">
-          Step {index + 1} of {STEPS.length}
+          Step {index + 1} of {steps.length}
         </div>
         {/* The panel with Skip is hidden in a narrow window; this one shows there instead. */}
         <button type="button" className="onboarding__skip onboarding__skip--narrow" onClick={() => void finish('skipped', false)}>
@@ -231,7 +246,8 @@ function Setup(): JSX.Element {
           <section key={step} className="onboarding__step" data-direction={direction}>
             {step === 'welcome' && <Welcome updated={updated} place={place} onPlace={setPlace} onNext={next} />}
             {step === 'tokn' && <ToknStep onBack={back} onNext={next} />}
-            {step === 'models' && <ModelsStep ready={ready} refresh={() => void refreshProviders()} onBack={back} onNext={next} />}
+            {step === 'models' && <ModelsStep ready={ready} eaonWaiting={eaonWaiting} refresh={() => void refreshProviders()} onBack={back} onNext={next} />}
+            {step === 'import' && <ImportStep onBack={back} onNext={next} />}
             {step === 'look' && <LookStep onBack={back} onNext={next} />}
             {step === 'ready' && <Ready updated={updated} onBack={back} onTour={() => void finish('done', true)} onStart={() => void finish('done', false)} />}
           </section>
@@ -369,7 +385,7 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
         <label className="card__row onboarding__option">
           <span className="card__row-body">
             <span className="card__row-title">Also track Claude Code, Codex and other coding CLIs</span>
-            <span className="card__row-desc">The tokn command that comes with Eaon publishes their usage to the same profile every hour.</span>
+            <span className="card__row-desc">The tokn command that comes with Eaon publishes their usage to the same profile, also while Eaon is closed.</span>
           </span>
           <Switch checked={trackCli} onChange={setTrackCli} label="Also track the coding CLIs" />
         </label>
@@ -471,7 +487,19 @@ function useSigninNames(): string | null {
   return orList(names)
 }
 
-function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; refresh: () => void; onBack: () => void; onNext: () => void }): JSX.Element {
+function ModelsStep({
+  ready,
+  eaonWaiting,
+  refresh,
+  onBack,
+  onNext
+}: {
+  ready: Provider[]
+  eaonWaiting: Provider | null
+  refresh: () => void
+  onBack: () => void
+  onNext: () => void
+}): JSX.Element {
   const [linking, setLinking] = useState(false)
   const signinNames = useSigninNames()
   // Kept while the dialog closes, so its list doesn't change on the way out.
@@ -479,23 +507,24 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; ref
   const [codeOpen, setCodeOpen] = useState(false)
   const names = (way: LinkMethod | 'eaon'): string => ready.filter((p) => wayOf(p) === way).map((p) => p.name).join(', ')
   const eaon = names('eaon')
+  const waiting = !eaon && eaonWaiting ? providerReadiness(eaonWaiting) : null
   return (
     <>
       <Header title="Connect a model">Eaon works with whatever you have. Connect as many as you like; every chat can use a different one.</Header>
       <div className="onboarding__ways" style={stagger(2)}>
-        {eaon && (
+        {(eaon || waiting) && (
           <>
-            <div className="onboarding__way" data-static>
+            <div className="onboarding__way" data-static data-waiting={waiting ? true : undefined}>
               <span className="onboarding__way-icon">
                 <EaonSymbol size={15} />
               </span>
               <span className="onboarding__way-body">
-                <span className="onboarding__way-title">{eaon}</span>
-                <span className="onboarding__way-text">Free models from Eaon, already on</span>
+                <span className="onboarding__way-title">{eaon || eaonWaiting?.name}</span>
+                <span className="onboarding__way-text">{waiting?.reason ?? 'Free models from Eaon, already on'}</span>
               </span>
               <span className="onboarding__way-state">
-                <Check size={14} strokeWidth={2.4} />
-                Ready
+                {waiting ? <CircleAlert size={14} strokeWidth={2.2} /> : <Check size={14} strokeWidth={2.4} />}
+                {waiting ? waiting.label : 'Ready'}
               </span>
             </div>
             <div className="onboarding__ways-rule" role="presentation" />
@@ -573,6 +602,41 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; ref
 }
 
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => Promise<void>) => { ready: Promise<void>; finished: Promise<void> } }
+
+/**
+ * Import from another app: the MCP servers set up in Claude, Cursor, Windsurf,
+ * VS Code or Gemini CLI, ticked to come over. Only their server lists are
+ * read; never an account, a chat or a sign-in.
+ */
+function ImportStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }): JSX.Element {
+  const state = useImportServers()
+  const { count, working, error } = state
+  const bring = async (): Promise<void> => {
+    if (await state.run()) onNext()
+  }
+  return (
+    <>
+      <Header title="Bring your tools over">Eaon can use the MCP servers you already set up in other apps. Pick the ones to add; you can change them later in Settings.</Header>
+      <div style={stagger(2)}>
+        <ImportList state={state} />
+        {error && <p className="onboarding__note onboarding__note--error">{error}</p>}
+      </div>
+      <Footer onBack={onBack}>
+        {count > 0 ? (
+          <button type="button" className="btn btn--primary onboarding__btn" onClick={() => void bring()} disabled={working} autoFocus>
+            {working ? <Loader2 size={15} strokeWidth={2} className="spinner" /> : null}
+            Import {count} {count === 1 ? 'server' : 'servers'}
+            <ArrowRight size={15} strokeWidth={2} />
+          </button>
+        ) : (
+          <button type="button" className="btn btn--ghost onboarding__btn" onClick={onNext}>
+            Skip
+          </button>
+        )}
+      </Footer>
+    </>
+  )
+}
 
 function LookStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }): JSX.Element {
   const mode = useApp((s) => s.settings?.appearance.mode ?? 'system')

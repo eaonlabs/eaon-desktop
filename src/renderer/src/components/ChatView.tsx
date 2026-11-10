@@ -6,10 +6,12 @@ import {
   ArrowDown,
   CalendarClock,
   Check,
+  Code2,
   ChevronDown,
   Compass,
   Copy,
   Eye,
+  FileDown,
   FileText,
   FolderInput,
   FolderOpen,
@@ -17,6 +19,7 @@ import {
   Globe,
   Hammer,
   HeartPulse,
+  Hourglass,
   KeyRound,
   MoreHorizontal,
   PanelRight,
@@ -52,6 +55,9 @@ import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
+import { TemporaryHint, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
+import { exportChatToFile } from './chat/exportChat'
+import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
 import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
 import { StockCards } from './workers/WorkerUi'
@@ -63,10 +69,12 @@ import { CodeKeys } from './chatCode/CodeTools'
 import { useCardInline, WorkspaceCard, WorkspaceToggle } from './chatCode/WorkspaceCard'
 import { TerminalDrawer } from './chatCode/TerminalDrawer'
 import { ProjectSearch } from './chatCode/ProjectSearch'
+import { QuickOpen } from './chatCode/QuickOpen'
 import { FileLinks, type FileLinkHandler } from './agent/FileRef'
 import { joinPath } from './ide/paths'
 import { preferredTarget, useChatCode } from './chatCode/chatCodeStore'
-import { openInCode } from './ide/ideStore'
+import { openEditor, openInCode } from './ide/ideStore'
+import { isMac } from '../lib/platform'
 import { CHANNEL_LABEL } from '@shared/channels'
 import type { WorkerMail } from '@shared/workers'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
@@ -74,8 +82,11 @@ import { CLIPBOARD_FAILED, copyText } from '../lib/clipboard'
 import { FindBar } from './chat/FindBar'
 import { Minimap } from './chat/Minimap'
 import { QuoteSelection } from './chat/QuoteSelection'
+import { modelName, modelSwitches } from './chat/modelSwitch'
+import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
+import { isKey } from '../lib/bindings'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
@@ -116,6 +127,7 @@ function Home(): JSX.Element {
       <TopBar
         right={
           <div className="chat-header__actions">
+            {isWork && <TemporaryToggle />}
             {isWork ? <PanelToggles over /> : !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
         }
@@ -125,6 +137,7 @@ function Home(): JSX.Element {
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
           <h1 className="home__title">{isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
+          {isWork && <TemporaryHint />}
           {showSuggestions && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
@@ -149,6 +162,7 @@ function Home(): JSX.Element {
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
       {coding && <ProjectSearch />}
+      {coding && <QuickOpen />}
     </>
   )
 }
@@ -185,9 +199,28 @@ function PanelToggles({ over = false }: { over?: boolean }): JSX.Element {
     <div className="panel-toggles">
       {coding && <CodeKeys />}
       {coding && <WorkspaceToggle over={over} />}
+      {coding && <EditorToggle />}
       {coding && !dockOpen && <DrawerToggle />}
       {!dockOpen && <DockToggle holds={coding ? undefined : 'the browser'} />}
     </div>
+  )
+}
+
+/** The editor beside the conversation: lit while a file is in front in the dock. */
+function EditorToggle(): JSX.Element {
+  const editing = useIde((s) => s.open && s.surfaces.find((x) => x.id === s.activeSurface)?.kind === 'file')
+  return (
+    <button
+      type="button"
+      className="dock-tool"
+      data-active={editing || undefined}
+      aria-pressed={editing}
+      aria-label="Editor"
+      title={editing ? 'Close the editor' : `Edit the project’s files beside the chat (${isMac ? '⌘P' : 'Ctrl+P'} opens a file)`}
+      onClick={() => (editing ? useIde.getState().setOpen(false) : void openEditor())}
+    >
+      <Code2 size={15} strokeWidth={1.8} />
+    </button>
   )
 }
 
@@ -242,11 +275,12 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const moreButton = useRef<HTMLButtonElement>(null)
   // Before paint, so the app-wide dialog never flashes a question the transcript has taken.
 
-  // ⌘F finds in the conversation. Not from the browser panel, a terminal or
-  // the code editor, which have their own find; not over a dialog.
+  // ⌘F (or the key saved for it in Settings → Keyboard shortcuts) finds in
+  // the conversation. Not from the browser panel, a terminal or the code
+  // editor, which have their own find; not over a dialog.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return
+      if (!isKey('find-chat', event)) return
       const target = event.target instanceof Element ? event.target : null
       if (target?.closest('.browser, .term-pane, .xterm, .cm-editor, .monaco-editor, .ide')) return
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
@@ -261,6 +295,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   useEffect(() => setFinding(false), [chat.id])
 
   const streaming = streamingMessageId !== null
+  const switches = useMemo(() => modelSwitches(chat.messages), [chat.messages])
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -348,7 +383,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }
 
   const requestArchive = (): void => {
-    if (streaming) setConfirmArchive(true)
+    // A temporary chat isn't kept, so there is nothing to put away: archiving it ends it.
+    if (streaming && !chat.temporary) setConfirmArchive(true)
     else archiveChat(chat.id)
   }
   // ⇧⌘A and File → Archive Chat. They archived straight from the store, so a
@@ -362,6 +398,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }, [])
 
   const workFolder = useApp((s) => codeFolder(s) ?? s.settings?.work.defaultFolder ?? '~/Eaon')
+  const projectName = useApp((s) => (chat.projectId ? (s.projects.find((p) => p.id === chat.projectId)?.name ?? null) : null))
   const coding = useCoding() && isWork
   // The workspace card beside the conversation: the thread and the message box move over for it.
   const cardInline = useCardInline() && coding
@@ -372,9 +409,21 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         className="chat-header--float"
         left={
           <>
+            {/* A project's chat says which project first: "tally / Add refunds". */}
+            {projectName && (
+              <>
+                <span className="chat-header__project" title={workFolder}>
+                  {projectName}
+                </span>
+                <span className="chat-header__crumb" aria-hidden>
+                  /
+                </span>
+              </>
+            )}
             <span className="chat-header__title" title={chat.title}>
               {chat.title}
             </span>
+            {chat.temporary && <TemporaryPill />}
             <button
               ref={moreButton}
               className="icon-btn"
@@ -435,8 +484,12 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }}
       >
         <div className="thread__inner">
+          {chat.temporary && <TemporaryNote />}
+          {chat.archived && <ArchivedNote chatId={chat.id} />}
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
+              {/* The conversation moved to another model here. */}
+              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} />}
               {/* Compacting before this reply: said where the reply is about to appear. */}
               {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
@@ -474,6 +527,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
       {coding && <TerminalDrawer />}
       {coding && <ProjectSearch />}
+      {coding && <QuickOpen />}
 
       {menu && (
         <ContextMenu
@@ -482,7 +536,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           onClose={() => setMenu(null)}
           items={[
             // window.prompt does nothing in Electron, so Rename here did nothing.
-            { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) },
+            // A temporary chat has no name to keep, and nowhere to move to or archive to.
+            ...(chat.temporary ? [] : [{ icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) }]),
             {
               icon: <Copy size={15} strokeWidth={1.9} />,
               label: 'Copy transcript',
@@ -492,6 +547,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   () => notify("Couldn't copy the transcript. Click in the window and try again.", 'error')
                 )
             },
+            // The save dialog is main's; see main/features/chatExport.ts.
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as Markdown', action: () => void exportChatToFile(chat, 'markdown') },
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as JSON', action: () => void exportChatToFile(chat, 'json') },
             {
               icon: <FolderOpen size={15} strokeWidth={1.9} />,
               label: coding ? 'Open project folder' : 'Open Eaon’s folder',
@@ -500,10 +558,14 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
                 })
             },
-            { icon: <FolderInput size={15} strokeWidth={1.9} />, label: chat.projectId ? 'Move to another project' : 'Move to a project', action: () => setMoving(true) },
-            { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive },
+            ...(chat.temporary
+              ? []
+              : [
+                  { icon: <FolderInput size={15} strokeWidth={1.9} />, label: chat.projectId ? 'Move to another project' : 'Move to a project', action: () => setMoving(true) },
+                  { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive }
+                ]),
             // Deleting can't be undone, so it asks; Archive is the way to put a chat away.
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => setConfirmDelete(true) }
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: chat.temporary ? 'End temporary chat' : 'Delete', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
       )}
@@ -552,11 +614,13 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       <ConfirmDialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete this chat?"
-        confirmLabel="Delete"
+        title={chat.temporary ? 'End this temporary chat?' : 'Delete this chat?'}
+        confirmLabel={chat.temporary ? 'End chat' : 'Delete'}
         onConfirm={() => deleteChat(chat.id)}
       >
-        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+        {chat.temporary
+          ? 'The conversation is removed from this window. It was never saved, so it can’t be brought back.'
+          : `“${chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.`}
       </ConfirmDialog>
 
       {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}
@@ -682,6 +746,8 @@ export const MessageRow = memo(function MessageRow({
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
   )
+  // Any call can change files (a shell command can write them), and a coding reply's card reads what changed from its checkpoints.
+  const calledTools = useMemo(() => message.parts.some((part) => part.type === 'tool'), [message.parts])
   // Still being written, by this window's run or another's (another window, a
   // scheduled task): its action bar waits until it is finished.
   const unfinished = streaming || message.parts.some((part) => part.type === 'tool' && part.status === 'running')
@@ -836,6 +902,18 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
 
+        {/* What the reply is waiting on (a retry after the provider was busy), said while it waits. */}
+        {streaming && message.notice && (
+          <div className="wl" role="status">
+            <div className="wl-row" data-static>
+              <span className="wl-row__icon" aria-hidden>
+                <Hourglass size={16} strokeWidth={1.8} />
+              </span>
+              <span className="wl-row__label">{message.notice}</span>
+            </div>
+          </div>
+        )}
+
         {ask && <ApprovalRow key={ask.requestId} ask={ask} waiting={askWaiting} />}
 
         {message.interrupted && !streaming && (
@@ -865,7 +943,9 @@ export const MessageRow = memo(function MessageRow({
           <PlanRow todos={message.todos} />
         )}
 
-        {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} />}
+        {!streaming && (changes.length > 0 || (isWork && calledTools)) && (
+          <EditedFiles messageId={message.id} changes={changes} work={isWork} undone={message.undone === true} />
+        )}
 
         {message.stopped && !streaming && (
           <div className="msg__stopped" role="status">
@@ -963,14 +1043,49 @@ function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'star
             </button>
           )
         }
-        return (
-          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => open(path)}>
-            <FileText size={15} strokeWidth={1.8} />
-            <span>{name}</span>
-          </button>
-        )
+        return <FileCard key={path} path={path} name={name} onOpen={() => open(path)} />
       })}
     </div>
+  )
+}
+
+/** "812 B", "44 KB", "3.2 MB". */
+const fileSize = (bytes: number): string =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
+
+/** Pasted text saved as a file (the composer's long paste): its own card, not its timestamped name. */
+const PASTED_TEXT = /^Pasted text \d{4}-\d{2}-\d{2} [\d.]+ \w+\.txt$/
+
+/**
+ * A file sent with a message, as a card: its name, then what kind of file it
+ * is and how big. Pasted text says so. A file gone since says that instead.
+ */
+function FileCard({ path, name, onOpen }: { path: string; name: string; onOpen: () => void }): JSX.Element {
+  const [info, setInfo] = useState<{ exists: boolean; size: number } | null>(null)
+  useEffect(() => {
+    let live = true
+    void window.api.library
+      .stat([path])
+      .then(([stat]) => live && stat && setInfo({ exists: stat.exists, size: stat.size }))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [path])
+  const pasted = PASTED_TEXT.test(name)
+  const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : 'File'
+  const kind = pasted ? 'Text' : ext.length <= 5 ? ext : 'File'
+  const detail = info === null ? kind : info.exists ? `${kind} · ${fileSize(info.size)}` : 'No longer there'
+  return (
+    <button className="msg-attachment msg-attachment--file msg-attachment--card" title={path} onClick={onOpen} data-missing={info?.exists === false || undefined}>
+      <span className="msg-attachment__glyph" aria-hidden>
+        <FileText size={16} strokeWidth={1.8} />
+      </span>
+      <span className="msg-attachment__text">
+        <span className="msg-attachment__name">{pasted ? 'Pasted text' : name}</span>
+        <span className="msg-attachment__detail">{detail}</span>
+      </span>
+    </button>
   )
 }
 
@@ -994,13 +1109,45 @@ function UserText({ text }: { text: string }): JSX.Element {
   const long = text.length > FOLD_CHARS || text.split('\n').length > FOLD_LINES
   return (
     <div className="msg--user" data-folded={(long && !open) || undefined}>
-      <div className="msg-user__body">{text}</div>
+      <div className="msg-user__body">
+        <UserBody text={text} />
+      </div>
       {long && (
         <button type="button" className="msg-user__more" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? 'Show less' : 'Show more'}
         </button>
       )}
     </div>
+  )
+}
+
+/** What the user wrote, with its code as code: a fenced block under its `path:line`, and `inline` spans. */
+function UserBody({ text }: { text: string }): JSX.Element {
+  const segments = useMemo(() => userSegments(text), [text])
+  if (segments.length === 1 && segments[0].kind === 'text' && !segments[0].text.includes('`')) return <>{text}</>
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.kind === 'code' ? (
+          <div key={index} className="msg-user__block">
+            {(segment.ref || segment.lang) && <div className="msg-user__block-head">{segment.ref ?? segment.lang}</div>}
+            <pre className="msg-user__pre">{segment.text}</pre>
+          </div>
+        ) : (
+          <span key={index} className="msg-user__text">
+            {inlineCode(segment.text).map((piece, i) =>
+              i % 2 === 1 ? (
+                <code key={i} className="msg-user__code">
+                  {piece}
+                </code>
+              ) : (
+                piece
+              )
+            )}
+          </span>
+        )
+      )}
+    </>
   )
 }
 
@@ -1113,6 +1260,16 @@ function MailEvent({ event, text }: { event: NonNullable<WorkerMail['event']>; t
         <ChevronDown size={12} strokeWidth={2} className="msg__event-chevron" />
       </button>
       {open && <pre className="msg__event-text">{text}</pre>}
+    </div>
+  )
+}
+
+/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5". */
+function ModelSwitchLine({ model }: { model: string }): JSX.Element {
+  const name = useApp((s) => modelName(s.providers, model))
+  return (
+    <div className="model-switch" role="note">
+      <span className="model-switch__text">Switched to {name}</span>
     </div>
   )
 }

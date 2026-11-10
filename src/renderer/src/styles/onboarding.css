@@ -1502,6 +1502,13 @@ button.onboarding__way:hover .onboarding__way-chevron {
   flex: none;
   color: var(--diff-add-fg);
 }
+.onboarding__way[data-waiting] .onboarding__way-state svg {
+  color: #d69a3a;
+}
+/* Why it's waiting is a sentence or two; it wraps rather than trailing off. */
+.onboarding__way[data-waiting] .onboarding__way-text {
+  white-space: normal;
+}
 .onboarding__way-names {
   min-width: 0;
   white-space: nowrap;

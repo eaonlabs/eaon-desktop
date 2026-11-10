@@ -23,7 +23,8 @@ import {
   Smartphone,
   SquarePlus,
   Sun,
-  Wand2, Gauge, Bot, Search } from 'lucide-react'
+  Wand2, Gauge, Bot, Search, MousePointerClick } from 'lucide-react'
+import { Brain } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { THEMES } from '../../lib/themes'
@@ -38,8 +39,10 @@ import { ConfigurationPage } from './pages/Configuration'
 import { ShortcutsPage } from './pages/Shortcuts'
 import { ProvidersPage } from './pages/Providers'
 import { ArchivedPage } from './pages/Archived'
+import { MemoryPage } from './pages/Memory'
 import { BrowserSettingsPage } from './pages/Misc'
 import { ComputerUsePage } from './pages/ComputerUse'
+import { AppControlPage } from './pages/AppControl'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { RemoteDevicesPage } from './pages/RemoteDevices'
@@ -80,20 +83,22 @@ const stroke = 1.9
  * in any order (shared/searchWords.ts). Keep these to what the page really has: a word that leads
  * to a page without it is worse than no match.
  */
-const KEYWORDS: Record<string, string> = {
+export const KEYWORDS: Record<string, string> = {
   general:
-    'speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
+    'custom instructions system prompt personalize speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
   appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),
   configuration: 'web search search engine internet',
   shortcuts: 'keyboard hotkey hotkeys keys key bindings',
   usage: 'tokens cost spend limits tokn activity streak',
-  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
+  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter sidebar footer foot tokens dollars today week chart',
   accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
+  memory: 'remember remembers memories facts preferences personalize forget saved across chats',
   providers:
     'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free event code hackathon workshop eaon event eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
   'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority permissions full access yolo bypass skip permissions accept edits approve for me ask for approval',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',
+  'app-control': 'app control accessibility tree apps windows buttons menus automate operate desktop apps eaon-apps ui automation at-spi agent desktop',
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',
   plugins: 'skills mcp extensions',
@@ -106,12 +111,12 @@ const KEYWORDS: Record<string, string> = {
   browser: 'homepage search engine tabs',
   mcp: 'model context protocol tools servers timeout',
   'connect-apps': 'import openclaw hermes cline apps claude plan claude code tools mcp',
-  'code-index': 'embedding semantic search index repository goal goal mode continuations time limit token limit',
+  'code-index': 'embedding semantic search index repository goal goal mode continuations time limit token limit maximum tool steps rounds step limit stopped continue',
   'local-server': 'port api server openai compatible gateway key',
   'remote-devices': 'phone mobile remote web rc github',
   system: 'cpu memory ram gpu performance monitor',
   security: 'audit log policy enterprise organization verify integrity records',
-  archived: 'archive restore deleted chats history'
+  archived: 'archive restore deleted chats history archive all delete all search find open read'
 }
 
 const NAV: NavEntry[] = [
@@ -122,11 +127,13 @@ const NAV: NavEntry[] = [
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'usage-limits', label: 'Usage & limits', icon: <Gauge size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'memory', label: 'Memory', icon: <Brain size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'app-control', label: 'App control', icon: <MousePointerClick size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -157,6 +164,7 @@ const POLICY_PAGES: Record<string, PolicyFeature> = {
   'remote-devices': 'remoteAccess',
   'local-server': 'localApiServer',
   'computer-use': 'computerUse',
+  'app-control': 'computerUse',
   payments: 'payments',
   'chat-apps': 'channels',
   email: 'email',
@@ -175,10 +183,12 @@ const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Ele
   usage: UsagePage,
   'usage-limits': UsageLimitsPage,
   accounts: AccountsPage,
+  memory: MemoryPage,
   providers: ProvidersPage,
   engines: EnginesPage,
   'agent-providers': AgentProvidersPage,
   'computer-use': ComputerUsePage,
+  'app-control': AppControlPage,
   'browser-control': BrowserControlPage,
   'eaon-code': EaonCodePage,
   ade: AdePage,

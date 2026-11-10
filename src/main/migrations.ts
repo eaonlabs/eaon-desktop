@@ -4,6 +4,7 @@ import { backupDocs, readDoc, shapeOf, sweepTempFiles, writeDocSync } from './st
 import { migrateScheduledRuns } from './features/scheduler/migrate'
 import { leaveFreeWeek } from './freeCredits'
 import { trackCodingClisByDefault } from './features/toknCli'
+import { noStepLimitByDefault } from './agent/stepLimit'
 
 /**
  * Versioned changes to the shape of saved data, run once each, in order, at
@@ -69,6 +70,13 @@ export const MIGRATIONS: Migration[] = [
     name: 'tokn-tracking',
     files: ['settings.json'],
     run: () => trackCodingClisByDefault()
+  },
+  {
+    // Work replies have no step limit by default now; 40 was the old default (agent/stepLimit.ts).
+    version: 6,
+    name: 'no-step-limit',
+    files: ['settings.json'],
+    run: () => noStepLimitByDefault()
   }
 ]
 

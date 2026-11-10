@@ -2,6 +2,7 @@ import type { EffortLevel, ModelInfo, Provider } from './types'
 import type { Capability, EngineId, EngineModels, EngineStatus, ModelSource } from './engines'
 import { ENGINE_LABEL } from './engines'
 import { isLastingIssue, type ProviderAction } from './providers'
+import { FREE_PROVIDER_ID } from './freeCredits'
 import { orderEfforts } from './effort'
 
 /**
@@ -94,9 +95,18 @@ export function isProviderUsable(provider: Provider): boolean {
  * it. Stored credentials alone don't make a provider ready: after a check
  * found them expired or rejected it needs attention until a check passes.
  */
-export function providerReadiness(provider: Provider): ProviderReadiness {
+export function providerReadiness(provider: Provider, now = Date.now()): ProviderReadiness {
   if (!provider.enabled) return { state: 'off', label: 'Off', reason: `${provider.name} is turned off in Model providers.`, action: 'turn-on' }
   const issue = provider.health && !provider.health.ok ? provider.health.issue : null
+  const until = provider.health && !provider.health.ok ? provider.health.until : undefined
+  if (until && until > now) {
+    const when = fromNow(until, now)
+    const reason =
+      provider.id === FREE_PROVIDER_ID
+        ? `You’ve used today’s requests from your event code. They start again ${when}. Choose another model meanwhile.`
+        : `${provider.name}’s free requests are used up on this network for now. They start again ${when}. Use an event code or another model meanwhile.`
+    return { state: 'attention', label: 'Limit reached', reason, action: 'choose-model' }
+  }
   if (!hasCredentials(provider)) {
     // A sign-in that ran out clears its tokens; say it expired rather than "never signed in".
     if (issue && (issue.kind === 'auth-expired' || issue.kind === 'auth-revoked')) {
@@ -679,6 +689,15 @@ export function ago(at: number, now = Date.now()): string {
   const hours = Math.floor(minutes / 60)
   if (hours < 48) return `${hours} h ago`
   return `${Math.floor(hours / 24)} days ago`
+}
+
+/** "in 5 min", "in 18 h", "in 3 days". */
+export function fromNow(at: number, now = Date.now()): string {
+  const minutes = Math.max(1, Math.ceil((at - now) / 60_000))
+  if (minutes < 60) return `in ${minutes} min`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `in ${hours} h`
+  return `in ${Math.round(hours / 24)} days`
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`

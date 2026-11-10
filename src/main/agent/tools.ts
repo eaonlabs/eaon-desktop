@@ -52,6 +52,8 @@ export interface TurnState {
    * successful change and the most recent call that looked at the result.
    * Numbers are positions in the turn's sequence of tool calls.
    */
+  /** How often this turn has run the project's check, and whether it last failed (agent/checks.ts). */
+  checks?: { runs: number; failing: boolean }
   evidence?: { seq: number; lastChange?: { seq: number; tool: string }; lastCheck?: number; verifyAsked?: boolean }
 }
 
@@ -108,6 +110,16 @@ export interface AgentTool {
    */
   risky?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
   /**
+   * The person's own denylist: why this call may never run (the rule that matched), or null.
+   * Refused in every mode, for a worker and in the CLI, nothing lifts it.
+   */
+  denied?: (input: Record<string, unknown>, ctx: ToolContext) => string | null
+  /**
+   * The person's own allowlist: this call is one they have said may run without asking.
+   * It never covers what `catastrophic` says can't be undone.
+   */
+  allowed?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
    * Whether a call could do lasting damage nobody can undo: wiping a disk,
    * `sudo`, spending money, typing a card number, a plugin action its server
    * marks destructive. An autonomous worker runs risky calls on its own but
@@ -127,6 +139,12 @@ export interface AgentTool {
    * risky; see `DELEGATING` in agent/policy.ts.
    */
   delegates?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
+   * A rule the user set for this call (a plugin tool's own permission in
+   * Settings → MCP Servers): `allow` skips the approval question, `block`
+   * refuses it. Neither lifts what a tool marks catastrophic; see agent/policy.ts.
+   */
+  permission?: (input: Record<string, unknown>, ctx: ToolContext) => 'allow' | 'block' | undefined
   /** One-line summary for the approval dialog and the thinking trace. */
   describe?: (input: Record<string, unknown>) => string
   /**

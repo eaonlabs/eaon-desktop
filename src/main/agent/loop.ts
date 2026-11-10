@@ -16,10 +16,13 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
-import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
+import { buildHistory, estimateMessages, estimateTokens, prepareAttachments, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
-import { CallGuard } from './guards'
+import { CallGuard, MAX_IDLE_ROUNDS } from './guards'
 import { openSteps, PLAN_STALE_ROUNDS, planFinishNudge, planReminder } from './planNudge'
+import { checkAfterEdits } from './checks'
+import { workspaceRoots } from '../localTools'
+import { FILE_EDIT_TOOLS } from '@shared/projectChecks'
 import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type TurnOrigin, type UnattendedPolicy } from './policy'
 import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
@@ -28,7 +31,8 @@ import { redactSecrets } from '../providers/redact'
 import { engine as engineAdapter } from '../engines'
 import { recordUsage } from '../features/usage/ledger'
 import { agentRunSource, trackAgentRun } from '../features/usage/agentRuns'
-import { usageSource } from '../features/usage/attribution'
+import { usageSource, withUsageProject } from '../features/usage/attribution'
+import { noteProjectRun } from './projectHooks'
 import { runEngineChat } from './engineChat'
 import type { EngineId } from '@shared/engines'
 import { audit, auditIncludesToolInputs } from '../enterprise/audit'
@@ -276,8 +280,11 @@ export interface LoopOutcome {
   answer: string
   usage: TokenUsage
   turn: TurnState
-  stopped: 'done' | 'plan' | 'rounds' | 'goal-limit'
+  stopped: 'done' | 'plan' | 'rounds' | 'stuck' | 'goal-limit'
 }
+
+/** The longest a request waits before it is tried again. */
+const RETRY_WAIT_CAP_MS = 60_000
 
 /**
  * One model request, trying each credential in turn and retrying overloads
@@ -350,10 +357,12 @@ async function callModel(
           continue
         }
         if (!streamed && retry < 3 && isRetryable(error)) {
-          const wait = Math.min(
-            (error instanceof ProviderHttpError ? error.retryAfterMs : undefined) ?? [2000, 6000, 15000][retry],
-            60_000
-          )
+          const asked = error instanceof ProviderHttpError ? error.retryAfterMs : undefined
+          // Told to wait longer than a retry ever waits (a day's limit answers
+          // with hours): every retry would be refused too, so say so now
+          // instead of after three minutes of "Thinking".
+          if (asked !== undefined && asked > RETRY_WAIT_CAP_MS) throw error
+          const wait = Math.min(asked ?? [2000, 6000, 15000][retry], RETRY_WAIT_CAP_MS)
           const status = error instanceof ProviderHttpError ? ` (${error.status})` : ''
           const cutOff = error instanceof Error && /stream ended before/.test(error.message)
           const why = cutOff ? 'The reply was cut off' : refused ? `Couldn't connect to ${params.provider.name}` : `The provider is busy${status}`
@@ -530,7 +539,13 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
    * card while its own stayed "running", and was replayed as interrupted.
    */
   const callIds = new Set(messages.flatMap((m) => (m.role === 'assistant' ? m.calls.map((c) => c.id) : [])))
-  const note = (text: string): void => params.onReasoning(`\n${text}\n`)
+  // Kept in the turn's thoughts, and said in the conversation at once: while
+  // the turn runs its newest thought only reads "Thinking", so a retry's wait
+  // ("The provider is busy (429) — retrying in 60s.") showed only afterwards.
+  const note = (text: string): void => {
+    params.onReasoning(`\n${text}\n`)
+    if (params.depth === 0) emit({ type: 'notice', messageId: request.messageId, text })
+  }
   let text = ''
   let answer = ''
   let goalIterations = 0
@@ -691,6 +706,15 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       results[results.length - 1] = { ...last, output: last.output + planReminder(turn.todos!) }
       roundsSincePlan = 0
     }
+    // Files were edited this round: the project's own check runs, and what it says when it fails goes back with the results.
+    if (params.depth === 0 && params.cwd && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
+      const checked = await checkAfterEdits(params.cwd, params.liveSettings?.() ?? params.settings, (turn.checks ??= { runs: 0, failing: false }), signal)
+      if (checked) {
+        const last = results[results.length - 1]
+        results[results.length - 1] = { ...last, output: last.output + checked.text }
+        note(checked.failed ? 'The checks found problems in the edits; the agent is fixing them.' : 'The checks pass now.')
+      }
+    }
     messages.push({ role: 'tool', results })
     if (turn.extraUsage) {
       addUsage(usage, turn.extraUsage)
@@ -706,10 +730,22 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (turn.plan) return { text, answer, usage, turn, stopped: 'plan' }
     // So does a worker going to sleep: it wakes when it scheduled.
     if (turn.yielded) return { text, answer, usage, turn, stopped: 'done' }
+    // Going round in circles: many rounds that changed nothing and learned nothing new.
+    if (guard.endRound() >= MAX_IDLE_ROUNDS) {
+      if (goalActive()) return pauseGoalRun(`no progress in the last ${MAX_IDLE_ROUNDS} steps`)
+      if (params.depth === 0) {
+        const tail = `\n\n_Stopped: the last ${MAX_IDLE_ROUNDS} steps changed nothing and only repeated earlier ones for the same results, so it looks stuck. Say "continue" to keep going, or say what to try instead._`
+        params.onText(tail)
+        text += tail
+      }
+      return { text, answer, usage, turn, stopped: 'stuck' }
+    }
   }
 
   if (params.depth === 0) {
-    const tail = `\n\n_Stopped after ${params.maxRounds} tool rounds. Say "continue" to keep going, or raise the limit in Settings → Configuration._`
+    // Chat's own small limit isn't the setting's, so only Work points at it.
+    const raise = request.mode === 'work' ? ', or raise the limit in Settings → Code index' : ''
+    const tail = `\n\n_Stopped after ${params.maxRounds} tool rounds. Say "continue" to keep going${raise}._`
     params.onText(tail)
     text += tail
   }
@@ -883,9 +919,12 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
  */
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
   const onEngine = Boolean(request.engine && request.engine !== 'native')
+  if (request.rawSystem === undefined) noteProjectRun(request.cwd)
   const run = trackAgentRun(request.rawSystem !== undefined ? null : agentRunSource(request.mode, onEngine, usageSource()), emit)
+  // Every request this run makes (the loop, sub-agents, compaction) is counted for the run's project folder.
+  const go = (): Promise<RunOutcome> => (onEngine ? runOnEngine(request, request.engine as EngineId, run.emit, options) : runOwnLoop(request, run.emit, options))
   try {
-    return onEngine ? await runOnEngine(request, request.engine as EngineId, run.emit, options) : await runOwnLoop(request, run.emit, options)
+    return await (request.rawSystem !== undefined ? go() : withUsageProject(request.cwd ?? '', go))
   } finally {
     run.finish()
   }
@@ -925,9 +964,11 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     const raw = request.rawSystem !== undefined
     const mode = request.mode
     const cwd = mode === 'work' && !raw ? await ensureWorkFolder(request.cwd, settings) : ''
-    const readOnly = mode === 'work' && request.work.plan
+    const readOnly = mode === 'work' && (request.work.plan || Boolean(request.work.ask))
     const query: ToolQuery = { mode, cwd: cwd || null, depth: 0, readOnly, settings, request }
-    const offered = raw ? [] : toolsFor(query)
+    // Ask has no plan to present: the tool isn't offered, so a model can't end its answer on one.
+    const asking = mode === 'work' && Boolean(request.work.ask) && !request.work.plan
+    const offered = raw ? [] : toolsFor(query).filter((tool) => !(asking && tool.name === 'present_plan'))
     const tools = options.offer ? offered.filter((tool) => options.offer!(tool.name)) : offered
     const system = raw
       ? (request.rawSystem ?? '')
@@ -938,7 +979,9 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
             projectInstructions: request.projectInstructions,
             guidance: guidanceFor(query, options.offer),
             swarm: request.work.swarm && !readOnly,
-            plan: readOnly,
+            plan: Boolean(request.work.plan),
+            extraRoots: workspaceRoots(cwd),
+            ask: Boolean(request.work.ask),
             goal: request.goal,
             autonomy: settings.approvalMode === 'full' && !options.unattended,
             // A worker speaks as itself rather than as the generic agent.
@@ -948,6 +991,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     // By id or by an alias folded into it (a dated snapshot chosen before it was folded).
     const model = findModel(provider.models, request.modelId)
     const window = contextWindowFor(provider, request.modelId, model)
+    await prepareAttachments(request.history)
     const built = buildHistory(request.history, request.summary, settings.context.keepFullToolTurns)
     let messages = built.messages
 
@@ -1025,7 +1069,9 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
 
     // A goal with an end time is bounded by that time; the usual round cap would end it hours early.
     const runsUntil = request.goal?.status === 'active' && request.goal.until && request.goal.until > Date.now()
-    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
+    // 0 is no limit: the reply goes on until it is done, or stuck (runLoop).
+    const steps = settings.codeIndex.maxToolRounds
+    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil || steps === 0 ? 10_000 : Math.min(Math.max(steps || 40, 1), 1_000)
     // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
     let outcome: LoopOutcome
     try {

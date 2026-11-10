@@ -7,6 +7,8 @@ import { app, shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
 import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand, writtenPaths } from './agent/approvals'
+import { allowedBy, deniedBy, normalizeRules } from '@shared/commandRules'
+import { sandboxedSpawn } from './sandbox'
 import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
 /**
@@ -75,6 +77,24 @@ function windowsCredentialFolders(): string[] {
     ...local.flatMap((dir) => [join(dir, 'Microsoft', 'Credentials'), join(dir, 'Microsoft', 'Vault')])
   ]
 }
+
+/**
+ * A project's other folders, by the work folder they go with. Set when a turn's
+ * tools are built (the project's chats share one folder, so one answer); read
+ * wherever a path is judged, so every tool treats them as part of the work
+ * folder without each being handed the list.
+ */
+const extraRootsByCwd = new Map<string, string[]>()
+
+export function setWorkspaceRoots(cwd: string, roots: readonly string[] | undefined): void {
+  const key = resolve(cwd)
+  const usable = (roots ?? []).filter((r) => typeof r === 'string' && isAbsolute(r)).map((r) => resolve(r)).filter((r) => r !== key && existsSync(r))
+  if (usable.length) extraRootsByCwd.set(key, [...new Set(usable)])
+  else extraRootsByCwd.delete(key)
+}
+
+/** The other folders of the workspace whose main folder is `cwd`. */
+export const workspaceRoots = (cwd: string): string[] => extraRootsByCwd.get(resolve(cwd)) ?? []
 
 function allowedRoots(): string[] {
   const roots = [HOME, tmpdir(), '/tmp', '/private/tmp']
@@ -156,9 +176,10 @@ export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
   if (FORBIDDEN.some((f) => within(path, f) || within(real, f) || within(real, realish(f))) || inAppData(path) || inAppData(real)) {
     throw new Error(`"${target}" holds credentials, which the agent is not allowed to touch.`)
   }
-  const inside = within(path, root) && within(real, realish(root))
-  // Both where it says it is and where it really is must be somewhere the agent may go.
-  const allowed = (p: string): boolean => allowedRoots().some((r) => within(p, r) || within(p, realish(r)))
+  const extras = workspaceRoots(root)
+  const inside = [root, ...extras].some((r) => within(path, r) && within(real, realish(r)))
+  // Both where it says it is and where it really is must be somewhere the agent may go: the home folder and the like, or the workspace's own folders.
+  const allowed = (p: string): boolean => [...allowedRoots(), ...extras].some((r) => within(p, r) || within(p, realish(r)))
   if (!inside && !(allowed(path) && allowed(real))) {
     throw new Error(`"${target}" is outside your home folder, which the agent is not allowed to access.`)
   }
@@ -192,7 +213,33 @@ const display = (cwd: string, path: string): string => {
 
 /* ------------------------------------------------------------------ shell */
 
-const background = new Map<number, { command: string; log: string; exit: Promise<number | null> }>()
+const background = new Map<number, { command: string; log: string; cwd: string; startedAt: number; exit: Promise<number | null> }>()
+const backgroundListeners = new Set<() => void>()
+const backgroundChanged = (): void => {
+  for (const listener of backgroundListeners) listener()
+}
+
+/** The background processes run_command started (dev servers, watchers), oldest first: Chat lists them to stop. */
+export function backgroundProcesses(): { pid: number; command: string; log: string; cwd: string; startedAt: number }[] {
+  return [...background].map(([pid, p]) => ({ pid, command: p.command, log: p.log, cwd: p.cwd, startedAt: p.startedAt }))
+}
+
+/** Stops one of them, and whatever it started. False when it isn't one of them (or has already gone). */
+export function stopBackgroundProcess(pid: number): boolean {
+  if (!background.has(pid)) return false
+  try {
+    killTree(pid, 'SIGTERM')
+  } catch {
+    // Already exited; its exit event forgets it.
+  }
+  return true
+}
+
+/** Told when one starts or ends. Returns the way to stop listening. */
+export function onBackgroundChange(listener: () => void): () => void {
+  backgroundListeners.add(listener)
+  return () => backgroundListeners.delete(listener)
+}
 
 /**
  * Calls `onExit` once the process `pid` has exited — straight from the exit
@@ -352,11 +399,13 @@ class HeadAndTail {
  * process group (tree, on Windows), so a `npm run dev` does not outlive the
  * Stop button.
  */
-function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promise<string> {
+async function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promise<string> {
+  // With the sandbox on, the command goes through Seatbelt; the same shell, the same environment.
+  const boxed = await sandboxedSpawn(command, ctx.cwd, commandShell() === true ? '/bin/bash' : (commandShell() as string), ctx.settings, workspaceRoots(ctx.cwd))
   return new Promise((resolvePromise, reject) => {
     if (ctx.signal.aborted) return reject(new Error('aborted'))
-    const child = spawn(shellLine(command), {
-      shell: commandShell(),
+    const child = spawn(boxed ? boxed.file : shellLine(command), boxed ? boxed.args : [], {
+      ...(boxed ? {} : { shell: commandShell() }),
       cwd: ctx.cwd,
       detached: process.platform !== 'win32',
       // Otherwise every command flashes a console window on Windows.
@@ -434,13 +483,19 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
   })
 }
 
+/** One of the project's own checks (a typecheck, a lint), run in its folder: "exit code N" and what it printed. */
+export function runProjectCheck(command: string, cwd: string, signal: AbortSignal, timeoutMs: number): Promise<string> {
+  return runCommand(command, { cwd, signal, progress: () => undefined } as unknown as ToolContext, timeoutMs)
+}
+
 /** Starts a long-lived process (a dev server) and returns once it has had a moment to print. */
-async function runBackground(command: string, cwd: string): Promise<string> {
+async function runBackground(command: string, cwd: string, settings?: Settings): Promise<string> {
+  const boxed = await sandboxedSpawn(command, cwd, commandShell() === true ? '/bin/bash' : (commandShell() as string), settings, workspaceRoots(cwd))
   const log = join(tmpdir(), `eaon-bg-${Date.now()}.log`)
   // A command's output can hold anything it printed; /tmp is shared on Linux.
   const out = createWriteStream(log, { mode: 0o600 })
-  const child = spawn(shellLine(command), {
-    shell: commandShell(),
+  const child = spawn(boxed ? boxed.file : shellLine(command), boxed ? boxed.args : [], {
+    ...(boxed ? {} : { shell: commandShell() }),
     cwd,
     // Its own process group, to kill it by. Not on Windows: there a detached
     // cmd.exe has no console, so each program it starts opens a window of its own.
@@ -468,9 +523,13 @@ async function runBackground(command: string, cwd: string): Promise<string> {
   child.unref()
   const pid = child.pid
   if (pid) {
-    background.set(pid, { command, log, exit: new Promise((resolveExit) => child.once('exit', (code) => resolveExit(code))) })
+    background.set(pid, { command, log, cwd, startedAt: Date.now(), exit: new Promise((resolveExit) => child.once('exit', (code) => resolveExit(code))) })
+    backgroundChanged()
     // Forgotten once it exits, so quitting never signals a pid the system has since reused.
-    child.on('exit', () => background.delete(pid))
+    child.on('exit', () => {
+      background.delete(pid)
+      backgroundChanged()
+    })
   }
   await started
   if (failed) {
@@ -925,7 +984,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
       (input, ctx) => {
         const command = str(input.command)
         if (!command.trim()) throw new Error('command is empty.')
-        if (input.background) return runBackground(command, ctx.cwd)
+        if (input.background) return runBackground(command, ctx.cwd, ctx.settings)
         const timeout = Math.min(MAX_COMMAND_TIMEOUT_MS, Math.max(1000, Number(input.timeout_seconds) * 1000 || DEFAULT_COMMAND_TIMEOUT_MS))
         return runCommand(command, ctx, timeout)
       },
@@ -940,6 +999,15 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
           (!settings.general.fullAccess &&
             writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         catastrophic: (input) => isCatastrophicCommand(str(input.command)),
+        // The person's own lists (Settings → General → Command rules).
+        denied: (input) => {
+          const pattern = deniedBy(normalizeRules(settings.general.commandRules), str(input.command))
+          return pattern ? `Your command denylist blocks this (“${pattern}”). Do not try to get around it: use another way, or ask the user to change the rule in Settings → General → Command rules.` : null
+        },
+        allowed: (input, ctx) =>
+          allowedBy(normalizeRules(settings.general.commandRules), str(input.command), isReadOnlyCommand) &&
+          // An allowed pattern doesn't lift the check on writing outside the work folder.
+          (settings.general.fullAccess || !writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         describe: (input) => str(input.command)
       }
     )
@@ -976,7 +1044,11 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
 
 registerToolSource({
   id: 'files',
-  tools: (query) => (query.mode === 'work' && query.cwd ? fileTools(query.settings, indexedPaths(query.cwd).length > 0) : []),
+  tools: (query) => {
+    if (query.mode !== 'work' || !query.cwd) return []
+    setWorkspaceRoots(query.cwd, query.request.extraRoots)
+    return fileTools(query.settings, indexedPaths(query.cwd).length > 0)
+  },
   guidance: () =>
     [
       'Files and shell: relative paths resolve against the Work folder. Read before you edit; prefer edit_file for small changes. After changing code, run the project\'s own build/test command to verify.',

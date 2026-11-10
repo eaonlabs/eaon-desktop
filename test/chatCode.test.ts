@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { makeTargets, packageRunner, packageScripts, parseBranches, parseGrep, scriptIcon } from '../src/shared/chatCode'
+import { makeTargets, packageRunner, packageScripts, parseBranches, parseCommits, parseGrep, scriptIcon, localUrl, processName } from '../src/shared/chatCode'
 import { parseFileRef } from '../src/renderer/src/components/agent/FileRef'
 import { splitPairs } from '../src/renderer/src/components/chatCode/diff/model'
 import { findTrigger } from '../src/renderer/src/components/composer/suggest'
@@ -85,4 +85,29 @@ test('"@" takes a project path; "/" still doesn’t', () => {
   assert.deepEqual(findTrigger('see @src/app', 12), { char: '@', query: 'src/app', start: 4, end: 12 })
   assert.equal(findTrigger('/usr/bin', 8), null)
   assert.equal(findTrigger('@a@b', 4), null)
+})
+
+test('git log rows become commits, the ones not on the upstream marked', () => {
+  const out = 'aaa111\x00aaa1\x00Add refunds\x001793660000\x00Sam\nbbb222\x00bbb2\x00init\x001793650000\x00Sam\n'
+  const commits = parseCommits(out, new Set(['aaa111']))
+  assert.deepEqual(commits.map((c) => [c.short, c.subject, c.local, c.at]), [
+    ['aaa1', 'Add refunds', true, 1793660000000],
+    ['bbb2', 'init', false, 1793650000000]
+  ])
+  assert.deepEqual(parseCommits('', new Set()), [])
+})
+
+test('a dev server’s printed address is found, coloured or not, 0.0.0.0 read as localhost', () => {
+  assert.equal(localUrl('  VITE v6  ready\n  \x1b[32m➜\x1b[39m  Local:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m\n'), 'http://localhost:5173/')
+  assert.equal(localUrl('Listening on http://0.0.0.0:3000.'), 'http://localhost:3000')
+  assert.equal(localUrl('ready - started server on http://127.0.0.1:8080/app'), 'http://127.0.0.1:8080/app')
+  assert.equal(localUrl('see https://example.com:443/docs'), null)
+  assert.equal(localUrl(''), null)
+})
+
+test('a background process is named by its first words', () => {
+  assert.equal(processName('npm run dev'), 'npm run dev')
+  assert.equal(processName('cd web && PORT=3000 pnpm dev'), 'pnpm dev')
+  assert.equal(processName('node -e "require(1)"'), 'node -e')
+  assert.equal(processName('./node_modules/.bin/vite --port 5173'), 'vite --port 5173')
 })

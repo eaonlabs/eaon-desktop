@@ -204,6 +204,10 @@ body {
   --diff-add-bg: rgba(63, 185, 80, 0.11);
   --diff-del-fg: #f85149;
   --diff-del-bg: rgba(248, 81, 73, 0.11);
+  /* Git's states in the editor's files and gutter: changed, new, gone. */
+  --git-modified: #d9a443;
+  --git-added: #5fb86c;
+  --git-removed: #e5655c;
   /* Shadows fall in the background's own darkest shade rather than neutral
      black, so on a blue or plum theme they read as depth, not as dirt. */
   --shadow-ink: color-mix(in srgb, var(--bg), #000000 80%);
@@ -275,6 +279,9 @@ body {
   --diff-add-bg: rgba(26, 127, 55, 0.1);
   --diff-del-fg: #cf222e;
   --diff-del-bg: rgba(207, 34, 46, 0.09);
+  --git-modified: #9a6700;
+  --git-added: #1a7f37;
+  --git-removed: #cf222e;
   --shadow-ink: color-mix(in srgb, var(--fg), #000000 45%);
   --shadow-menu: 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 11%, transparent),
     0 10px 32px color-mix(in srgb, var(--shadow-ink) 15%, transparent),

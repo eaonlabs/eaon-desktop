@@ -1,25 +1,25 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, Trash2 } from 'lucide-react'
+import { Archive, ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { ContextMenu } from '../Sidebar'
 import { useCode } from './codeStore'
-import { useAdeSessions } from './sessionsStore'
+import { orderedGroups, useAdeSessions } from './sessionsStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
 import { RemoteSessionDialog } from './RemoteSessionDialog'
-import { NewSessionDialog, RemoveProjectDialog, RemoveSessionDialog, RenameSessionDialog } from './SessionDialogs'
+import { ArchiveSessionDialog, NewSessionDialog, RemoveProjectDialog, RemoveSessionDialog, RenameSessionDialog } from './SessionDialogs'
 import { revealLabel } from '../../lib/files'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { notify } from '../Notice'
+import { useEditorMenuItems } from './openInEditor'
 import {
   ageLabel,
   folderName,
-  groupSessions,
   isSoloProject,
-  keepOrder,
   sessionSubtitle,
   sessionTitle,
+  splitArchived,
   type AdeChanges,
   type AdeConversation,
   type AdeSession,
@@ -53,12 +53,8 @@ export function CodeSidebar(): JSX.Element | null {
   }, [loaded, cwd, sessions])
 
   // Sorted once by how recently each project was opened, then kept in place (see keepOrder).
-  const shown = useRef<string[]>([])
-  const groups = useMemo(() => {
-    const next = keepOrder(groupSessions(sessions, recents), shown.current)
-    shown.current = next.map((g) => g.project)
-    return next
-  }, [sessions, recents])
+  const groups = useMemo(() => orderedGroups(sessions, recents), [sessions, recents])
+  const archived = useMemo(() => splitArchived(sessions).archived, [sessions])
 
   return (
     <>
@@ -69,7 +65,7 @@ export function CodeSidebar(): JSX.Element | null {
         </button>
       </div>
       {error && <div className="sidebar__empty">{error}</div>}
-      {loaded && groups.length === 0 ? (
+      {loaded && groups.length === 0 && archived.length === 0 ? (
         <button type="button" className="nav-item" onClick={() => void chooseFolder()}>
           <span className="nav-item__icon">
             <FolderPlus size={15} strokeWidth={1.9} />
@@ -81,6 +77,7 @@ export function CodeSidebar(): JSX.Element | null {
           {groups.map((group) => (
             <ProjectRow key={group.project} group={group} activeCwd={cwd} />
           ))}
+          {archived.length > 0 && <ArchivedGroup sessions={archived} />}
         </div>
       )}
       <NewSessionDialog />
@@ -152,6 +149,80 @@ function ProjectRow({ group, activeCwd }: { group: ProjectGroup; activeCwd: stri
         />
       )}
       {removing && <RemoveProjectDialog group={group} onClose={() => setRemoving(false)} />}
+    </div>
+  )
+}
+
+/** In the sidebar's folded-state record, but the other way round: set means the Archived group is open (it starts closed). */
+const ARCHIVED_OPEN_KEY = '\u0000archived-open'
+
+/** Archived sessions, folded away until asked for: each can be restored (its row, or its menu), or removed for good. */
+function ArchivedGroup({ sessions }: { sessions: AdeSession[] }): JSX.Element {
+  const open = useAdeSessions((s) => Boolean(s.collapsed[ARCHIVED_OPEN_KEY]))
+  const toggleProject = useAdeSessions((s) => s.toggleProject)
+  return (
+    <div className="ade-project ade-archived">
+      <div className="ade-project__head">
+        <button type="button" className="ade-project__row" aria-expanded={open} onClick={() => toggleProject(ARCHIVED_OPEN_KEY)}>
+          <Archive className="ade-project__icon" size={16} strokeWidth={1.8} />
+          <span className="ade-project__name">Archived</span>
+          <span className="ade-project__count" aria-label={`${sessions.length} archived ${sessions.length === 1 ? 'session' : 'sessions'}`}>
+            {sessions.length}
+          </span>
+        </button>
+      </div>
+      {open && sessions.map((session) => <ArchivedRow key={session.id} session={session} />)}
+    </div>
+  )
+}
+
+function ArchivedRow({ session }: { session: AdeSession }): JSX.Element {
+  const restore = useAdeSessions((s) => s.restore)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const title = sessionTitle(session)
+  const back = (): void => {
+    void restore(session).then((failed) => failed && notify(failed, 'error'))
+  }
+  return (
+    <div className="ade-session ade-session--archived">
+      <button
+        type="button"
+        className="ade-session__row"
+        title={`Restore “${title}”`}
+        onClick={back}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenu({ x: e.clientX, y: e.clientY })
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.left + 12, y: rect.bottom })
+          }
+        }}
+      >
+        <span className="ade-session__text">
+          <span className="ade-session__title">{title}</span>
+          <span className="ade-session__branch">{[folderName(session.project), session.branch].filter(Boolean).join(' · ')}</span>
+        </span>
+      </button>
+      <button type="button" className="ade-project__add ade-session__add" aria-label={`Restore ${title}`} title="Restore" onClick={back}>
+        <RotateCcw size={13} strokeWidth={2} />
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          items={[
+            { icon: <RotateCcw size={15} strokeWidth={1.9} />, label: 'Restore', action: back },
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setRemoving(true) }
+          ]}
+        />
+      )}
+      {removing && <RemoveSessionDialog session={session} onClose={() => setRemoving(false)} />}
     </div>
   )
 }
@@ -239,7 +310,8 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
   const { state } = useSessionPanes(session)
   const changes = useChanges(session, state)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
+  const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | null>(null)
+  const editors = useEditorMenuItems(session.cwd, Boolean(menu))
   const title = sessionTitle(session)
   const sub = solo && !session.missing && !session.host ? session.branch : sessionSubtitle(session)
 
@@ -302,10 +374,14 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
               : []),
             // A folder on another machine has nothing to show in Finder.
             ...(session.host ? [] : [{ icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) }]),
+            // Only a folder that is here, and not one that has gone.
+            ...(session.missing ? [] : editors),
+            { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive session…', action: () => setDialog('archive') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
           ]}
         />
       )}
+      {dialog === 'archive' && <ArchiveSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'rename' && <RenameSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'remove' && <RemoveSessionDialog session={session} onClose={() => setDialog(null)} />}
     </div>

@@ -68,7 +68,8 @@ function normalize(raw: unknown): AdeSession | null {
     worktree: v.worktree === true,
     createdAt: typeof v.createdAt === 'number' && Number.isFinite(v.createdAt) ? v.createdAt : 0,
     ...(v.imported === true ? { imported: true } : {}),
-    ...(str(v.host) ? { host: str(v.host) as string } : {})
+    ...(str(v.host) ? { host: str(v.host) as string } : {}),
+    ...(typeof v.archivedAt === 'number' && Number.isFinite(v.archivedAt) ? { archivedAt: v.archivedAt } : {})
   }
 }
 
@@ -177,7 +178,8 @@ export class SessionBook {
   async ensureFolder(folder: string, imported?: { at: number }): Promise<AdeSession> {
     const cwd = path.resolve(folder)
     const have = this.byCwd(cwd)
-    if (have) return have
+    // Opened again on purpose (a folder picked, a pull request or an issue started there): an archived session comes back.
+    if (have) return have.archivedAt !== undefined && !imported ? (this.restore(have.id) ?? have) : have
     // Opened again on purpose (the picker, a recent folder): it is no longer closed.
     if (!imported) this.closed.delete(cwd)
     // Git is asked before the session is made, so a second opening of the folder
@@ -323,6 +325,32 @@ export class SessionBook {
     session.title = title.trim() || null
     if (worktree) session.worktree = true
     this.commit()
+    return { ...session }
+  }
+
+  /**
+   * Puts a session in the Archived group. Nothing on disk changes: the
+   * worktree and its branch stay, and so do the agents' conversations. The
+   * window ends its terminals.
+   */
+  archive(id: string): AdeSession | null {
+    const session = this.sessions.find((s) => s.id === id)
+    if (!session) return null
+    if (session.archivedAt === undefined) {
+      session.archivedAt = this.deps.now()
+      this.commit()
+    }
+    return { ...session }
+  }
+
+  /** Brings an archived session back to the list. Null when there is no such session; one that isn't archived is left as it is. */
+  restore(id: string): AdeSession | null {
+    const session = this.sessions.find((s) => s.id === id)
+    if (!session) return null
+    if (session.archivedAt !== undefined) {
+      delete session.archivedAt
+      this.commit()
+    }
     return { ...session }
   }
 

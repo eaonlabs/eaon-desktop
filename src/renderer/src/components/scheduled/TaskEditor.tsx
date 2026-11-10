@@ -7,6 +7,8 @@ import { agentWorkspace, useApp } from '../../state/store'
 import { Modal, Segmented, Switch } from '../ui'
 import { ModelSelect } from '../composer/ModelSelect'
 import { formFromSchedule, scheduleFromForm, SchedulePicker, type ScheduleForm } from './SchedulePicker'
+import { RetryField } from '../workers/WorkerLimits'
+import type { WorkerRetry } from '@shared/workerLimits'
 
 /** New / Edit schedule. `task` is null for a new one. */
 
@@ -41,6 +43,7 @@ export function TaskEditor({
   const [model, setModel] = useState(DEFAULT_MODEL)
   const [cwd, setCwd] = useState<string | null>(null)
   const [allowChanges, setAllowChanges] = useState(false)
+  const [retries, setRetries] = useState<WorkerRetry | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,6 +57,7 @@ export function TaskEditor({
     setModel(task?.model ? modelKey(task.model.providerId, task.model.modelId) : DEFAULT_MODEL)
     setCwd(task?.cwd ?? null)
     setAllowChanges(task?.allowChanges ?? false)
+    setRetries(task?.retries ?? null)
     setSaving(false)
     setError(null)
   }, [open, task])
@@ -78,7 +82,8 @@ export function TaskEditor({
       model: providerId && modelId ? { providerId, modelId } : null,
       cwd: mode === 'work' ? cwd : null,
       allowChanges: mode === 'work' && allowChanges,
-      enabled: task ? task.enabled || revived : true
+      enabled: task ? task.enabled || revived : true,
+      retries
     }
   }
 
@@ -231,6 +236,10 @@ export function TaskEditor({
             </div>
           </>
         )}
+
+        <div className="sched-field">
+          <RetryField value={retries} onChange={setRetries} what="Each attempt is a run of its own in the history." />
+        </div>
       </div>
     </Modal>
   )

@@ -1,10 +1,11 @@
 import type { Provider } from '@shared/types'
-import type { ProviderIssue } from '@shared/providers'
+import { LONG_LIMIT_MS, type ProviderIssue } from '@shared/providers'
 import { retryAfterFrom } from './adapters/types'
 import { redactSecrets } from './redact'
 import { RedirectRefusedError } from './safeFetch'
 import { goesToEaonGateway, hideEaonAddress } from '../eaonAddress'
 import { signsGatewayRequests } from '../gatewaySignature'
+import { FREE_PROVIDER_ID } from '@shared/freeCredits'
 
 /**
  * Provider failures as something a person can act on.
@@ -121,7 +122,31 @@ const issue = (
   ...extra
 })
 
-const seconds = (ms: number): string => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`)
+/** A wait in words: "20 s", "45 min", "18 h" (a day's limit in minutes read as 1086 min). */
+const seconds = (ms: number): string =>
+  ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : ms < 90 * 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.round(ms / 3_600_000)} h`
+
+/**
+ * What Eaon's gateway said, from "429: <its message>" or its JSON error body.
+ * Its refusals are written for people already: "Daily limit reached. This
+ * gateway allows 20 requests a day per user.", or for an event code "You've
+ * used today's 50 requests from the code "Hack". They start over at 00:00 UTC."
+ */
+function gatewayReason(text: string): string {
+  let said = text.replace(/^(?:Error:\s*)?\d{3}\b[:\s-]*/, '').trim()
+  if (said.startsWith('{')) {
+    try {
+      const body = JSON.parse(said) as { error?: { message?: unknown } | string; message?: unknown }
+      const message = typeof body.error === 'string' ? body.error : body.error?.message ?? body.message
+      said = typeof message === 'string' ? message.trim() : ''
+    } catch {
+      return ''
+    }
+  }
+  // Only a sentence of its own; a status line or an empty body says nothing.
+  if (!/[a-z]{3}/i.test(said) || /^too many requests$/i.test(said)) return ''
+  return /[.!?]$/.test(said) ? said : `${said}.`
+}
 
 /** A certificate failure anywhere in the error's causes: a filtering network, a Wi-Fi sign-in page or a wrong clock. */
 export function isCertificateError(error: unknown): boolean {
@@ -252,7 +277,26 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
 
   if (status === 429 || /rate[_ ]limit|too many requests/i.test(text)) {
     const wait = f.retryAfterMs
-    return issue(provider, 'rate-limit', `${name} is limiting how fast requests can be made.${wait ? ` Try again in ${seconds(wait)}.` : ' Wait a moment and try again.'}`, 'retry', f, wait ? { retryAfterMs: wait } : {})
+    const extra = wait ? { retryAfterMs: wait } : {}
+    // Eaon's gateway says why in words of its own: pass them on, and when the
+    // limit is the day's, say how to keep going rather than to wait for it.
+    // (Its words stay in the issue's detail, for Copy details.)
+    const reason = goesToEaonGateway(provider) ? gatewayReason(text) : ''
+    if (reason) {
+      const long = (wait ?? 0) >= LONG_LIMIT_MS || /\b(daily|today|a day)\b/i.test(reason)
+      // Eaon Lite's day is counted per network (the gateway goes by IP), so its
+      // "20 requests a day per user" reads as nonsense at a venue to someone who
+      // sent two: say it as the model picker and Settings do.
+      if (long && provider.id !== FREE_PROVIDER_ID) {
+        const after = wait ? ` Try again in ${seconds(wait)}, or` : ' To keep going,'
+        return issue(provider, 'rate-limit', `${name}’s free requests are used up on this network for now.${after} redeem an event code in Settings → Model providers → Eaon Event, or choose another model.`, 'choose-model', f, extra)
+      }
+      // An event code's limits, and a minute's, are put well by the gateway itself.
+      const when = wait && !/\b(try again|start over|resets?)\b/i.test(reason) ? ` Try again in ${seconds(wait)}` : ''
+      const after = long ? `${when ? `${when}, or` : ' To keep going now,'} choose another model.` : when ? `${when}.` : ''
+      return issue(provider, 'rate-limit', `${reason}${after}`, long ? 'choose-model' : 'retry', f, extra)
+    }
+    return issue(provider, 'rate-limit', `${name} is limiting how fast requests can be made.${wait ? ` Try again in ${seconds(wait)}.` : ' Wait a moment and try again.'}`, 'retry', f, extra)
   }
 
   if (context === 'listing' && status === 404) {
