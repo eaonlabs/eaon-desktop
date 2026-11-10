@@ -16,7 +16,7 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
-import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
+import { buildHistory, estimateMessages, estimateTokens, prepareAttachments, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
 import { openSteps, PLAN_STALE_ROUNDS, planFinishNudge, planReminder } from './planNudge'
@@ -977,6 +977,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     // By id or by an alias folded into it (a dated snapshot chosen before it was folded).
     const model = findModel(provider.models, request.modelId)
     const window = contextWindowFor(provider, request.modelId, model)
+    await prepareAttachments(request.history)
     const built = buildHistory(request.history, request.summary, settings.context.keepFullToolTurns)
     let messages = built.messages
 
