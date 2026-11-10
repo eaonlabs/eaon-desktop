@@ -449,6 +449,7 @@ function SeeThroughSection(): JSX.Element | null {
               value={style}
               tint={see.tint}
               video={video}
+              source={hasCustom ? (see.custom ?? 'custom') : 'desktop'}
               // `texture` follows along for builds from before `style`.
               onChange={(next) => set({ style: next, texture: next === 'halftone' })}
             />
