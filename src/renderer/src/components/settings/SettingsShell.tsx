@@ -113,7 +113,7 @@ export const KEYWORDS: Record<string, string> = {
   browser: 'homepage search engine tabs',
   mcp: 'model context protocol tools servers timeout',
   'connect-apps': 'import openclaw hermes cline apps claude plan claude code tools mcp',
-  'code-index': 'embedding semantic search index repository goal goal mode continuations time limit token limit',
+  'code-index': 'embedding semantic search index repository goal goal mode continuations time limit token limit maximum tool steps rounds step limit stopped continue',
   'local-server': 'port api server openai compatible gateway key',
   'remote-devices': 'phone mobile remote web rc github',
   system: 'cpu memory ram gpu performance monitor',

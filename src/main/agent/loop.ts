@@ -18,7 +18,7 @@ import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, prepareAttachments, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
-import { CallGuard } from './guards'
+import { CallGuard, MAX_IDLE_ROUNDS } from './guards'
 import { openSteps, PLAN_STALE_ROUNDS, planFinishNudge, planReminder } from './planNudge'
 import { checkAfterEdits } from './checks'
 import { workspaceRoots } from '../localTools'
@@ -280,7 +280,7 @@ export interface LoopOutcome {
   answer: string
   usage: TokenUsage
   turn: TurnState
-  stopped: 'done' | 'plan' | 'rounds' | 'goal-limit'
+  stopped: 'done' | 'plan' | 'rounds' | 'stuck' | 'goal-limit'
 }
 
 /** The longest a request waits before it is tried again. */
@@ -730,10 +730,22 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (turn.plan) return { text, answer, usage, turn, stopped: 'plan' }
     // So does a worker going to sleep: it wakes when it scheduled.
     if (turn.yielded) return { text, answer, usage, turn, stopped: 'done' }
+    // Going round in circles: many rounds that changed nothing and learned nothing new.
+    if (guard.endRound() >= MAX_IDLE_ROUNDS) {
+      if (goalActive()) return pauseGoalRun(`no progress in the last ${MAX_IDLE_ROUNDS} steps`)
+      if (params.depth === 0) {
+        const tail = `\n\n_Stopped: the last ${MAX_IDLE_ROUNDS} steps changed nothing and only repeated earlier ones for the same results, so it looks stuck. Say "continue" to keep going, or say what to try instead._`
+        params.onText(tail)
+        text += tail
+      }
+      return { text, answer, usage, turn, stopped: 'stuck' }
+    }
   }
 
   if (params.depth === 0) {
-    const tail = `\n\n_Stopped after ${params.maxRounds} tool rounds. Say "continue" to keep going, or raise the limit in Settings → Configuration._`
+    // Chat's own small limit isn't the setting's, so only Work points at it.
+    const raise = request.mode === 'work' ? ', or raise the limit in Settings → Code index' : ''
+    const tail = `\n\n_Stopped after ${params.maxRounds} tool rounds. Say "continue" to keep going${raise}._`
     params.onText(tail)
     text += tail
   }
@@ -1057,7 +1069,9 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
 
     // A goal with an end time is bounded by that time; the usual round cap would end it hours early.
     const runsUntil = request.goal?.status === 'active' && request.goal.until && request.goal.until > Date.now()
-    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
+    // 0 is no limit: the reply goes on until it is done, or stuck (runLoop).
+    const steps = settings.codeIndex.maxToolRounds
+    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil || steps === 0 ? 10_000 : Math.min(Math.max(steps || 40, 1), 1_000)
     // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
     let outcome: LoopOutcome
     try {

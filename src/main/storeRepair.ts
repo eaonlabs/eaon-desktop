@@ -80,7 +80,7 @@ const SETTINGS_RANGES: Record<string, [number, number]> = {
   'appearance.glass.blur': [0, 100],
   'appearance.glass.transparency': [0, 100],
   'mcp.toolCallTimeoutSeconds': [1, 3_600],
-  'codeIndex.maxToolRounds': [1, 1_000],
+  'codeIndex.maxToolRounds': [0, 1_000],
   'context.compactAt': [0.05, 0.99],
   'context.keepFullToolTurns': [0, 100],
   'work.goalMaxIterations': [1, 10_000],

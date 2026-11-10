@@ -685,7 +685,7 @@ export interface Settings {
     embeddingModelId: string | null
     /** Re-index the project folder automatically when Eaon Work opens it. */
     autoIndex: boolean
-    /** Ceiling on agent tool round-trips per turn — agentic coding needs many. */
+    /** Ceiling on agent tool round-trips per turn — agentic coding needs many. 0 is no limit (a stuck reply still stops). */
     maxToolRounds: number
   }
   shortcuts: Record<string, string | null>
