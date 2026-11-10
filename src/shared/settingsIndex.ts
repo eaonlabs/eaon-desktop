@@ -37,7 +37,6 @@ export const SETTINGS_PAGES: SettingsPageEntry[] = [
   { id: "app-control", label: "App control", group: "Integrations" },
   { id: "browser-control", label: "Browser control", group: "Integrations" },
   { id: "plugins", label: "Plugins", group: "Integrations" },
-  { id: "mods", label: "Mods", group: "Integrations" },
   { id: "eaon-code", label: "Eaon Code", group: "Integrations" },
   { id: "ade", label: "ADE", group: "Integrations" },
   { id: "workers", label: "Workers", group: "Integrations" },

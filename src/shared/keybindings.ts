@@ -42,7 +42,6 @@ export const BINDABLE: readonly BindableShortcut[] = [
   { id: 'annotate-page-element', label: 'Point at a page element in the browser (Design Mode)', section: 'app', default: '⇧⌘C', scope: 'panel' },
   { id: 'focus-browser-address-bar', label: 'Go to the browser’s address bar', section: 'app', default: '⌘L', scope: 'panel' },
   { id: 'plugins', label: 'Open Plugins', section: 'app', default: '⇧⌘P', scope: 'window' },
-  { id: 'mods', label: 'Open Mods', section: 'app', default: '⇧⌘M', scope: 'window' },
   { id: 'settings', label: 'Open Settings', section: 'app', default: '⌘,', scope: 'both' },
   { id: 'find-chat', label: 'Find in the conversation', section: 'chat', default: '⌘F', scope: 'panel' },
   { id: 'find-project', label: 'Find in the project (a project’s chats)', section: 'chat', default: '⇧⌘F', scope: 'panel' },
