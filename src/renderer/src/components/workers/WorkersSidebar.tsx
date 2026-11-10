@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { AtSign, Clock3, HardDrive, KeyRound, Loader2, MessagesSquare, Monitor, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
+import { AtSign, Clock3, HardDrive, KeyRound, Loader2, MessagesSquare, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
 import { workerAppsEnabled } from '@shared/workerApps'
 import { useApp } from '../../state/store'
 import { NavItem } from '../Sidebar'
@@ -72,7 +72,6 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
       />
       <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen && !creating} onClick={() => show(null)} />
       <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
-      <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />
       <NavItem
         icon={<AtSign {...ICON} />}
         label="Plugins"

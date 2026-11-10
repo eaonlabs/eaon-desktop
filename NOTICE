@@ -28,12 +28,6 @@ GPL-3.0), and the tokn command (https://github.com/toknlabs/Tokn,
 GPL-3.0-or-later) runs as its own program. Their source is in those
 repositories.
 
-The live view of a virtual machine's screen uses noVNC
-(https://github.com/novnc/noVNC, MPL-2.0), unchanged; its source is in that
-repository. Virtual machines on Linux run on QEMU (https://www.qemu.org,
-GPL-2.0), which doesn't ship inside Eaon: Computers installs it from the
-computer's own package manager.
-
 Browser control uses Browser Use (https://github.com/browser-use/browser-use,
 MIT) and uv (https://github.com/astral-sh/uv, Apache-2.0 or MIT). Neither
 ships inside Eaon: Settings → Browser control downloads them from their own

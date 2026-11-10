@@ -144,12 +144,6 @@ const hostJoin = (dir: string, rel: string): string => `${dir.replace(/\/+$/, ''
 export interface WorkerHostController {
   state: () => WorkerHostState
   link: HostLink
-  /**
-   * Every channel the host sends that another feature handles itself (`vms:`),
-   * whether or not the workers run there, plus `host:connected` each time the
-   * link comes up.
-   */
-  onIpc: (listener: (channel: string, args: unknown[]) => void) => () => void
 }
 
 let controller: WorkerHostController | null = null
@@ -545,17 +539,6 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     await link.call('update.apply', { sha256: pkg.sha256 }, 60_000)
   }
 
-  const ipcListeners = new Set<(channel: string, args: unknown[]) => void>()
-  const tellListeners = (channel: string, args: unknown[]): void => {
-    for (const listener of ipcListeners) {
-      try {
-        listener(channel, args)
-      } catch (error) {
-        console.error(`[worker-host] ${channel} listener failed:`, errorText(error))
-      }
-    }
-  }
-
   const onConnected = async (_peer: Peer, hello: HostHello): Promise<void> => {
     const pkg = hostPackage()
     if (pkg && hello.build !== pkg.build) {
@@ -601,7 +584,6 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
       await refreshTab()
     }
     pushState()
-    tellListeners('host:connected', [])
   }
 
   const onEvent = (name: string, data: unknown): void => {
@@ -611,7 +593,6 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     if (!Array.isArray(args)) return
     if (channel === 'host:notify') return showNotice(args[0] as Parameters<typeof showNotice>[0])
     if (channel === 'host:tokens') return takeSignIns(args[0])
-    if (channel.startsWith('vms:')) return tellListeners(channel, args)
     if (!config.enabled || moving) return
     if (channel === 'agent-browser:frame') return remoteBrowserFrame(args[0] as Parameters<typeof remoteBrowserFrame>[0])
     if (channel === 'agent-browser:status') {
@@ -1047,10 +1028,6 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
   return {
     state,
     link,
-    onIpc: (listener) => {
-      ipcListeners.add(listener)
-      return () => ipcListeners.delete(listener)
-    },
     dispose: () => {
       clearInterval(resync)
       clearInterval(hellos)

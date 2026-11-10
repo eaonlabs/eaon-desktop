@@ -117,8 +117,6 @@ export const HOST_BROWSER_CHANNELS = ['agent-browser:watch', 'agent-browser:stat
 export function hostServesChannel(channel: string, args: unknown[]): boolean {
   // Chat apps move with the workers: their bots run where the workers do.
   if (channel.startsWith('workers:') || channel.startsWith('channels:')) return true
-  // Its VMs, whether or not the workers run there.
-  if (channel.startsWith('vms:')) return true
   if ((HOST_BROWSER_CHANNELS as readonly string[]).includes(channel)) {
     // The browser channels take the target last; only workers' browsers live there.
     const target = args[args.length - 1]
@@ -151,7 +149,7 @@ export function signInEntries(vault: Record<string, string>): Record<string, str
 
 /** Events the host forwards to the desktop. */
 export function hostForwardsEvent(channel: string): boolean {
-  return channel.startsWith('workers:') || channel.startsWith('channels:') || channel.startsWith('agent-browser:') || channel.startsWith('host:') || channel === 'vms:changed'
+  return channel.startsWith('workers:') || channel.startsWith('channels:') || channel.startsWith('agent-browser:') || channel.startsWith('host:')
 }
 
 /**
