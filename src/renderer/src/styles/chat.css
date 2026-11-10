@@ -320,12 +320,13 @@
 .chip--model {
   gap: 7px;
   padding-right: 8px;
-  /* Model ids are unbounded ("nemotron 3 super 120b extended"), and with
-     `white-space: nowrap` on .chip an unbounded one pushed the whole toolbar
-     out of shape. Cap the chip and let the name ellipsize; the effort label
-     stays fixed so it is the name that gives way, not the setting. */
+  /* Model names are unbounded ("Google: Nano Banana 2 (Gemini 3.1 Flash Image)"),
+     and with `white-space: nowrap` on .chip an unbounded one pushed the whole
+     toolbar out of shape. The chip takes the toolbar's free room so the name
+     shows whole, and yields when there is none: only then does it ellipsize.
+     The labels beside it drop out before that, at the composer's narrow widths. */
   min-width: 0;
-  max-width: 220px;
+  max-width: 420px;
 }
 .chip--model .chip__model {
   min-width: 0;
@@ -856,6 +857,14 @@
 }
 
 /* ==================================================================
+/* The model's name outlasts the labels beside it: its window here, and its
+   effort too in the new-chat toolbar, which has less room to spare. */
+@container (max-width: 560px) {
+  .chip--model .chip__window,
+  .composer__toolbar .chip--model .chip__effort {
+    display: none;
+  }
+}
    Motion: thinking orb, thoughts, message entrances.
    Every animation here reports state — what is running, what arrived,
    in what order. All of it collapses to nothing under reduce-motion
