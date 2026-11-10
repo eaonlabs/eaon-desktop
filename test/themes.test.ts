@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { THEMES, type Theme, type ThemeTone } from '../src/renderer/src/lib/themes'
+import { THEMES, type ThemeTone } from '../src/renderer/src/lib/themes'
 
 /**
  * Every theme's text must stay readable on every surface it sits on, in both
@@ -261,13 +261,7 @@ function resolve(palette: ThemeTone, tone: 'light' | 'dark'): (name: string) => 
 
 const AA = 4.5
 
-/** The app themes Eaon's bundled mods add (resources/mods), held to the same bar, with no text fade of their own. */
-const MOD_THEMES: Theme[] = readdirSync(join(process.cwd(), 'resources/mods'))
-  .filter((dir) => existsSync(join(process.cwd(), 'resources/mods', dir, 'mod.json')))
-  .flatMap((dir) => (JSON.parse(readFileSync(join(process.cwd(), 'resources/mods', dir, 'mod.json'), 'utf8')).contributes.appThemes ?? []) as Omit<Theme, 'group'>[])
-  .map((t) => ({ ...t, group: 'mods' as const }))
-
-for (const theme of [...THEMES, ...MOD_THEMES]) {
+for (const theme of THEMES) {
   for (const tone of ['dark', 'light'] as const) {
     test(`${theme.name} ${tone}: body text and --text-2 meet WCAG AA`, () => {
       const get = resolve(theme[tone], tone)

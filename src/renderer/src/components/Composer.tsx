@@ -37,7 +37,7 @@ import { useSkills } from './plugins/usePlugins'
 import { droppedFilePaths, editorDrag, fileName, fileUrl, isImagePath } from '../lib/files'
 import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
-import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
+import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { useChatContext } from './composer/useChatContext'
 import { SideQuestion } from './chat/SideQuestion'
@@ -543,8 +543,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
       return isAgent
-        ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query), ...modCommandItems('chat')]
-        : [...items, ...context.commandItems(query), ...modCommandItems('chat')]
+        ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query)]
+        : [...items, ...context.commandItems(query)]
     },
     ...(isAgent
       ? {

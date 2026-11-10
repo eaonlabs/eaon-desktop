@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Folder, GitBranch, LayoutGrid, Server } from 'lucide-react'
+import { Folder, GitBranch, Server } from 'lucide-react'
 import { Modal, Select } from '../ui'
 import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
@@ -22,7 +22,6 @@ import { copiedSummary, type CopyPlan } from '@shared/worktreeCopy'
 import type { TerminalAgentId } from '@shared/terminals'
 import { arrangeAgents } from '../../lib/agentPrefs'
 import { useApp } from '../../state/store'
-import { presetsOf, useMods } from '../../state/mods'
 
 /** The agent a new session starts with, when it is installed: the first of these. */
 const PREFERRED: TerminalAgentId[] = ['claude', 'codex', 'eaon-code', 'opencode', 'antigravity']
@@ -50,12 +49,9 @@ export function NewSessionDialog(): JSX.Element | null {
   const [branch, setBranch] = useState('')
   const [branchEdited, setBranchEdited] = useState(false)
   const [agent, setAgent] = useState<TerminalAgentId | null>(null)
-  // A mod's session preset picked instead of one agent.
-  const [preset, setPreset] = useState<string | null>(null)
   // What the agent is asked to do first, and the other agents given the same task, each in a worktree of its own.
   const [task, setTask] = useState('')
   const [also, setAlso] = useState<TerminalAgentId[]>([])
-  const presets = presetsOf(useMods((s) => s.enabled))
   const [root, setRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +69,6 @@ export function NewSessionDialog(): JSX.Element | null {
     setBranchEdited(false)
     setError(null)
     setBusy(false)
-    setPreset(null)
     setTask('')
     setAlso([])
     void refreshAgents().catch(() => undefined)
@@ -122,15 +117,14 @@ export function NewSessionDialog(): JSX.Element | null {
 
   const others = installed.filter((a) => a.id !== agent)
   // Agents picked to run alongside; one that became the main agent since is no longer "also".
-  const alsoOn = preset ? [] : also.filter((id) => id !== agent && others.some((a) => a.id === id))
+  const alsoOn = also.filter((id) => id !== agent && others.some((a) => a.id === id))
   const needsTask = alsoOn.length > 0 && !task.trim()
 
   const submit = async (): Promise<void> => {
     if (!project || !title.trim() || problem || busy || needsTask) return
     setBusy(true)
     setError(null)
-    const chosen = presets.find((p) => p.key === preset)
-    const extras = { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0), ...(task.trim() && !chosen ? { prompt: task.trim() } : {}) }
+    const extras = { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0), ...(task.trim() ? { prompt: task.trim() } : {}) }
     const request = { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }
     const failed =
       alsoOn.length > 0 && agent
@@ -143,7 +137,7 @@ export function NewSessionDialog(): JSX.Element | null {
             request,
             extras
           )
-        : await create(request, chosen ? chosen.panes : agent, extras)
+        : await create(request, agent, extras)
     setBusy(false)
     if (failed) setError(failed)
   }
@@ -297,13 +291,10 @@ export function NewSessionDialog(): JSX.Element | null {
                 key={a.id}
                 type="button"
                 role="radio"
-                aria-checked={!preset && agent === a.id}
+                aria-checked={agent === a.id}
                 className="ade-dialog__agent"
-                data-on={(!preset && agent === a.id) || undefined}
-                onClick={() => {
-                  setAgent(a.id)
-                  setPreset(null)
-                }}
+                data-on={agent === a.id || undefined}
+                onClick={() => setAgent(a.id)}
               >
                 <AgentMark agent={a.id} size={15} />
                 {a.label}
@@ -319,11 +310,10 @@ export function NewSessionDialog(): JSX.Element | null {
             value={task}
             maxLength={4000}
             placeholder="Add a search box to the docs page and cover it with tests"
-            disabled={Boolean(preset)}
             onChange={(e) => setTask(e.target.value)}
           />
         </label>
-        {!preset && others.length > 0 && (
+        {others.length > 0 && (
           <div className="field">
             <span className="field-label">Run the same task with more agents</span>
             <div className="ade-dialog__agents" role="group" aria-label="Run in parallel with">
@@ -348,33 +338,6 @@ export function NewSessionDialog(): JSX.Element | null {
                   ? 'Write the task above: every agent starts with it.'
                   : `${alsoOn.length + 1} sessions start from the same point: ${effective || 'the branch'} and ${alsoOn.map((id) => `${effective || 'the branch'}-${id}`).join(', ')}.`}
             </p>
-          </div>
-        )}
-        {presets.length > 0 && (
-          <div className="field">
-            <span className="field-label">Or a preset from your mods</span>
-            <div className="ade-dialog__agents" role="radiogroup" aria-label="Session presets">
-              {presets.map((p) => {
-                const missing = [...new Set(p.panes.filter((pane) => pane.agent !== 'shell' && !installed.some((a) => a.id === pane.agent)).map((pane) => pane.agent))]
-                return (
-                  <button
-                    key={p.key}
-                    type="button"
-                    role="radio"
-                    aria-checked={preset === p.key}
-                    className="ade-dialog__agent"
-                    data-on={preset === p.key || undefined}
-                    disabled={missing.length > 0}
-                    title={missing.length ? `Needs ${missing.map((id) => agents.find((a) => a.id === id)?.label ?? id).join(' and ')}` : `${p.description} (${p.panes.length} panes)`}
-                    onClick={() => setPreset(p.key)}
-                  >
-                    <LayoutGrid size={14} strokeWidth={1.9} />
-                    {p.name}
-                  </button>
-                )
-              })}
-            </div>
-            {preset && <p className="ade-dialog__hint">{presets.find((p) => p.key === preset)?.description}</p>}
           </div>
         )}
         {error && (

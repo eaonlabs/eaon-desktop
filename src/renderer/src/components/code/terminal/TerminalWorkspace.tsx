@@ -46,7 +46,6 @@ import { AdeDictation } from './AdeDictation'
 import { shellQuote } from './input'
 import { isRemote } from '@shared/adeRemote'
 import { findTheme } from './themes'
-import { useMods } from '../../../state/mods'
 import { arrangeAgents } from '../../../lib/agentPrefs'
 import {
   DIVIDER_PX,
@@ -89,8 +88,7 @@ export function TerminalWorkspace(): JSX.Element {
   const session = useAdeSessions((s) => (cwd ? (s.sessions.find((x) => x.cwd === cwd) ?? null) : null))
   const look = useApp(useShallow((s) => ({ theme: s.settings?.ade?.theme ?? 'eaon', scenes: s.settings?.ade?.scenes ?? true })))
   const preview = useTerminals((s) => s.preview)
-  // The picker previews a theme on every pane before it is kept. A mod's theme is found once the mods have loaded.
-  useMods((s) => s.version)
+  // The picker previews a theme on every pane before it is kept.
   const theme = findTheme(preview ?? look.theme)
 
   useEffect(() => {

@@ -81,9 +81,8 @@ export function guardAppNavigation(contents: WebContents, rendererFile: string):
   // A file dropped outside a drop zone would otherwise be opened in the window.
   contents.on('will-frame-navigate', (event) => {
     if (event.isMainFrame) return
-    if (!isAppUrl(event.url, rendererFile) && !/^(about:|data:|blob:|eaon-mod:)/.test(event.url)) {
-      // Subframes of the app page are never expected, but for a mod's panel
-      // (features/mods, sandboxed, no preload); the in-app browser is a <webview>, not an iframe.
+    if (!isAppUrl(event.url, rendererFile) && !/^(about:|data:|blob:)/.test(event.url)) {
+      // Subframes of the app page are never expected; the in-app browser is a <webview>, not an iframe.
       event.preventDefault()
     }
   })

@@ -1,7 +1,0 @@
-{
-  "name": "eaon-git",
-  "version": "1.0.0",
-  "description": "Commit messages, pull request descriptions and changelog entries from your git history.",
-  "author": { "name": "Eaon" },
-  "license": "Apache-2.0"
-}

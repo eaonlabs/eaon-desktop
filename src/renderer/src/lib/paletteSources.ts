@@ -3,7 +3,7 @@ import { isAgentKind, useApp, type WorkspaceKind } from '../state/store'
 import { useOnboarding } from '../components/onboarding/onboardingStore'
 import { KEYWORDS } from '../components/settings/SettingsShell'
 import { registerPaletteSource, type PaletteAction } from './commands'
-import { allThemes, releaseAde, themePatch } from './themes'
+import { THEMES, releaseAde, themePatch } from './themes'
 
 /**
  * What the command palette can do out of the box: the places in the app, the
@@ -115,7 +115,7 @@ function appearanceSource(): PaletteAction[] {
     run: () => void app().patchSettings({ appearance: { mode: value }, ...releaseAde(app().settings) })
   }))
   const preset = s?.appearance.light.preset
-  for (const theme of allThemes()) {
+  for (const theme of THEMES) {
     out.push({
       id: `theme:${theme.name}`,
       title: `Theme: ${theme.name}`,

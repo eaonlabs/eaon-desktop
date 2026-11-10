@@ -1,7 +1,0 @@
-{
-  "name": "eaon-guardrails",
-  "version": "1.0.0",
-  "description": "Stops a few shell commands that are hard to undo before Claude Code runs them.",
-  "author": { "name": "Eaon" },
-  "license": "Apache-2.0"
-}

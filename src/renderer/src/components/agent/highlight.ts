@@ -9,8 +9,6 @@
  * Kept free of React so the test harness can run it.
  */
 
-import type { ModLanguage } from '@shared/mods'
-
 export type TokenKind = 'comment' | 'string' | 'number' | 'keyword' | 'literal' | 'func' | 'type' | 'tag' | 'attr' | 'add' | 'del' | 'meta'
 
 export interface Token {
@@ -147,59 +145,17 @@ const ALIASES: Record<string, keyof typeof FAMILIES> = {
   diff: 'diff', patch: 'diff'
 }
 
-/** Languages mods add (shared/mods.ts `ModLanguage`): each a pattern built here from its word lists, under `mod:<id>`. */
-const MOD_FAMILIES: Record<string, RegExp> = {}
-const MOD_ALIASES: Record<string, string> = {}
-
-const literal = (text: string): string => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
-
-/**
- * The languages the enabled mods add. Only words and delimiters come from a
- * mod; the pattern is assembled here from escaped pieces, so nothing a mod
- * writes is run as a regular expression. Eaon's own names win a clash.
- */
-export function setModLanguages(languages: ModLanguage[]): void {
-  for (const key of Object.keys(MOD_FAMILIES)) delete MOD_FAMILIES[key]
-  for (const key of Object.keys(MOD_ALIASES)) delete MOD_ALIASES[key]
-  for (const lang of languages) {
-    const key = `mod:${lang.id}`
-    const list = (items: string[] | undefined): string => (items ?? []).map(literal).join('|')
-    const comments = [
-      ...(lang.lineComment ?? []).map((open) => String.raw`${literal(open)}[^\n]*`),
-      ...(lang.blockComment ? [String.raw`${literal(lang.blockComment[0])}[\s\S]*?(?:${literal(lang.blockComment[1])}|(?![\s\S]))`] : [])
-    ]
-    const quotes = (lang.strings ?? ['"', "'"]).map((q) => (q === '"' ? DQ : q === "'" ? SQ : BT))
-    // Words bounded so `end` doesn't colour inside `endpoint`; symbols like `@` start a word too.
-    const bounded = (items: string[] | undefined): string | undefined =>
-      items?.length ? String.raw`(?<![\w$])(?:${list(items)})(?![\w$])` : undefined
-    MOD_FAMILIES[key] = family(
-      {
-        ...(comments.length ? { comment: comments.join('|') } : {}),
-        string: quotes.join('|'),
-        number: NUMBER,
-        ...(bounded(lang.literals) ? { literal: bounded(lang.literals) } : {}),
-        ...(bounded(lang.keywords) ? { keyword: bounded(lang.keywords) } : {}),
-        ...(bounded(lang.types) ? { type: bounded(lang.types) } : {}),
-        func: CALL
-      },
-      'gm'
-    )
-    for (const alias of [lang.id, ...lang.aliases]) if (!(alias in ALIASES) && !(alias in MOD_ALIASES)) MOD_ALIASES[alias] = key
-  }
-}
-
 /** The language family for a fence's label ("ts", "Python", "bash title=x"), or null to leave it plain. */
 export function languageFamily(lang: string): string | null {
   const name = lang.trim().toLowerCase().split(/[\s{:,]/)[0] ?? ''
-  return ALIASES[name] ?? MOD_ALIASES[name] ?? null
+  return ALIASES[name] ?? null
 }
 
 /** The code cut into tokens. Text the language's pattern doesn't cover comes back with `kind: null`. */
 export function highlight(code: string, lang: string): Token[] {
   const key = languageFamily(lang)
   if (!key || code.length > MAX_CHARS) return [{ text: code, kind: null }]
-  const pattern = FAMILIES[key] ?? MOD_FAMILIES[key]
-  if (!pattern) return [{ text: code, kind: null }]
+  const pattern = FAMILIES[key]
   const tokens: Token[] = []
   let last = 0
   pattern.lastIndex = 0

@@ -15,9 +15,6 @@ import { notify } from '../Notice'
  * main reopens at launch — so there is no separate "current session" to keep.
  */
 
-/** A pane a mod's session preset opens (shared/mods.ts `ModSessionPreset`). */
-export type PresetPane = { agent: TerminalAgentId; name?: string; prompt?: string }
-
 interface SessionsState {
   loaded: boolean
   error: string | null
@@ -42,8 +39,8 @@ interface SessionsState {
   show: (session: AdeSession) => Promise<void>
   /** A folder's own session (made when it has none), opened. */
   openFolder: (folder: string) => Promise<void>
-  /** Starts with one agent's pane, or a mod's preset of panes (each maybe with a first task). */
-  create: (req: NewSessionRequest, agent: TerminalAgentId | null | PresetPane[], extras?: NewSessionExtras) => Promise<string | null>
+  /** Starts with one agent's pane (maybe with a first task). */
+  create: (req: NewSessionRequest, agent: TerminalAgentId | null, extras?: NewSessionExtras) => Promise<string | null>
   /** The same task given to several agents, each in a session and worktree of its own; the first one is shown. */
   createParallel: (runs: ParallelRun[], req: NewSessionRequest, extras?: NewSessionExtras) => Promise<string | null>
   /** Removes a session after closing its terminals; an error to show, or null. */
@@ -160,13 +157,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     set((s) => ({ sessions: [...s.sessions, session], creatingIn: undefined, collapsed: { ...s.collapsed, [session.project]: false } }))
     await get().open(session)
     showAde()
-    if (Array.isArray(agent)) {
-      await useTerminals.getState().load()
-      for (const pane of agent) {
-        const added = useTerminals.getState().add(session.cwd, pane.agent, undefined, pane.prompt)
-        if (pane.name) useTerminals.getState().rename(session.cwd, added.id, pane.name)
-      }
-    } else if (agent) {
+    if (agent) {
       await useTerminals.getState().load()
       useTerminals.getState().add(session.cwd, agent, undefined, extras?.prompt)
     }

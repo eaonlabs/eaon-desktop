@@ -24,8 +24,7 @@ const AUTH_LABEL: Record<McpCatalogEntry['authMode'], string> = {
   pastedToken: 'API token'
 }
 
-/** `embedded`: inside the Mods marketplace's Connectors category, which has its own title. */
-export function PluginCatalog({ embedded = false }: { embedded?: boolean } = {}): JSX.Element {
+export function PluginCatalog(): JSX.Element {
   const setView = useApp((s) => s.setView)
   const connected = useConnectedPlugins()
   const statuses = useMcpStatuses()
@@ -54,15 +53,11 @@ export function PluginCatalog({ embedded = false }: { embedded?: boolean } = {})
 
   return (
     <>
-      {!embedded && (
-        <>
-          <h1 className="settings__h1">Plugins</h1>
-          <p className="settings__lede">
-            Connect outside services so models can read and act on your behalf, with your consent. Chat and Workers can use
-            them.
-          </p>
-        </>
-      )}
+      <h1 className="settings__h1">Plugins</h1>
+      <p className="settings__lede">
+        Connect outside services so models can read and act on your behalf, with your consent. Chat and Workers can use
+        them.
+      </p>
 
       <div className="plugin-catalog__search">
         <SearchField value={query} onChange={setQuery} placeholder={`Search ${MCP_CATALOG.length} plugins`} />

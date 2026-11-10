@@ -5,8 +5,7 @@ import { useApp } from '../../../state/store'
 import { Slider, Switch } from '../../ui'
 import { appTheme, terminals } from './registry'
 import { SCENES, scenes, seedOf } from './scenes'
-import { allTerminalThemes, findTheme, type TerminalColors, type TerminalTheme } from './themes'
-import { useMods } from '../../../state/mods'
+import { findTheme, TERMINAL_THEMES, type TerminalColors, type TerminalTheme } from './themes'
 import { useTerminals } from './terminalStore'
 
 /**
@@ -87,10 +86,6 @@ export function ThemePicker(): JSX.Element | null {
   const cli = useMemo(() => (cliLabel && cliCommand ? { label: cliLabel, command: cliCommand } : null), [cliLabel, cliCommand])
   const look = useApp((s) => s.settings?.ade ?? { theme: 'eaon', scenes: true, blur: false, blurAmount: 10 })
   const saved = findTheme(look.theme)
-  // The ADE's themes, then the enabled mods'.
-  const modsVersion = useMods((s) => s.version)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const TERMINAL_THEMES = useMemo(() => allTerminalThemes(), [modsVersion])
   const [index, setIndex] = useState(0)
   const panel = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLUListElement>(null)

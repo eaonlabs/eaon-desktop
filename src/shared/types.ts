@@ -639,8 +639,6 @@ export interface Settings {
      * earlier version never has it.
      */
     fresh?: boolean
-    /** The Mods announcement (renderer components/mods/ModsIntro.tsx) has been shown. */
-    modsIntro?: boolean
   }
   /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
   toknCli: {

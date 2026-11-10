@@ -13,7 +13,6 @@ import { revealLabel } from '../../lib/files'
 import { useBindingLabel } from '../../lib/bindings'
 import { DockToggle } from '../ide/Dock'
 import { useAdeDock } from '../ide/adeDock'
-import { ModWidgets } from '../mods/ModWidgets'
 import { OpenInButton } from '../chatCode/CodeTools'
 import { isRemote } from '@shared/adeRemote'
 
@@ -31,7 +30,6 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
-          <ModWidgets />
           <UsagePlacement />
           {/* The session's folder in your editor; one on another machine has none here. */}
           {cwd && !isRemote(cwd) && <OpenInButton icon folder={cwd} />}

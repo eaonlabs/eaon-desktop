@@ -77,7 +77,6 @@ import { starApi } from './features/star'
 import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 import { enterpriseApi } from './features/enterprise'
-import { modsApi } from './features/mods'
 import { mcpToolsApi } from './features/mcpTools'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
@@ -401,7 +400,6 @@ const fullApi = {
   freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi,
   enterprise: enterpriseApi,
-  mods: modsApi,
   gitAssist: gitAssistApi,
   searchReplace: searchReplaceApi,
   gitHistory: gitHistoryApi,

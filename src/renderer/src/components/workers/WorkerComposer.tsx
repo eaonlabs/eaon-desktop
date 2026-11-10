@@ -9,7 +9,7 @@ import { GoalEndChip, goalEndAt, PluginsSubmenu, type GoalEnd } from '../Compose
 import { PluginLogo } from '../plugins/PluginLogo'
 import { useMcpStatuses, useSkills } from '../plugins/usePlugins'
 import { useSuggest, type SuggestItem, type SuggestSources } from '../composer/SuggestMenu'
-import { liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from '../composer/sources'
+import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from '../composer/sources'
 import { removeMention } from '../composer/suggest'
 import { joinTranscript, useDictation } from '../composer/useDictation'
 import { VoiceBar } from '../composer/VoiceBar'
@@ -171,8 +171,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
       { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') },
       { id: 'wake', title: 'Check in now', keywords: 'wake check in now', section: worker.name, icon: <Zap size={16} strokeWidth={1.8} />, run: () => void window.api.workers.wake(worker.id) },
-      ...skillItems(skills, settings?.disabledSkills ?? []),
-      ...modCommandItems('workers')
+      ...skillItems(skills, settings?.disabledSkills ?? [])
     ],
     '@': () => [
       ...colleagues.map(

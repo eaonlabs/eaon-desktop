@@ -23,7 +23,7 @@ import {
   Smartphone,
   SquarePlus,
   Sun,
-  Wand2, Gauge, Bot, Search, Puzzle, MousePointerClick } from 'lucide-react'
+  Wand2, Gauge, Bot, Search, MousePointerClick } from 'lucide-react'
 import { Brain } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
@@ -61,7 +61,6 @@ import { AccountsPage } from './pages/Accounts'
 import { WORKER_TABS, WorkersPage } from './pages/Workers'
 import { EnginesPage } from './pages/Engines'
 import { SecurityPage } from './pages/Security'
-import { ModsPage } from '../mods/ModsPage'
 import type { PolicyFeature } from '@shared/enterprise'
 import { matchesSearch } from '@shared/searchWords'
 
@@ -103,7 +102,6 @@ export const KEYWORDS: Record<string, string> = {
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',
   plugins: 'skills mcp extensions',
-  mods: 'mods mod marketplace add-ons addons extensions themes theme packs slash commands snippets languages panels worker templates presets widgets sounds claude code plugins codex hooks',
   'eaon-code': 'coding agent cli terminal binary path',
   ade: 'terminal theme shell worktree worktrees coding scenes hold to talk dictation voice push to talk sessions',
   workers: 'background agents',
@@ -138,7 +136,6 @@ const NAV: NavEntry[] = [
   { id: 'app-control', label: 'App control', icon: <MousePointerClick size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'mods', label: 'Mods', icon: <Puzzle size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -161,9 +158,6 @@ const NAV: NavEntry[] = [
     concept — Browser drives `BrowserPanel` (Eaon Work only, see App.tsx) and
     Code index powers `codebase_search` over that folder. */
 const WORK_ONLY_PAGES = new Set(['browser', 'code-index'])
-
-/** Pages laid out wider than the rest: the mods marketplace's card grid. */
-const WIDE_PAGES = new Set(['mods'])
 
 /** Pages for surfaces an organization's policy can turn off; hidden when it does. */
 const POLICY_PAGES: Record<string, PolicyFeature> = {
@@ -201,7 +195,6 @@ const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Ele
   discord: DiscordPage,
   workers: WorkersPage,
   plugins: PluginsSettingsPage,
-  mods: ModsPage,
   browser: BrowserSettingsPage,
   mcp: McpServersPage,
   'connect-apps': ConnectAppsPage,
@@ -355,7 +348,7 @@ export function SettingsShell(): JSX.Element {
           </div>
         ) : (
           <div ref={scroll} className="settings__scroll scroll">
-            <div key={page} className="settings__inner settings__page" data-wide={WIDE_PAGES.has(page) || undefined}>
+            <div key={page} className="settings__inner settings__page">
               <PageBoundary page={page}>
                 <Page blocked={blocked} />
               </PageBoundary>

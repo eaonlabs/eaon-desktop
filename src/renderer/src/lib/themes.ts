@@ -22,7 +22,7 @@ export interface Theme {
    * Neutral themes keep a near-grey canvas and let the accent carry the colour;
    * coloured ones put the hue into the background and every surface mixed from it.
    */
-  group: 'neutral' | 'coloured' | 'mods'
+  group: 'neutral' | 'coloured'
   light: ThemeTone
   dark: ThemeTone
 }
@@ -233,19 +233,6 @@ export const THEMES: Theme[] = [
     dark: { accent: '#F252A6', background: '#261547', foreground: '#FBECFF', contrast: 54, textFade: 0.98 }
   }
 ]
-
-/** App themes the enabled mods add (renderer state/mods.ts), listed after Eaon's own. */
-let modThemes: Theme[] = []
-
-export function setModThemes(themes: Theme[]): void {
-  modThemes = themes
-}
-
-/** Every app theme: Eaon's, then the mods'. Read when drawing, so a mod turned on shows on the next render. */
-export function allThemes(): Theme[] {
-  return modThemes.length ? [...THEMES, ...modThemes.filter((t) => !THEMES.some((own) => own.name === t.name))] : THEMES
-}
-
 /**
  * Choosing a theme or mode takes the app back from the ADE's terminal theme,
  * which restyles the app while it is picked: the terminals go back to

@@ -1,5 +1,4 @@
 import { useMemo, useState, type JSX } from 'react'
-import { useMods, workerTemplatesOf } from '../../state/mods'
 import { ArrowLeft, Sparkles } from 'lucide-react'
 import { MAX_WORKERS, WORKER_COLORS, WORKER_PERSONALITIES, WORKER_SUGGESTIONS, type WorkerMood, type WorkerSuggestion } from '@shared/workers'
 import { WORKER_SHAPES, type WorkerShape } from '@shared/workerLook'
@@ -32,12 +31,6 @@ export function WorkerCreate(): JSX.Element {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const labs = workerAppsEnabled()
-  // The enabled mods' templates, after Eaon's suggestions.
-  const modsOn = useMods((s) => s.enabled)
-  const fromMods = useMemo(
-    () => workerTemplatesOf(modsOn).map((t) => ({ id: t.key, name: t.name, blurb: t.blurb, color: t.color, shape: t.shape, purpose: t.purpose, personality: t.personality, apps: [] as string[], modName: t.modName })),
-    [modsOn]
-  )
   const full = workers.length >= MAX_WORKERS
   const taken = useMemo(() => new Set(workers.map((w) => w.name.toLowerCase())), [workers])
 
@@ -158,13 +151,12 @@ export function WorkerCreate(): JSX.Element {
               Suggestions
             </span>
             <div className="suggest-grid">
-              {[...WORKER_SUGGESTIONS.filter((s) => labs || s.apps.length === 0 || s.id === 'night-shift' || s.id === 'inbox-triage'), ...fromMods].map((s, i) => (
+              {WORKER_SUGGESTIONS.filter((s) => labs || s.apps.length === 0 || s.id === 'night-shift' || s.id === 'inbox-triage').map((s, i) => (
                 <button key={s.id} className="suggest-card" data-on={picked === s.id || undefined} style={{ ['--i' as string]: i }} onClick={() => suggest(s)}>
                   <WorkerFace color={s.color} shape={s.shape} size={48} mood={picked === s.id ? 'happy' : 'neutral'} />
                   <span className="suggest-card__text">
                     <span className="suggest-card__name">{s.name}</span>
                     <span className="suggest-card__blurb">{s.blurb}</span>
-                    {'modName' in s && <span className="suggest-card__from">From {String(s.modName)}</span>}
                   </span>
                 </button>
               ))}

@@ -7,7 +7,6 @@ import { SkillIcon } from '../../icons/brand'
 import { MenuItem, MenuSeparator, Modal, Popover, SearchField, Segmented, Switch, useDisclosure } from '../ui'
 import type { SkillInfo, SkillSource } from '@shared/skills'
 import { PluginCatalog } from './PluginCatalog'
-import { ModsPage } from '../mods/ModsPage'
 import { refreshServers, useSkills } from './usePlugins'
 import './plugins.css'
 
@@ -63,59 +62,53 @@ export function PluginsPage(): JSX.Element {
             onChange={setPluginsTab}
             options={[
               { value: 'plugins', label: 'Plugins' },
-              { value: 'skills', label: 'Skills' },
-              { value: 'mods', label: 'Mods' }
+              { value: 'skills', label: 'Skills' }
             ]}
           />
         }
         right={
-          // The Mods tab has its own Add and refresh; these are for plugins and skills.
-          pluginsTab === 'mods' ? null : (
-            <>
-              <button className="icon-btn" aria-label="Refresh" disabled={refreshing} onClick={() => void refresh()}>
-                <RefreshCw size={15} strokeWidth={1.9} />
-              </button>
-              <button className="icon-btn" aria-label="Manage" onClick={() => setView('integrations')}>
-                <Settings size={16} strokeWidth={1.9} />
-              </button>
-              <button ref={addAnchor} className="btn btn--primary" onClick={addMenu.toggle}>
-                Add
-                <ChevronDown size={14} strokeWidth={2} />
-              </button>
-              <Popover anchor={addAnchor} open={addMenu.open} onClose={addMenu.close} placement="bottom-end" width={220}>
-                <MenuItem
-                  icon={<PencilLine size={15} strokeWidth={1.8} />}
-                  title="Create skill"
-                  onClick={() => pick(() => openDialog('create'))}
-                />
-                <MenuItem
-                  icon={<Github size={15} strokeWidth={1.8} />}
-                  title="Install skill from GitHub"
-                  onClick={() => pick(() => openDialog('install'))}
-                />
-                <MenuItem
-                  icon={<FolderOpen size={15} strokeWidth={1.8} />}
-                  title="Open skills folder"
-                  onClick={() => pick(() => void window.api.pluginAuth.skills.openFolder())}
-                />
-                <MenuSeparator />
-                <MenuItem
-                  icon={<Plug size={15} strokeWidth={1.8} />}
-                  title="Custom MCP server"
-                  onClick={() => pick(() => setSettingsPage('mcp'))}
-                />
-              </Popover>
-            </>
-          )
+          <>
+            <button className="icon-btn" aria-label="Refresh" disabled={refreshing} onClick={() => void refresh()}>
+              <RefreshCw size={15} strokeWidth={1.9} />
+            </button>
+            <button className="icon-btn" aria-label="Manage" onClick={() => setView('integrations')}>
+              <Settings size={16} strokeWidth={1.9} />
+            </button>
+            <button ref={addAnchor} className="btn btn--primary" onClick={addMenu.toggle}>
+              Add
+              <ChevronDown size={14} strokeWidth={2} />
+            </button>
+            <Popover anchor={addAnchor} open={addMenu.open} onClose={addMenu.close} placement="bottom-end" width={220}>
+              <MenuItem
+                icon={<PencilLine size={15} strokeWidth={1.8} />}
+                title="Create skill"
+                onClick={() => pick(() => openDialog('create'))}
+              />
+              <MenuItem
+                icon={<Github size={15} strokeWidth={1.8} />}
+                title="Install skill from GitHub"
+                onClick={() => pick(() => openDialog('install'))}
+              />
+              <MenuItem
+                icon={<FolderOpen size={15} strokeWidth={1.8} />}
+                title="Open skills folder"
+                onClick={() => pick(() => void window.api.pluginAuth.skills.openFolder())}
+              />
+              <MenuSeparator />
+              <MenuItem
+                icon={<Plug size={15} strokeWidth={1.8} />}
+                title="Custom MCP server"
+                onClick={() => pick(() => setSettingsPage('mcp'))}
+              />
+            </Popover>
+          </>
         }
       />
 
       <div className="page__scroll scroll">
-        <div className="page__inner" data-wide={pluginsTab === 'mods' || undefined}>
+        <div className="page__inner">
           {pluginsTab === 'plugins' ? (
             <PluginCatalog />
-          ) : pluginsTab === 'mods' ? (
-            <ModsPage />
           ) : (
             <SkillsTab version={skillsVersion} onCreate={() => setDialog('create')} onInstall={() => setDialog('install')} />
           )}

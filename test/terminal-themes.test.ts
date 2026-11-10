@@ -1,10 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { feedInput, shellQuote, type LineState } from '../src/renderer/src/components/code/terminal/input'
-import { contrast, DEFAULT_THEME_ID, findTheme, mix, TERMINAL_THEMES, type TerminalTheme } from '../src/renderer/src/components/code/terminal/themes'
-import { SCENES } from '../src/renderer/src/components/code/terminal/scenes'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { contrast, DEFAULT_THEME_ID, findTheme, mix, TERMINAL_THEMES } from '../src/renderer/src/components/code/terminal/themes'
 
 /**
  * The ADE's terminal themes (code/terminal/themes.ts) and the `/theme`
@@ -86,14 +83,8 @@ test('a line it cannot follow is never taken: arrow keys, history, a paste', () 
  * picks Gruvbox wants Gruvbox's red, even at 2.7:1. So this holds them to
  * what matters: body text at WCAG AA, and no accent colour fading out.
  */
-/** Eaon's bundled mods' terminal themes (resources/mods), and the app themes those mods add. */
-const MOD_MANIFESTS = readdirSync(join(process.cwd(), 'resources/mods'))
-  .filter((dir) => existsSync(join(process.cwd(), 'resources/mods', dir, 'mod.json')))
-  .map((dir) => JSON.parse(readFileSync(join(process.cwd(), 'resources/mods', dir, 'mod.json'), 'utf8')) as { contributes: { terminalThemes?: TerminalTheme[]; appThemes?: { name: string }[] } })
-const MOD_TERMINAL_THEMES = MOD_MANIFESTS.flatMap((m) => m.contributes.terminalThemes ?? [])
-
 test('every theme reads: text on its background passes AA, and no ANSI colour fades into it', () => {
-  for (const theme of [...TERMINAL_THEMES, ...MOD_TERMINAL_THEMES]) {
+  for (const theme of TERMINAL_THEMES) {
     if (!theme.colors) continue
     const c = theme.colors
     assert.ok(contrast(c.foreground, c.background) >= 4.5, `${theme.name}: text ${contrast(c.foreground, c.background).toFixed(2)}:1`)
@@ -105,7 +96,7 @@ test('every theme reads: text on its background passes AA, and no ANSI colour fa
 
 test('every palette is complete and well formed, and each theme says whether it is light', () => {
   const ids = new Set<string>()
-  for (const theme of [...TERMINAL_THEMES, ...MOD_TERMINAL_THEMES]) {
+  for (const theme of TERMINAL_THEMES) {
     assert.ok(!ids.has(theme.id), `duplicate id ${theme.id}`)
     ids.add(theme.id)
     if (!theme.colors) continue
@@ -158,14 +149,6 @@ test('every terminal theme but Eaon and plain See-through names an app theme tha
     // See-through leaves the app's colours alone: the wallpaper is the point.
     if (theme.id === DEFAULT_THEME_ID || theme.id === 'see-through') assert.equal(theme.app, null)
     else assert.ok(THEMES.some((t) => t.name === theme.app), `${theme.name} → ${theme.app}`)
-  }
-  // A mod's may also name one of its own app themes.
-  for (const mod of MOD_MANIFESTS) {
-    for (const theme of mod.contributes.terminalThemes ?? []) {
-      const own = (mod.contributes.appThemes ?? []).some((t) => t.name === theme.app)
-      assert.ok(theme.app === null || own || THEMES.some((t) => t.name === theme.app), `${theme.name} → ${theme.app}`)
-      assert.ok(theme.scene === null || Object.prototype.hasOwnProperty.call(SCENES, theme.scene), `${theme.name}'s scene ${theme.scene}`)
-    }
   }
 })
 

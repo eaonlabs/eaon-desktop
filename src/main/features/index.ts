@@ -44,7 +44,6 @@ import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
-import { modsFeature } from './mods'
 import { gitAssistFeature } from './gitAssist'
 import { searchReplaceFeature } from './searchReplace'
 import { gitHistoryFeature } from './gitHistory'
@@ -64,8 +63,6 @@ export const FEATURES: Feature[] = [
   // Agent engines (Codex…) before workers, which run turns on them.
   enginesFeature,
   pluginsFeature,
-  // Mods' tools and instructions, read by the agent loop; their CLI parts, by the terminals below.
-  modsFeature,
   // Custom instructions and memory for Chat; its `remember` tool is offered to the loop like the mods' tools.
   personalizeFeature,
   chatExportFeature,

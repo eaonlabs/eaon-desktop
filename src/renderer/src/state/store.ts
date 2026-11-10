@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { playModSound } from '../lib/modSounds'
 import type {
   Chat,
   ChatMessage,
@@ -56,7 +55,7 @@ interface AppState {
 
   view: View
   settingsPage: string
-  pluginsTab: 'plugins' | 'skills' | 'mods'
+  pluginsTab: 'plugins' | 'skills'
   /** Repo id showing in the Models detail view, or null for the list. Lives here
    * (rather than local component state) so re-clicking "Models" in the sidebar
    * while already viewing a model's variants returns to the list. */
@@ -125,7 +124,7 @@ interface AppState {
   openProviderSettings: (providerId: string | null) => void
   setProviderFocus: (providerId: string | null) => void
   openModelMenu: () => void
-  setPluginsTab: (tab: 'plugins' | 'skills' | 'mods') => void
+  setPluginsTab: (tab: 'plugins' | 'skills') => void
   setModelsRepo: (repoId: string | null) => void
   goBack: () => void
   goForward: () => void
@@ -684,8 +683,6 @@ function applyStreamEvent(event: StreamEvent): void {
   if (!mine) synced.set(target.id, ended[chatIndex])
   else if (finished || nextChat) persistChats()
   else checkpoints.touch()
-  // A mod's sound for a reply this window ran, once it ends (lib/modSounds.ts).
-  if (finished && mine) playModSound(event.type === 'error' ? 'error' : 'reply')
 }
 
 /**

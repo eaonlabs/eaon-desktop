@@ -1,5 +1,5 @@
 import type { Settings, ThemePalette } from '@shared/types'
-import { allThemes, type ThemeTone } from '../../../lib/themes'
+import { THEMES, type ThemeTone } from '../../../lib/themes'
 import type { AppearancePreview } from '../../../state/store'
 import type { TerminalTheme } from './themes'
 
@@ -23,7 +23,7 @@ function palette(name: string, tone: ThemeTone, current: ThemePalette): ThemePal
 
 /** The appearance a terminal theme gives the app, or null when it leaves the app alone (`eaon`). */
 export function appearanceFor(theme: TerminalTheme, current: Appearance): Snapshot | null {
-  const app = theme.app ? allThemes().find((t) => t.name === theme.app) : undefined
+  const app = theme.app ? THEMES.find((t) => t.name === theme.app) : undefined
   if (!app) return null
   return { mode: theme.mode, light: palette(app.name, app.light, current.light), dark: palette(app.name, app.dark, current.dark) }
 }

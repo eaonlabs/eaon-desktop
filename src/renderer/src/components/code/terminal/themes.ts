@@ -623,20 +623,8 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
   }
 ]
 
-/** Terminal themes the enabled mods add (renderer state/mods.ts), ids `<mod id>/<theme id>`. */
-let modThemes: TerminalTheme[] = []
-
-export function setModTerminalThemes(themes: TerminalTheme[]): void {
-  modThemes = themes
-}
-
-/** Every terminal theme: the ADE's own, then the mods'. */
-export function allTerminalThemes(): TerminalTheme[] {
-  return modThemes.length ? [...TERMINAL_THEMES, ...modThemes] : TERMINAL_THEMES
-}
-
 export function findTheme(id: string | null | undefined): TerminalTheme {
-  return TERMINAL_THEMES.find((theme) => theme.id === id) ?? modThemes.find((theme) => theme.id === id) ?? TERMINAL_THEMES[0]
+  return TERMINAL_THEMES.find((theme) => theme.id === id) ?? TERMINAL_THEMES[0]
 }
 
 /* ------------------------------------------------------------------ colour */

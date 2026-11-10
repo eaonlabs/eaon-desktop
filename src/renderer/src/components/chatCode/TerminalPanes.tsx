@@ -3,7 +3,6 @@ import { useShallow } from 'zustand/react/shallow'
 import { Columns2, MessageSquareQuote, Plus, Rows2, Trash2 } from 'lucide-react'
 import { terminals } from '../code/terminal/registry'
 import { findTheme } from '../code/terminal/themes'
-import { useMods } from '../../state/mods'
 import { useApp } from '../../state/store'
 import { notify } from '../Notice'
 import { ConfirmDialog } from '../ui'
@@ -28,7 +27,6 @@ export function useTerminalLook(on: boolean): CSSProperties | undefined {
   const appearance = useApp((s) => s.settings?.appearance)
   const themeId = useApp((s) => s.settings?.ade?.theme ?? 'eaon')
   const scenes = useApp((s) => s.settings?.ade?.scenes ?? true)
-  useMods((s) => s.version)
   const theme = findTheme(themeId)
   useEffect(() => {
     if (!on) return

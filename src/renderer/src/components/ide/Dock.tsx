@@ -12,7 +12,6 @@ import {
   PanelBottom,
   PanelRight,
   Plus,
-  Puzzle,
   Smartphone,
   SquareTerminal,
   GitPullRequest,
@@ -36,8 +35,6 @@ import { DeviceSurface, useBrowserPage } from './surfaces/DeviceSurface'
 import { FileSurface } from './surfaces/FileSurface'
 import { FilesView } from './surfaces/FilesView'
 import { LinkedPullsSurface, PullRequestSurface, useLinkedPulls } from './surfaces/PullRequests'
-import { panelsOf, useMods } from '../../state/mods'
-import { ModPanelFrame } from '../mods/ModPanelFrame'
 
 /**
  * The dock to the right of a conversation, or of the ADE's terminals.
@@ -52,17 +49,14 @@ import { ModPanelFrame } from '../mods/ModPanelFrame'
  * agent browses, not the ADE's). Where it is comes from dockPlace.
  */
 
-type Action = 'browser' | 'agent' | 'terminal' | 'files' | 'diff' | 'pr' | 'linked' | 'device' | 'mod'
+type Action = 'browser' | 'agent' | 'terminal' | 'files' | 'diff' | 'pr' | 'linked' | 'device'
 
 /** What only a coding chat's dock has: an ordinary chat, in no project, keeps the browser and the device. */
 const CODE_KINDS = new Set<string>(['terminal', 'files', 'file', 'diff', 'pr', 'linked'])
 
 interface Choice {
   action: Action
-  /** A mod's panel, for `mod`. */
-  panel?: string
   label: string
-  /** Its key in the launcher; a mod's panel has none. */
   letter: string
   icon: ReactNode
   /** Why it can't open now; undefined when it can. */
@@ -77,7 +71,6 @@ function useChoices(): Choice[] {
   const remote = Boolean(place.status?.remote)
   const linked = useLinkedPulls().length
   const page = useBrowserPage(place.browser)
-  const enabledMods = useMods((s) => s.enabled)
   const choices: (Choice | false)[] = [
     { action: 'browser', label: 'Browser', letter: 'B', icon: <Globe size={15} strokeWidth={1.8} /> },
     place.id === 'chat' && { action: 'terminal', label: 'Terminal', letter: 'T', icon: <SquareTerminal size={15} strokeWidth={1.8} />, unavailable: missing },
@@ -97,9 +90,7 @@ function useChoices(): Choice[] {
       icon: <Link2 size={15} strokeWidth={1.8} />,
       unavailable: linked ? undefined : place.id === 'chat' ? 'No pull requests linked in this chat yet' : 'No pull requests in this session’s terminals yet'
     },
-    { action: 'device', label: 'Device', letter: 'M', icon: <Smartphone size={15} strokeWidth={1.8} />, unavailable: page ? undefined : 'Open a page in the browser first' },
-    // The enabled mods' panels, after Eaon's own surfaces.
-    ...panelsOf(enabledMods).map((panel): Choice => ({ action: 'mod', panel: panel.key, label: panel.title, letter: '', icon: <Puzzle size={15} strokeWidth={1.8} /> }))
+    { action: 'device', label: 'Device', letter: 'M', icon: <Smartphone size={15} strokeWidth={1.8} />, unavailable: page ? undefined : 'Open a page in the browser first' }
   ]
   return choices.filter((c): c is Choice => c !== false && (place.coding || !CODE_KINDS.has(c.action)))
 }
@@ -112,12 +103,8 @@ function openBrowser(scope: string): void {
   window.dispatchEvent(new CustomEvent(BROWSER_REVEAL, { detail: scope }))
 }
 
-function run(action: Action, place: DockPlace, panel?: string): void {
+function run(action: Action, place: DockPlace): void {
   if (action === 'browser') return openBrowser(place.browser)
-  if (action === 'mod') {
-    if (panel) place.store.getState().openSurface('mod', { mod: panel })
-    return
-  }
   if (action === 'agent') {
     useAgentBrowser.getState().setOpen(true, useApp.getState().activeChatId)
     place.store.getState().openSurface('agent')
@@ -346,8 +333,6 @@ function SurfaceBody({ surface }: { surface: Surface }): JSX.Element {
         <LinkedPullsSurface />
       ) : surface.kind === 'device' ? (
         <DeviceSurface />
-      ) : surface.kind === 'mod' ? (
-        <ModPanelFrame panelKey={surface.mod ?? ''} />
       ) : (
         <AgentBrowserSurface />
       )}
@@ -361,9 +346,6 @@ function useSurfaceLook(surface: Surface): { label: string; icon: ReactNode; dir
   const page = useBrowser((s) => (surface.kind === 'browser' ? s.scopes[place.browser]?.tabs.find((t) => t.id === surface.tabId) : undefined))
   const dirty = place.store((s) => (surface.kind === 'file' ? s.tabs.some((t) => t.path === surface.path && isDirty(t)) : false))
   const agentWorking = useAgentBrowser((s) => surface.kind === 'agent' && s.open)
-  // The list, not a panel made from it: a fresh object from the selector would re-render forever.
-  const enabledMods = useMods((s) => s.enabled)
-  const modPanel = surface.kind === 'mod' ? panelsOf(enabledMods).find((p) => p.key === surface.mod) : undefined
   switch (surface.kind) {
     case 'browser':
       return {
@@ -401,8 +383,6 @@ function useSurfaceLook(surface: Surface): { label: string; icon: ReactNode; dir
       return { label: 'Device', icon: <Smartphone size={14} strokeWidth={1.8} /> }
     case 'agent':
       return { label: 'Eaon’s browser', icon: <MonitorPlay size={14} strokeWidth={1.8} />, live: agentWorking }
-    case 'mod':
-      return { label: modPanel?.title ?? 'Mod panel', icon: <Puzzle size={14} strokeWidth={1.8} /> }
   }
 }
 
@@ -505,7 +485,7 @@ function Launcher(): JSX.Element {
       <div ref={list} className="dock-launch__card" tabIndex={-1} onKeyDown={onKey} aria-label="Open a surface">
         <div className="dock-launch__title">Open a surface</div>
         {choices.map((choice) => (
-          <ChoiceRow key={choice.panel ?? choice.action} choice={choice} onPick={() => run(choice.action, place, choice.panel)} />
+          <ChoiceRow key={choice.action} choice={choice} onPick={() => run(choice.action, place)} />
         ))}
       </div>
     </div>
@@ -531,7 +511,7 @@ function ChoiceRow({ choice, onPick, menu = false }: { choice: Choice; onPick: (
       >
         <span className="dock-choice__icon">{choice.icon}</span>
         <span className="dock-choice__label">{choice.label}</span>
-        {!isBrowser && choice.letter && <kbd className="dock-choice__key">{choice.letter}</kbd>}
+        {!isBrowser && <kbd className="dock-choice__key">{choice.letter}</kbd>}
       </button>
       {isBrowser && (
         <>
@@ -616,12 +596,12 @@ function AddMenu(): JSX.Element {
         <div className="menu__label">Open a surface</div>
         {choices.map((choice) => (
           <ChoiceRow
-            key={choice.panel ?? choice.action}
+            key={choice.action}
             menu
             choice={choice}
             onPick={() => {
               setOpen(false)
-              run(choice.action, place, choice.panel)
+              run(choice.action, place)
             }}
           />
         ))}

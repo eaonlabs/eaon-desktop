@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
 import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
-import { allThemes, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
-import { useMods } from '../../../state/mods'
+import { THEMES, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
 import { wallpaperVideoUrl } from '@shared/wallpaper'
 import { styleInfo } from '../../seeThrough/styles'
@@ -36,8 +35,7 @@ const APP_ICONS: { id: AppIcon; label: string; image: string }[] = [
 
 const GROUPS: { id: Theme['group']; label: string }[] = [
   { id: 'neutral', label: 'Neutral' },
-  { id: 'coloured', label: 'Coloured' },
-  { id: 'mods', label: 'From mods' }
+  { id: 'coloured', label: 'Coloured' }
 ]
 
 /**
@@ -62,10 +60,6 @@ export function AppearancePage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const a = settings?.appearance
   const tone = useResolvedTone(a?.mode ?? 'dark')
-  // Eaon's themes, then those of the mods that are on.
-  const modsVersion = useMods((s) => s.version)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const themes = useMemo(() => allThemes(), [modsVersion])
   if (!settings || !a) return <></>
 
   return (
@@ -102,11 +96,11 @@ export function AppearancePage(): JSX.Element {
       </Section>
 
       <Section label="Color theme">
-        {GROUPS.filter((group) => themes.some((theme) => theme.group === group.id)).map((group) => (
+        {GROUPS.map((group) => (
           <div key={group.id} className="theme-group">
             <div className="theme-group__label">{group.label}</div>
             <div className="theme-swatch-grid">
-              {themes.filter((theme) => theme.group === group.id).map((theme) => (
+              {THEMES.filter((theme) => theme.group === group.id).map((theme) => (
                 <button
                   key={theme.name}
                   className="theme-swatch"

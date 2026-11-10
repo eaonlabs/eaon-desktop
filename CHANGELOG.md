@@ -6,19 +6,6 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## Unreleased
 
 ### Added
-- **Mods (alpha).** Settings → Mods (also a tab on the Plugins page, or ⇧⌘M) is a marketplace of add-ons for Chat, Workers, the ADE and the coding CLIs Eaon starts. Before anything installs, each mod shows what it can touch, worked out from the mod itself. Anything that runs code, or reaches past the app's look, is reviewed first. Mods turn off and on, uninstall cleanly, and survive updates. A short note introduces them once after updating.
-- **30 mods from Eaon, bundled so they work offline:**
-  - **Themes:** Harbor, Sandstone, High Contrast, and four Night Shift terminal themes.
-  - **Commands and instructions:** writing, code and planning slash commands; Plain answers; Show your sources.
-  - **Editor:** snippets for web, Python, Go and Rust, plus colouring for Lua, Terraform, Nix, Haskell and R.
-  - **Dock panels:** Scratchpad, Focus timer, JSON tools and Time converter.
-  - **Workers:** research and developer worker templates.
-  - **Agent tools:** weather, Wikipedia, Hacker News and exchange rates.
-  - **ADE:** session presets, and a UTC clock with a focus timer in the top bar.
-  - **Coding CLIs:** git commands, guardrails and review helpers for Claude Code, and house rules for Codex.
-  - **Sounds:** soft chimes.
-- **Make your own mods:** a `mod.json` and its files, installed from a folder, a packed file, a link or a mod source's index. Mods from outside Eaon never get a verified mark. See docs/mods.md.
-- **Mods reach the CLIs only in sessions Eaon starts.** A mod's Claude Code plugin is loaded with `--plugin-dir`, and its Codex instructions and MCP servers are passed with `-c`. Nothing is written to your own ~/.claude or ~/.codex.
 - **An editor beside the chat.** In a project, the header's Editor button (or ⌘P, to open a file by name) opens the project's code next to the conversation: the files on the left, coloured by what git sees (changed, new, untracked) and opened to the file you're on; the file with its place in the project; and a status bar with the line and column, what's selected, the indent, the line ending, the language and the branch. Lines changed since the last commit are marked in the gutter, and the line the caret is on is lit.
 - **Talk to Eaon about the code you're looking at.** Select some code: ⌘L adds it to your message with where it came from, and ⌘K opens a box under it to say what to change; the request goes to the chat (or waits its turn behind a reply still being written) and the file updates as Eaon edits it. Code in your own messages now shows as code.
 - **Undo a reply's changes.** In a project that's a git repository, Eaon saves the folder before and after each reply, and the reply's "changed files" card has Undo, which puts those files back as they were, and Redo. If you've changed one of them since, Undo names it and asks first. Edit from here can undo the file changes of the replies after that message too. Your own index, branch and stash are never touched.

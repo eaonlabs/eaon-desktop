@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react'
-import { BookOpen, Globe, Laptop, Puzzle } from 'lucide-react'
+import { BookOpen, Globe, Laptop } from 'lucide-react'
 import type { McpServer, McpServerStatus } from '@shared/types'
 import type { SkillInfo } from '@shared/skills'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from '../plugins/PluginLogo'
 import { FileIcon, splitPath } from '../agent/FileIcon'
 import type { SuggestItem } from './SuggestMenu'
-import { useMods } from '../../state/mods'
 
 /**
  * Rows the "/" and "@" menus share between Chat's composer and a worker's.
@@ -120,30 +119,6 @@ export function skillItems(skills: SkillInfo[], disabled: string[]): SuggestItem
       icon: <BookOpen size={16} strokeWidth={1.8} />,
       insert: `Use the ${skill.name} skill:`
     }))
-}
-
-/**
- * The enabled mods' slash commands for one composer. Picking one puts its
- * prompt in the box in place of the typed "/name", for the user to finish
- * and send: a mod's command never sends anything on its own.
- */
-export function modCommandItems(where: 'chat' | 'workers'): SuggestItem[] {
-  return useMods
-    .getState()
-    .enabled.flatMap((mod) =>
-      (mod.contributes.commands ?? [])
-        .filter((command) => !command.where || command.where.includes(where))
-        .map((command) => ({
-          id: `mod:${mod.id}:${command.name}`,
-          title: command.name,
-          keywords: `${mod.name} mod`,
-          section: 'Mods',
-          description: command.description,
-          icon: <Puzzle size={16} strokeWidth={1.8} />,
-          hint: mod.name,
-          insert: command.prompt
-        }))
-    )
 }
 
 /** Permission levels as commands; `levels` names them for the composer at hand (the app's, or a worker's own). */

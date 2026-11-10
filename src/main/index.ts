@@ -68,7 +68,6 @@ import { trustSystemNetwork } from './netTrust'
 import { onClaudePlanChange } from './engines/claude/status'
 import { versionLabel } from '@shared/version'
 import { effectiveBinding, toAccelerator } from '@shared/keybindings'
-import { MOD_SCHEME, withModInstructions } from './features/mods'
 import { withPersonalInstructions } from './features/personalize'
 import { instructionsWithRules } from './features/chatContext'
 
@@ -115,10 +114,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } },
   // A worker's camera card (workers/cameraView.ts): a Home Assistant camera's
   // picture or live stream, fetched by main so its token never reaches the page.
-  { scheme: 'eaon-camera', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
-  // A mod's panel (features/mods): a standard scheme so each mod is its own
-  // origin and its page can be held to its own content policy. No CSP bypass.
-  { scheme: MOD_SCHEME, privileges: { standard: true, secure: true } }
+  { scheme: 'eaon-camera', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])
@@ -848,9 +844,9 @@ function registerIpc(): void {
         if (!event.sender.isDestroyed()) event.sender.send('chat:event', { type: 'done', messageId: request.messageId } satisfies StreamEvent)
         return
       }
-      // The project's rules files (AGENTS.md…) follow the instructions typed into it (features/chatContext). Then the
-      // mods the user turned on (features/mods), then their custom instructions and memory (features/personalize).
-      const instructions = withPersonalInstructions(request, withModInstructions(await instructionsWithRules(request)))
+      // The project's rules files (AGENTS.md…) follow the instructions typed into it (features/chatContext), then the
+      // user's custom instructions and memory (features/personalize).
+      const instructions = withPersonalInstructions(request, await instructionsWithRules(request))
       await streamChat(event, { ...request, projectInstructions: instructions }, stopped.signal)
     } finally {
       if (chatStreams.get(request.messageId) === stopped) chatStreams.delete(request.messageId)

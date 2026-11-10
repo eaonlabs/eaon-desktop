@@ -31,9 +31,6 @@ import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
 import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
 import type { GuestLaunch } from './terminals/guestSandbox'
-import { enabledMods } from './mods/service'
-import { modDir } from './mods/files'
-import { withMods } from './mods/launch'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -461,25 +458,14 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   let send: (channel: string, payload: unknown) => void = () => undefined
 
-  /**
-   * A local shell started (not reattached) with `env`: its Codex account is
-   * noted. A grid pane's Claude Code or Codex gets the enabled mods' parts
-   * for it (mods/launch.ts); a pane outside the grid starts as its owner set it up.
-   */
-  const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null, useMods = true): TerminalSpawnResult => {
+  /** A local shell started (not reattached) with `env`: its Codex account is noted. */
+  const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null): TerminalSpawnResult => {
     // Claude Code's plan limits reach the usage meter after each reply (withUsageReport).
     if (runsClaude(req.command) || runsClaude(plan?.command)) {
       const settings = usageReportSettings()
       const kind = paneShellKind()
       if (req.command) req = { ...req, command: withUsageReport(req.command, settings, kind) }
       if (plan) plan = { ...plan, command: withUsageReport(plan.command, settings, kind) }
-    }
-    const mods = useMods ? enabledMods() : []
-    if (mods.length) {
-      const kind = paneShellKind()
-      const options = { codexHome: env.CODEX_HOME }
-      if (req.command) req = { ...req, command: withMods(req.command, mods, modDir, kind, options) }
-      if (plan?.command) plan = { ...plan, command: withMods(plan.command, mods, modDir, kind, options) }
     }
     const result = manager.spawn(req, env, plan)
     if (result.ok && !result.reattached) codexHomes.set(req.paneId, env.CODEX_HOME ?? null)
@@ -525,7 +511,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       }
       // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
       const outside = outsidePaneEnv(req.paneId)
-      if (outside) return startLocal(req, { ...(await agentEnv(req.agent)), ...outside }, null, false)
+      if (outside) return startLocal(req, { ...(await agentEnv(req.agent)), ...outside })
       // A pane with a live shell reattaches to it; only a pane's first
       // start in a run is its restore.
       if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
