@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Loader2, Monitor, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
+import { SidebarFoot } from './SidebarFoot'
 import { CodeSidebar } from './code/CodeSidebar'
 import { openNewSession, useAdeSessions } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
@@ -70,6 +71,8 @@ export function Sidebar(): JSX.Element {
       {/* Each tab's places stay put; its list scrolls under them and fades at its edges. */}
       <div className="sidebar__menu">{kind === 'workers' ? <WorkersNav part="menu" /> : kind === 'code' ? <AdeMenu /> : <ChatMenu />}</div>
       <FadingBody key={kind}>{kind === 'workers' ? <WorkersNav part="list" /> : kind === 'code' ? <CodeSidebar /> : <ChatNav />}</FadingBody>
+      {/* The ADE has the plans' rings in its header already. */}
+      <SidebarFoot rings={kind !== 'code'} />
       </div>
       </div>
     </aside>

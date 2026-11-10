@@ -380,6 +380,14 @@ function summary(range: UsageSpan): UsageSummary {
   }
 }
 
+/** The last seven days, today last, with Claude Code and Codex counted as in the chart: the sidebar's foot. */
+function week(): UsageDay[] {
+  void loadPricing()
+  const cli = cliLogs()
+  const everything = withCliDays(ledgerDays(), cli.days, cli.found.includes('codex'), cli.found.includes('claude-code'))
+  return rangeDays(dailyTotals(everything, pricing.models, billingLookup(), true), 7)
+}
+
 function setSync(next: UsageSync): void {
   sync = next
   const { state: _state, error: _error, ...kept } = next
@@ -504,6 +512,7 @@ export const usageFeature: Feature = {
       changed()
       return budgetNow()
     })
+    ipcMain.handle('usage:week', () => week())
     // The account entry (sidebar, Settings) without the numbers, which it doesn't show.
     ipcMain.handle('usage:account', (): UsageAccountState => ({ account: toknAccount(), signIn: signInState, sync: shownSync() }))
     ipcMain.handle('usage:sign-in', () => startSignIn())

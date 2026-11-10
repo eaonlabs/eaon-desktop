@@ -536,6 +536,18 @@ export interface Settings {
     /** Credit balances and recent token totals in the details. */
     tokens: boolean
   }
+  /** The foot of the sidebar (SidebarFoot.tsx): Settings → Usage & limits, or right-click it. */
+  sidebarFoot: {
+    show: boolean
+    /** What its figures add up: today, or the last seven days. */
+    period: 'today' | 'week'
+    /** The figure on top, the other under it: tokens, or dollars (spend plus plan use at API rates). Or neither. */
+    figure: 'tokens' | 'dollars' | 'none'
+    /** A bar a day for the last week. */
+    chart: boolean
+    /** The plan usage rings, for the accounts picked above them in Usage & limits. */
+    rings: boolean
+  }
   /** Settings → Agent providers. */
   agentProviders: {
     /** Coding CLIs left out of the ADE's "New terminal" picker. */

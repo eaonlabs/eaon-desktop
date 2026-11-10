@@ -4,7 +4,7 @@ import type { ProviderWindow, UsageProviderId } from '@shared/providerUsage'
 import { useApp } from '../state/store'
 import { ensureLimits, limitsView, refreshLimits, useLimitsSources, type LimitsView } from '../state/limits'
 import { LimitsCard, windowName } from './LimitsCard'
-import { Popover } from './ui'
+import { Popover, type Placement } from './ui'
 import { ProviderMark } from './composer/ProviderMark'
 import '../styles/usageRings.css'
 import '../styles/limits.css'
@@ -30,7 +30,8 @@ function pick(windows: ProviderWindow[], mode: 'both' | '5h' | 'weekly'): { oute
   return { inner: windows[0] }
 }
 
-export function UsageRings(): JSX.Element | null {
+/** `placement`: where a ring's card opens, below the ADE header's rings or above the sidebar's. */
+export function UsageRings({ placement = 'bottom-end' }: { placement?: Placement }): JSX.Element | null {
   const { cli, provider } = useLimitsSources()
   const chosen = useApp((s) => s.settings?.usageLimits?.sidebar ?? ['codex', 'claude'])
   // One card at a time: opening one ring's card closes the other's.
@@ -51,13 +52,13 @@ export function UsageRings(): JSX.Element | null {
   return (
     <div className="usage-rings" role="group" aria-label="Plan usage">
       {views.map((view) => (
-        <Ring key={view.id} view={view} open={opened === view.id} setOpen={(open) => setOpened(open ? view.id : null)} />
+        <Ring key={view.id} view={view} placement={placement} open={opened === view.id} setOpen={(open) => setOpened(open ? view.id : null)} />
       ))}
     </div>
   )
 }
 
-function Ring({ view, open, setOpen }: { view: LimitsView; open: boolean; setOpen: (open: boolean) => void }): JSX.Element {
+function Ring({ view, placement, open, setOpen }: { view: LimitsView; placement: Placement; open: boolean; setOpen: (open: boolean) => void }): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const limits = useApp((s) => s.settings?.usageLimits)
   const patchSettings = useApp((s) => s.patchSettings)
@@ -103,7 +104,7 @@ function Ring({ view, open, setOpen }: { view: LimitsView; open: boolean; setOpe
         anchor={anchor}
         open={open}
         onClose={() => setOpen(false)}
-        placement="bottom-end"
+        placement={placement}
         standalone
         offset={10}
         width={320}

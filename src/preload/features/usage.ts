@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { CursorImport, ToknAccount, ToknPage, UsageAccountState, UsageBudget, UsageBudgetState, UsageSpan, UsageSummary } from '@shared/usage'
+import type { CursorImport, ToknAccount, ToknPage, UsageAccountState, UsageBudget, UsageBudgetState, UsageDay, UsageSpan, UsageSummary } from '@shared/usage'
 
 /** Renderer bridge for Settings → Usage and the Tokn account (Eaon's account). Exposed as `window.api.usage`. */
 export const usageApi = {
@@ -9,6 +9,8 @@ export const usageApi = {
   /** The monthly budget and this month's use of it. */
   budget: (): Promise<UsageBudgetState> => ipcRenderer.invoke('usage:budget'),
   setBudget: (patch: Partial<UsageBudget>): Promise<UsageBudgetState> => ipcRenderer.invoke('usage:set-budget', patch),
+  /** The last seven days, today last, every tool counted: for the sidebar's foot. */
+  week: (): Promise<UsageDay[]> => ipcRenderer.invoke('usage:week'),
   /** The account, sign-in and sync, without the numbers: for the account entry. */
   account: (): Promise<UsageAccountState> => ipcRenderer.invoke('usage:account'),
   /** Opens Tokn's approval page; resolves with the account once approved, or null. */

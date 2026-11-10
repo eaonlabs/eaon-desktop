@@ -64,6 +64,8 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
   'agentProviders.permissions': values<AgentPermission>({ own: true, ask: true, edits: true, auto: true, full: true }),
   'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true }),
+  'sidebarFoot.period': values<Settings['sidebarFoot']['period']>({ today: true, week: true }),
+  'sidebarFoot.figure': values<Settings['sidebarFoot']['figure']>({ tokens: true, dollars: true, none: true }),
   'onboarding.setup': values<Settings['onboarding']['setup']>({ pending: true, done: true, skipped: true }),
   'onboarding.tour': values<Settings['onboarding']['tour']>({ pending: true, done: true, skipped: true })
 }

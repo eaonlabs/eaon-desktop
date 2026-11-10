@@ -91,7 +91,7 @@ export const KEYWORDS: Record<string, string> = {
   configuration: 'web search search engine internet',
   shortcuts: 'keyboard hotkey hotkeys keys key bindings',
   usage: 'tokens cost spend limits tokn activity streak',
-  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
+  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter sidebar footer foot tokens dollars today week chart',
   accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
   memory: 'remember remembers memories facts preferences personalize forget saved across chats',
   providers:
