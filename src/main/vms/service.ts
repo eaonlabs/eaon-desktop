@@ -852,20 +852,15 @@ export function createVmManager(options: VmManagerOptions): VmManager {
   }
 
   if (options.autostart) {
-    const due = (): Stored[] => [...vms.values()].filter((vm) => (vm.keepRunning || vm.resume) && liveOf(vm.id).phase === 'stopped')
-    setTimeout(async () => {
-      // At boot the host can start before the desktop login that gives its user KVM (a Pi that
-      // logs itself in); a VM started then would run without it, so give that login two minutes.
-      for (let i = 0; i < 24 && due().length > 0 && qemuSetup?.kvm === 'no-access'; i++) {
-        await new Promise((r) => setTimeout(r, 5000))
-        qemuSetup = findQemu(qemuSetup.arch)
-      }
-      for (const vm of due()) {
-        if (vm.resume) {
-          vm.resume = false
-          save(vm)
+    setTimeout(() => {
+      for (const vm of vms.values()) {
+        if ((vm.keepRunning || vm.resume) && liveOf(vm.id).phase === 'stopped') {
+          if (vm.resume) {
+            vm.resume = false
+            save(vm)
+          }
+          void start(vm.id).catch((error) => console.warn(`[vms] ${vm.name} didn’t start:`, errorText(error)))
         }
-        void start(vm.id).catch((error) => console.warn(`[vms] ${vm.name} didn’t start:`, errorText(error)))
       }
     }, 1000).unref?.()
   }

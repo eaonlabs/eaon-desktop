@@ -19,7 +19,7 @@ import { qcow2ToRaw } from '../src/main/vms/qcow2'
 import { vmTool, vmToolSource, type VmDirectory } from '../src/main/vms/tool'
 import { createVmManager, setupStep } from '../src/main/vms/service'
 import type { BackendRun, VmBackendDriver, VmPaths } from '../src/main/vms/backend'
-import { freeVmName, LINUX_IMAGES, vmLimits, vmPhaseLabel, vmSpaceNeededMB, type VmRecord, type VmStatus } from '@shared/vms'
+import { freeVmName, LINUX_IMAGES, vmLimits, vmPhaseLabel, type VmRecord, type VmStatus } from '@shared/vms'
 import { hostForwardsEvent, hostServesChannel } from '@shared/workerHost'
 
 const scratch = mkdtempSync(join(tmpdir(), 'eaon-vms-'))
@@ -268,10 +268,6 @@ test('sizes: a Raspberry Pi 5 gets a 4 GB desktop VM, a 24 GB Mac an 8 GB macOS 
   assert.deepEqual([mac.cpus.value, mac.memoryMB.value, mac.diskGB.value], [4, 8192, 80])
   const tiny = vmLimits({ cpus: 1, memoryMB: 1024, diskFreeMB: 4 * 1024 }, 'linux', false)
   assert.ok(tiny.memoryMB.value >= tiny.memoryMB.min && tiny.diskGB.value >= tiny.diskGB.min)
-  // The space that has to be free: 21 GB is enough for a Linux desktop, not for Apple's download plus macOS.
-  assert.ok(vmSpaceNeededMB('linux', 'ubuntu-24.04', true) < 21 * 1024)
-  assert.ok(vmSpaceNeededMB('macos', 'macos-latest', true) > 21 * 1024)
-  assert.ok(vmSpaceNeededMB('macos', 'macos-file', true) < vmSpaceNeededMB('macos', 'macos-latest', true))
   assert.equal(freeVmName('Ubuntu', ['ubuntu', 'Ubuntu 2']), 'Ubuntu 3')
   assert.equal(vmPhaseLabel({ phase: 'preparing', progress: { step: 'Downloading Debian 13', fraction: 0.42 }, error: null }), 'Downloading Debian 13 42%')
 })

@@ -226,17 +226,6 @@ export function vmLimits(info: Pick<VmDeviceInfo, 'cpus' | 'memoryMB' | 'diskFre
   }
 }
 
-/**
- * About how much free space making a VM takes, in MB: its download plus what setting it up writes.
- * Disks are sparse, so this, not the disk's size, is what has to fit. macOS: Apple's restore image
- * (unless the user has one) and the installed system; Linux: what a first boot installs (Ubuntu's
- * desktop came to 4.1 GB on a Pi).
- */
-export function vmSpaceNeededMB(os: VmOs, image: string, desktop: boolean): number {
-  if (os === 'macos') return (image === 'macos-file' ? 0 : 18 * GB) + 25 * GB
-  return (desktop ? 6 : 3) * GB
-}
-
 /** The images a device can make a VM from, by OS. */
 export function imagesFor(os: VmOs): VmImage[] {
   return os === 'linux' ? LINUX_IMAGES : os === 'macos' ? MACOS_IMAGES : []

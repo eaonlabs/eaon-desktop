@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Laptop, Monitor, SquareTerminal } from 'lucide-react'
-import { imagesFor, linuxImage, vmLimits, vmSpaceNeededMB, type VmDevice, type VmDeviceInfo, type VmOs } from '@shared/vms'
+import { imagesFor, linuxImage, vmLimits, type VmDevice, type VmDeviceInfo, type VmOs } from '@shared/vms'
 import { Modal, Segmented, Slider, Switch } from '../ui'
 import { cleanVmError } from './useVmDevices'
 
@@ -77,10 +77,7 @@ export function NewVmDialog({
 
   const support = info.os[os]
   const needsFile = os === 'macos' && image === 'macos-file'
-  const neededGB = Math.ceil(vmSpaceNeededMB(os, image, os === 'macos' || desktop) / 1024)
-  const freeGB = info.diskFreeMB === null ? null : Math.round(info.diskFreeMB / 1024)
-  const tooFull = freeGB !== null && freeGB < neededGB
-  const canCreate = support.available && Boolean(image) && name.trim().length > 0 && (!needsFile || ipsw.trim().length > 0) && !tooFull && !creating
+  const canCreate = support.available && Boolean(image) && name.trim().length > 0 && (!needsFile || ipsw.trim().length > 0) && !creating
 
   const create = async (): Promise<void> => {
     setCreating(true)
@@ -165,14 +162,6 @@ export function NewVmDialog({
                 </label>
               ))}
             </div>
-            {tooFull && (
-              <p className="vm-new__note vm-new__note--warn">
-                {os === 'macos'
-                  ? `macOS needs about ${neededGB} GB free on ${deviceName}: ${needsFile ? '' : 'Apple’s download (about 18 GB) and '}the system it installs.`
-                  : `This VM needs about ${neededGB} GB free on ${deviceName} to set itself up.`}{' '}
-                {deviceName.charAt(0).toUpperCase() + deviceName.slice(1)} has {freeGB} GB free.
-              </p>
-            )}
             {needsFile && (
               <div className="vm-new__file">
                 <input className="input" value={ipsw} placeholder={device === 'local' ? 'Choose a .ipsw file' : 'The .ipsw file’s path on the worker computer'} onChange={(e) => setIpsw(e.target.value)} />
