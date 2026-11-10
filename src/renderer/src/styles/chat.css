@@ -407,7 +407,8 @@
 }
 
 /* In a conversation: one pill, + at one end and send at the other, with
-   what Eaon may do and the model under it. Round ends while it is one line. */
+   what Eaon may do and the model under it. Round ends while it is one line;
+   once the text wraps it takes the whole width, the buttons a row under it. */
 .composer[data-variant='chat'] {
   padding: 5px;
   border-radius: 24px;
@@ -446,6 +447,18 @@
 }
 .composer__row .voice-bar {
   flex: 1;
+}
+.composer[data-stacked] .composer__row {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.composer[data-stacked] .composer__row .composer__input {
+  order: -1;
+  flex-basis: 100%;
+  padding: 7px 9px 2px;
+}
+.composer[data-stacked] .composer__row > :first-child {
+  margin-right: auto;
 }
 .composer--worker[data-variant='chat'] .composer__row > .composer__round {
   background: none;
@@ -844,6 +857,14 @@
 .composer-stack {
   container-type: inline-size;
 }
+/* The model's name outlasts the labels beside it: its window here, and its
+   effort too in the new-chat toolbar, which has less room to spare. */
+@container (max-width: 560px) {
+  .chip--model .chip__window,
+  .composer__toolbar .chip--model .chip__effort {
+    display: none;
+  }
+}
 @container (max-width: 430px) {
   .chip__label,
   .chip--model .chip__effort,
@@ -857,14 +878,6 @@
 }
 
 /* ==================================================================
-/* The model's name outlasts the labels beside it: its window here, and its
-   effort too in the new-chat toolbar, which has less room to spare. */
-@container (max-width: 560px) {
-  .chip--model .chip__window,
-  .composer__toolbar .chip--model .chip__effort {
-    display: none;
-  }
-}
    Motion: thinking orb, thoughts, message entrances.
    Every animation here reports state — what is running, what arrived,
    in what order. All of it collapses to nothing under reduce-motion

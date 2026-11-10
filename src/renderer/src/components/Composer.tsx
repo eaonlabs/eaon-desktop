@@ -71,6 +71,7 @@ import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
 import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
 import { SpeechSetup } from './composer/SpeechSetup'
+import { useFitInput } from './composer/useFitInput'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../lib/platform'
 
@@ -175,6 +176,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
+  // In a conversation, text that wraps takes the whole box, with + and send under it.
+  const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
   // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
   const hold = useHoldToTalk(dictation, {
     ready: () => {
@@ -206,12 +209,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // What the request will actually use: the chosen effort, clamped to the model.
   const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
 
-  useEffect(() => {
-    const node = textarea.current
-    if (!node) return
-    node.style.height = 'auto'
-    node.style.height = `${Math.min(node.scrollHeight, 320)}px`
-  }, [text])
 
   useEffect(() => {
     if (!draftId) return
@@ -698,7 +695,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             : `Unavailable — ${engineChoice.reason ?? ''}`
           : selection.status === 'unavailable'
             ? `Unavailable — ${selection.reason ?? ''}`
-            : undefined
+            : model?.label
       }
     >
       {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
@@ -820,7 +817,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -853,7 +850,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )}
 
         {variant === 'chat' ? (
-          // In a conversation: one pill, + at one end and send at the other; its settings sit under it.
+          // In a conversation: one pill, + at one end and send at the other (under the text once
+          // it wraps); its settings sit under it.
           <div className="composer__row">
             {plusButton}
             {input}
