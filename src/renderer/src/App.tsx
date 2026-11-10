@@ -15,8 +15,9 @@ import { PluginsPage } from './components/plugins/PluginsPage'
 import { IntegrationsPage } from './components/plugins/IntegrationsPage'
 import { ScheduledPage } from './components/ScheduledPage'
 import { PullRequestsPage } from './components/PullRequestsPage'
-import { LinearPage } from './components/LinearPage'
+import { IssuesPage } from './components/IssuesPage'
 import { ModelsPage } from './components/ModelsPage'
+import { ComputersPage } from './components/computers/ComputersPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { StoreNotice } from './components/StoreNotice'
@@ -30,6 +31,7 @@ import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
 import { TradingDesk } from './components/trading/TradingDesk'
+import { useTradingOn } from './components/trading/useTradingOn'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { GuestWatchPanel, GuestWatchPill } from './components/guestWatch/GuestWatch'
 import { useGuestWatch } from './components/guestWatch/guestWatchStore'
@@ -57,6 +59,7 @@ import { startProviderLogos } from './state/providerLogos'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
+  const { on: tradingOn } = useTradingOn()
   const { ready, initError, view, settingsPage, activeChatId, browserOpen, init, setView, setSettingsPage } = useApp(
     useShallow((s) => ({
       ready: s.ready,
@@ -83,6 +86,11 @@ export default function App(): JSX.Element {
 
   // What Eaon CLI asks of the window (tabs, ADE folders and terminals, settings).
   useEffect(() => installControl(), [])
+
+  // Trading's page isn't there while Trading is off (the CLI or a stale link can still send the window to it).
+  useEffect(() => {
+    if (view === 'trading' && !tradingOn) setView('chat')
+  }, [view, tradingOn, setView])
 
   // A local dev server's link in an ADE terminal opens beside it, in the in-app browser.
   useEffect(() => {
@@ -224,9 +232,10 @@ export default function App(): JSX.Element {
               {view === 'integrations' && <IntegrationsPage />}
               {view === 'scheduled' && <ScheduledPage />}
               {view === 'pull-requests' && <PullRequestsPage />}
-              {view === 'linear' && <LinearPage />}
-              {view === 'trading' && <TradingDesk />}
+              {view === 'issues' && <IssuesPage />}
+              {view === 'trading' && tradingOn && <TradingDesk />}
               {view === 'models' && <ModelsPage />}
+              {view === 'computers' && <ComputersPage />}
             </ErrorBoundary>
           </div>
           {dock.mounted && (

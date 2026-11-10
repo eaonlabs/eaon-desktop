@@ -746,6 +746,8 @@ export const MessageRow = memo(function MessageRow({
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
   )
+  // Any call can change files (a shell command can write them), and a coding reply's card reads what changed from its checkpoints.
+  const calledTools = useMemo(() => message.parts.some((part) => part.type === 'tool'), [message.parts])
   // Still being written, by this window's run or another's (another window, a
   // scheduled task): its action bar waits until it is finished.
   const unfinished = streaming || message.parts.some((part) => part.type === 'tool' && part.status === 'running')
@@ -941,7 +943,9 @@ export const MessageRow = memo(function MessageRow({
           <PlanRow todos={message.todos} />
         )}
 
-        {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} undone={message.undone === true} />}
+        {!streaming && (changes.length > 0 || (isWork && calledTools)) && (
+          <EditedFiles messageId={message.id} changes={changes} work={isWork} undone={message.undone === true} />
+        )}
 
         {message.stopped && !streaming && (
           <div className="msg__stopped" role="status">

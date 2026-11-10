@@ -36,7 +36,7 @@ import { noteFirstRun } from './features/onboarding'
 import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
-import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
+import { getAllTools, getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
@@ -567,6 +567,9 @@ const SECURITY_SETTINGS = new Set(['general', 'mcp', 'localServer', 'remote', 'c
  * Each value is the one now in force; a request the organization's policy
  * held back is recorded as denied, with what was asked for.
  */
+/** Trading started this launch, and hasn't been switched off since. */
+let tradingRunning = false
+
 function auditSettingsChange(patch: Partial<Settings>, next: Settings): void {
   const keys = Object.keys(patch ?? {})
   const security = keys.filter((key) => SECURITY_SETTINGS.has(key))
@@ -619,9 +622,15 @@ function registerIpc(): void {
   ipcMain.handle('app:shortcuts-recording', (_e, on: unknown) => buildMenu(on === true))
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
+  ipcMain.handle('trading:available', (): boolean => tradingRunning)
   ipcMain.handle('settings:patch', (e, raw: Partial<Settings>): Settings => {
     const patch = withoutKeys(raw)
     const next = store.patchSettings(patch)
+    // Switched off while it runs: stop its sessions and broker link now. Switching on again takes a restart.
+    if (patch.general?.trading === false && tradingRunning) {
+      tradingRunning = false
+      void FEATURES.find((f) => f.id === 'trading')?.shutdown?.()
+    }
     auditSettingsChange(patch, next)
     if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
@@ -685,6 +694,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('mcp:statuses', () => getStatuses())
   ipcMain.handle('mcp:tools', () => getTools())
+  // Every connected tool, those turned off included: what Settings lists to switch on and off.
+  ipcMain.handle('mcp:all-tools', () => getAllTools())
   ipcMain.handle('mcp:sync', () => shellPath.then(() => syncMcpServers()))
 
   ipcMain.handle('local-server:status', () => getLocalServerStatus())
@@ -1121,8 +1132,12 @@ app.whenReady().then(async () => {
       audit('feature.blocked', { feature: feature.id, policy: gate }, { via: 'system', outcome: 'denied' })
       continue
     }
+    // Trading is off unless switched on (Settings → General): the module doesn't start, so it has no
+    // engine, tools, broker link or IPC. Switching it on takes a restart.
+    if (feature.id === 'trading' && !store.getSettings().general.trading) continue
     try {
       await feature.register(featureContext)
+      if (feature.id === 'trading') tradingRunning = true
     } catch (error) {
       console.error(`[features] ${feature.id} failed to start:`, error)
     }

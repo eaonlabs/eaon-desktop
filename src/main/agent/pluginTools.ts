@@ -1,5 +1,7 @@
 import type { McpTool } from '@shared/types'
-import { callMcpToolResult, getTools, serverNames, type McpCallResult } from '../mcp'
+import { serverOfferedIn } from '@shared/mcpTools'
+import { store } from '../store'
+import { callMcpToolResult, getTools, mcpToolPermission, serverNames, type McpCallResult } from '../mcp'
 import { brokerOf, brokerWriteNeedsUser, tradingHalted, writesToBroker } from '../features/trading/access'
 import { capOutput, registerToolSource, safeToolName, type AgentTool, type ToolContext, type ToolResult } from './tools'
 
@@ -46,6 +48,12 @@ async function call(tool: McpTool, input: Record<string, unknown>, ctx: ToolCont
   return result.images || result.isError ? { ...result, text } : text
 }
 
+/** The user's own rule for a tool (Settings → MCP Servers); a default is none. */
+function ruleFor(tool: McpTool): 'allow' | 'block' | undefined {
+  const permission = mcpToolPermission(tool.serverId, tool.name)
+  return permission === 'default' ? undefined : permission
+}
+
 function plugin(tool: McpTool, names: Names): AgentTool {
   return {
     name: directName(names, tool),
@@ -59,6 +67,7 @@ function plugin(tool: McpTool, names: Names): AgentTool {
     // The server itself says this deletes or overwrites something — or it is
     // an order at a broker the user hasn't let this run trade at on its own.
     catastrophic: (_input, ctx) => tool.destructive === true || brokerWriteNeedsUser(tool, ctx.request.chatId),
+    permission: () => ruleFor(tool),
     run: (input, ctx) => call(tool, input, ctx)
   }
 }
@@ -131,6 +140,10 @@ function deferred(all: McpTool[], names: Names): AgentTool[] {
         },
         required: ['name']
       },
+      permission: (input) => {
+        const tool = findTool(all, names, String(input.name ?? ''))
+        return tool ? ruleFor(tool) : undefined
+      },
       mutating: (input) => !findTool(all, names, String(input.name ?? ''))?.readOnly,
       risky: (input) => {
         const tool = findTool(all, names, String(input.name ?? ''))
@@ -157,7 +170,10 @@ registerToolSource({
   tools: (query) => {
     if (query.mode !== 'work') return []
     const allowed = query.request.workerId ? workerPlugins(query.request.workerId) : null
-    const all = allowed ? getTools().filter((t) => allowed.includes(t.serverId)) : getTools()
+    // A server that came from a project's own file is offered in that project's folder only.
+    const elsewhere = new Set(store.getMcpServers().filter((s) => !serverOfferedIn(s, query.cwd)).map((s) => s.id))
+    const visible = elsewhere.size > 0 ? getTools().filter((t) => !elsewhere.has(t.serverId)) : getTools()
+    const all = allowed ? visible.filter((t) => allowed.includes(t.serverId)) : visible
     if (all.length === 0) return []
     const usable = query.readOnly ? all.filter((t) => t.readOnly) : all
     if (usable.length === 0) return []

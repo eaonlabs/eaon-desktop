@@ -46,6 +46,7 @@ import { PeekLine, rawCall } from './ToolPeek'
 import { CommandCard, EditCard } from './StepCards'
 import { SwarmCard, ToolImages } from './WorkBits'
 import { workerApp } from '@shared/workerApps'
+import { isPatchCall, patchChanges } from '../chatCode/changes/patch'
 
 /**
  * One tool call in the transcript.
@@ -66,6 +67,7 @@ const ICONS: Record<string, typeof Search> = {
   find_symbol: Search,
   edit_file: FilePenLine,
   write_file: FilePlus2,
+  apply_patch: FilePenLine,
   delete_file: Trash2,
   run_command: SquareTerminal,
   web_search: Globe,
@@ -137,6 +139,7 @@ function summarise(name: string, input: Record<string, unknown>): string {
   if (name === 'grep' || name === 'codebase_search' || name === 'find_symbol' || name === 'find_file') return first('pattern', 'query', 'name', 'path')
   if (name === 'spawn_agents') return Array.isArray(input.agents) ? `${input.agents.length} agents` : ''
   if (name === 'move_file') return [first('from'), first('to')].filter(Boolean).join(' → ')
+  if (name === 'apply_patch') return Array.isArray(input.files) ? input.files.filter((f): f is string => typeof f === 'string').join(', ') : ''
   // Workers' own tools read as sentences: "Messaged Pixel", "Every 30 min".
   if (name === 'message_worker') return first('to')
   if (name === 'set_status') return first('activity')
@@ -186,6 +189,7 @@ const LABELS: Record<string, string> = {
   find_symbol: 'Find symbol',
   edit_file: 'Edit',
   write_file: 'Write',
+  apply_patch: 'Edit',
   delete_file: 'Delete',
   run_command: 'Run',
   web_search: 'Web search',
@@ -286,10 +290,14 @@ export function describeToolPart(part: ChatToolPart): ActivityCall {
   return { name: part.name, status: part.status, label: LABELS[part.name] ?? part.name, detail: summarise(part.name, part.input) }
 }
 
-/** The edits a turn's finished `edit_file` / `write_file` calls made, for the files-changed card. */
+/** The edits a turn's finished edit, write and patch calls made, for the files-changed card. */
 export function toolPartChanges(parts: ChatToolPart[]): FileChange[] {
   const changes: FileChange[] = []
   for (const part of parts) {
+    if (isPatchCall(part)) {
+      changes.push(...patchChanges(part))
+      continue
+    }
     if (part.status !== 'done' || typeof part.input.path !== 'string') continue
     if (part.name === 'edit_file' && typeof part.input.old_text === 'string' && typeof part.input.new_text === 'string') {
       changes.push({ file: part.input.path, before: part.input.old_text, after: part.input.new_text, ...(part.input.replace_all === true ? { replaceAll: true } : {}) })

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { groupSessions, keepOrder, splitArchived, type AdeConversation, type AdeSession, type NewSessionExtras, type NewSessionRequest, type ProjectGroup } from '@shared/adeSessions'
+import { groupSessions, keepOrder, splitArchived, type AdeConversation, type AdeSession, type NewSessionExtras, type NewSessionRequest, type ParallelRun, type ProjectGroup } from '@shared/adeSessions'
 import { copiedSummary } from '@shared/worktreeCopy'
 import type { NewRemoteSessionRequest } from '@shared/adeRemote'
 import type { TerminalAgentId } from '@shared/terminals'
@@ -44,6 +44,8 @@ interface SessionsState {
   openFolder: (folder: string) => Promise<void>
   /** Starts with one agent's pane, or a mod's preset of panes (each maybe with a first task). */
   create: (req: NewSessionRequest, agent: TerminalAgentId | null | PresetPane[], extras?: NewSessionExtras) => Promise<string | null>
+  /** The same task given to several agents, each in a session and worktree of its own; the first one is shown. */
+  createParallel: (runs: ParallelRun[], req: NewSessionRequest, extras?: NewSessionExtras) => Promise<string | null>
   /** Removes a session after closing its terminals; an error to show, or null. */
   remove: (session: AdeSession, deleteWorktree: boolean) => Promise<string | null>
   /** The ADE shows another session because `session` is gone from the list (removed, or archived). */
@@ -166,10 +168,28 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
       }
     } else if (agent) {
       await useTerminals.getState().load()
-      useTerminals.getState().add(session.cwd, agent)
+      useTerminals.getState().add(session.cwd, agent, undefined, extras?.prompt)
     }
     // One notice for all of it: a second would replace the first.
     if (told.length > 0) notify(told.map((t) => t.text).join(' '), told.some((t) => t.error) ? 'error' : 'done')
+    return null
+  },
+
+  async createParallel(runs, req, extras) {
+    const made: string[] = []
+    for (const run of runs) {
+      const failed = await get().create({ ...req, title: run.title, branch: run.branch }, run.agent as TerminalAgentId, extras)
+      if (failed) {
+        // The first one failing is the dialog's error; a later one leaves what was made and says so.
+        if (made.length === 0) return failed
+        notify(`${made.length} of ${runs.length} agents started. ${run.title}: ${failed}`, 'error')
+        break
+      }
+      made.push(run.branch)
+    }
+    // The dialog shows the first agent's session, whichever was made last.
+    const first = get().sessions.find((s) => s.project === req.project && s.branch === made[0])
+    if (first) await get().open(first)
     return null
   },
 

@@ -101,11 +101,18 @@ copyModule('baileys', root)
 
 copyFileSync(join(root, 'src/host/install.sh'), join(pkgDir, 'install.sh'))
 chmodSync(join(pkgDir, 'install.sh'), 0o755)
+// The Mac's VM helper (scripts/build-vm-helper.mjs), for a spare Mac linked as a worker computer. Built only on a Mac.
+const vmHelper = join(root, 'resources/vm/darwin/eaon-vm')
+if (existsSync(vmHelper)) {
+  mkdirSync(join(pkgDir, 'vm'), { recursive: true })
+  copyFileSync(vmHelper, join(pkgDir, 'vm', 'eaon-vm'))
+  chmodSync(join(pkgDir, 'vm', 'eaon-vm'), 0o755)
+}
 writeFileSync(join(pkgDir, 'package.json'), `${JSON.stringify({ name: 'eaon-host', private: true, type: 'module', main: 'eaon-host.mjs', version: appPkg.version }, null, 2)}\n`)
 
 // The build id: what the bundles and the installer say, so the desktop knows when the host is behind.
 const hash = createHash('sha256')
-for (const file of ['eaon-host.mjs', 'eaon-host-node.mjs', 'install.sh']) hash.update(readFileSync(join(pkgDir, file)))
+for (const file of ['eaon-host.mjs', 'eaon-host-node.mjs', 'install.sh', 'vm/eaon-vm']) if (existsSync(join(pkgDir, file))) hash.update(readFileSync(join(pkgDir, file)))
 for (const dir of [...copied].sort()) hash.update(dir.slice(root.length))
 const buildId = `${appPkg.version}-${hash.digest('hex').slice(0, 12)}`
 for (const file of ['eaon-host.mjs', 'eaon-host-node.mjs']) {

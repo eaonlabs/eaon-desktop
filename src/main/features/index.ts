@@ -1,6 +1,7 @@
 import { browserUseFeature } from './browserUse'
 import { inAppBrowserFeature } from './inAppBrowser'
 import { computerUseFeature } from './computerUse'
+import { appControlFeature } from './appControl'
 import { discordPresenceFeature } from './discordPresence'
 import { eaonCodeFeature } from './eaonCode'
 import { schedulerFeature } from './scheduler'
@@ -15,8 +16,10 @@ import { adeFeature } from './ade'
 import { adeToolsFeature } from './adeTools'
 import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
+import { trackersFeature } from './trackers'
 import { workersFeature } from './workers'
 import { workerHostFeature } from './workerHost'
+import { vmsFeature } from './vms'
 import { remoteFeature } from './remote'
 import { rcFeature } from './rc'
 import { controlFeature } from './control'
@@ -36,6 +39,7 @@ import { agentProvidersFeature } from './agentProviders'
 import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
+import { importAppsFeature } from './importApps'
 import { providerLogosFeature } from './providerLogos'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
@@ -50,6 +54,7 @@ import { chatExportFeature } from './chatExport'
 import { savedPromptsFeature } from './savedPrompts'
 import { chatContextFeature } from './chatContext'
 import { sideQuestionFeature } from './sideQuestion'
+import { mcpToolsFeature } from './mcpTools'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -69,6 +74,7 @@ export const FEATURES: Feature[] = [
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,
+  appControlFeature,
   browserUseFeature,
   inAppBrowserFeature,
   schedulerFeature,
@@ -83,11 +89,14 @@ export const FEATURES: Feature[] = [
   // Make ADE sessions, so after it.
   prReviewFeature,
   linearFeature,
+  trackersFeature,
   workersFeature,
   // Built on the workers engine, so after it; before the worker computer, which may move them with the workers.
   channelsFeature,
   // Decides where the workers run (here, or on a linked worker computer) before anything else uses them.
   workerHostFeature,
+  // After the worker computer's link, which it reaches that computer's VMs through.
+  vmsFeature,
   // Follows the workers engine, so right after it.
   remoteFeature,
   // After workers, terminals and the ADE, whose parts it serves.
@@ -105,6 +114,7 @@ export const FEATURES: Feature[] = [
   gatewayFeature,
   connectAppsFeature,
   linkAccountsFeature,
+  importAppsFeature,
   providerLogosFeature,
   usageFeature,
   starRepoFeature,
@@ -118,5 +128,6 @@ export const FEATURES: Feature[] = [
   gitHistoryFeature,
   // What Chat's message box pulls in (git, terminals, rules files, prompt commands); reads the chat folders the dock may.
   chatContextFeature,
-  sideQuestionFeature
+  sideQuestionFeature,
+  mcpToolsFeature
 ]

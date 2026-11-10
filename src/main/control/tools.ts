@@ -14,6 +14,7 @@ import { findLibraryModel } from '../modelLibrary/catalog'
 import { listProviders } from '../providers'
 import { store } from '../store'
 import { versionLabel } from '@shared/version'
+import type { ControlClient } from './server'
 
 /**
  * The tools behind Eaon's control API (`/control`). Each is a name, a plain
@@ -35,7 +36,8 @@ export interface ControlHost {
 }
 
 export interface ControlTool extends ControlToolInfo {
-  run: (args: Record<string, unknown>) => unknown | Promise<unknown>
+  /** `client` is who is asking (control/server.ts), for tools that answer each differently. */
+  run: (args: Record<string, unknown>, client?: ControlClient) => unknown | Promise<unknown>
 }
 
 type Schema = Record<string, unknown>

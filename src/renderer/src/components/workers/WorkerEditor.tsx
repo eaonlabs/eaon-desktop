@@ -9,6 +9,7 @@ import { workerAppsEnabled } from '@shared/workerApps'
 import type { WorkerShape } from '@shared/workerLook'
 import { WorkerTradingFields } from './WorkerTradingFields'
 import { limitsOf, WorkerLimitsFields, type LimitsDraft } from './WorkerLimits'
+import { useTradingOn } from '../trading/useTradingOn'
 import { useWorkers } from './workersStore'
 import { WORKER_ACCESS, WORKER_COLORS, WORKER_PERSONALITIES, type WorkerAccess, type WorkerMood, type WorkerTrading } from '@shared/workers'
 import { ENGINE_LABEL, type EngineId, type EngineModels, type EngineStatus } from '@shared/engines'
@@ -66,6 +67,7 @@ function engineNote(status: EngineStatus | undefined, name: string): { text: str
  * it reacts: happy when a name goes in, serious while it is being given a job.
  */
 export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Element {
+  const { on: tradingOn } = useTradingOn()
   const { workers, save, closeEditor, select } = useWorkers(
     useShallow((s) => ({ workers: s.workers, save: s.save, closeEditor: s.closeEditor, select: s.select }))
   )
@@ -296,7 +298,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
           </div>
         )}
 
-        <WorkerTradingFields value={trading} onChange={setTrading} access={access} />
+        {tradingOn && <WorkerTradingFields value={trading} onChange={setTrading} access={access} />}
 
         <WorkerLimitsFields worker={existing} value={limits} onChange={setLimits} />
 

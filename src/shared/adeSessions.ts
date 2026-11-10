@@ -83,6 +83,24 @@ export type NewSessionResult = { ok: true; session: AdeSession } | { ok: false; 
 export interface NewSessionExtras {
   /** Copy the ignored files Settings → ADE names (.env…) into the new worktree. */
   copyIgnored?: boolean
+  /** The first task the agent is given when its pane starts. */
+  prompt?: string
+}
+
+/** One of several agents given the same task, each in a worktree of its own. */
+export interface ParallelRun {
+  agent: string
+  title: string
+  branch: string
+}
+
+/**
+ * The sessions a task given to several agents makes: the first agent on the
+ * branch asked for, each other on that branch plus its own name, so no two
+ * share a folder or a branch and their work can be compared side by side.
+ */
+export function parallelRuns(title: string, branch: string, agents: { id: string; label: string }[]): ParallelRun[] {
+  return agents.map((a, i) => (i === 0 ? { agent: a.id, title, branch } : { agent: a.id, title: `${title} (${a.label})`, branch: `${branch}-${a.id.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}` }))
 }
 
 /** What happens to a session's worktree when the session is removed. */

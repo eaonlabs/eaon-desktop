@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServer, StreamRequest } from '@shared/types'
 import { store } from '../src/main/store'
-import { getStatuses, getTools, reconnectMcpServer, shutdownMcp, syncMcpServers } from '../src/main/mcp'
+import { callMcpToolResult, getAllTools, getStatuses, getTools, reconnectMcpServer, shutdownMcp, syncMcpServers } from '../src/main/mcp'
 import '../src/main/agent/pluginTools'
 import { toolsFor, type AgentTool, type ToolContext, type ToolResult } from '../src/main/agent/tools'
 import { alive, eventually, fakeMcp, fakeSseMcp, pidsIn, stdioScript, type StdioScript } from './mcpFixtures'
@@ -286,4 +286,33 @@ test('a result with hundreds of images or a huge text keeps a bounded amount', a
   const huge = toToolResult({ content: [{ type: 'text' as const, text: 'x'.repeat(5_000_000) }] })
   assert.ok(huge.text.length < 2_100_000)
   assert.match(huge.text, /5,000,000-character result was dropped/)
+})
+
+test('a tool turned off is not offered to the agent and a call to it is refused, while the server stays connected', async () => {
+  const fake = await fakeMcp({ tools: [{ name: 'read_note', description: 'Reads' }, { name: 'delete_note', description: 'Deletes' }] })
+  try {
+    store.saveMcpServers([http('notes', fake.url)])
+    await syncMcpServers()
+    assert.deepEqual(getTools().map((t) => t.name), ['delete_note', 'read_note'])
+    assert.ok(workTools().some((t) => t.name === 'notes__delete_note'))
+
+    // Off: gone from what a model is offered, still listed for Settings, and the server is not reconnected for it.
+    store.saveMcpServers([{ ...http('notes', fake.url), disabledTools: ['delete_note'] }])
+    await syncMcpServers()
+    assert.deepEqual(getTools().map((t) => t.name), ['read_note'])
+    assert.deepEqual(getAllTools().map((t) => t.name), ['delete_note', 'read_note'])
+    assert.equal(statusOf('notes')?.state, 'ready')
+    assert.ok(!workTools().some((t) => t.name === 'notes__delete_note'))
+    assert.ok(workTools().some((t) => t.name === 'notes__read_note'))
+    // A model that remembers the tool from earlier in the chat is told it is off, and the server never sees the call.
+    await assert.rejects(callMcpToolResult('delete_note', {}, 5000, 'notes'), /turned off/)
+    await callMcpToolResult('read_note', {}, 5000, 'notes')
+
+    // On again: back at once.
+    store.saveMcpServers([http('notes', fake.url)])
+    await syncMcpServers()
+    assert.deepEqual(getTools().map((t) => t.name), ['delete_note', 'read_note'])
+  } finally {
+    await fake.close()
+  }
 })

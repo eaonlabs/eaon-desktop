@@ -26,11 +26,12 @@ import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecen
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
 import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
+import { cleanPlanSteps, planApprovalMessage, planChanged } from '@shared/planEdit'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 import { notify } from '../components/Notice'
 import { reportError } from '../components/ErrorBoundary'
 
-export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'linear' | 'models' | 'library' | 'trading'
+export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'issues' | 'models' | 'library' | 'trading' | 'computers'
 
 interface NavEntry {
   view: View
@@ -154,6 +155,8 @@ interface AppState {
   stop: (chatId?: string) => void
   /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
   approvePlan: (messageId: string) => void
+  /** Replaces a pending plan's steps with the person's edits (the plan is then theirs, not the agent's). */
+  editPlanSteps: (messageId: string, steps: string[]) => void
   /** A reply's thumbs and emoji, from its action bar. */
   setMessageFeedback: (messageId: string, feedback: MessageFeedback) => void
   /** Marks a coding reply's file changes undone (or redone) in the chat on screen. */
@@ -180,7 +183,7 @@ interface AppState {
   reindex: (force?: boolean) => Promise<void>
 
   createProject: (name: string, folder?: string | null) => Project
-  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions' | 'folder'>>) => void
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions' | 'folder' | 'extraFolders'>>) => void
   /** Deletes the project; its chats stay, moved back to Chats. */
   deleteProject: (id: string) => void
   /** This tab's project for `folder`: the one that has it, or a new one named after it. */
@@ -1171,9 +1174,11 @@ export const useApp = create<AppState>((set, get) => ({
       projectInstructions: project?.instructions ?? '',
       // A project's chats code in its folder; an ordinary chat's agent keeps to ~/Eaon.
       cwd: mode === 'work' ? (project?.folder ?? null) : null,
+      ...(mode === 'work' && project?.extraFolders?.length ? { extraRoots: project.extraFolders } : {}),
       work: {
         swarm: settings.work.swarm,
-        plan: options.plan ?? settings.planMode
+        plan: options.plan ?? settings.planMode,
+        ask: Boolean(settings.askMode) && !(options.plan ?? settings.planMode)
       },
       goal: current.goal?.status === 'active' ? current.goal : null
     }
@@ -1257,7 +1262,29 @@ export const useApp = create<AppState>((set, get) => ({
     set({ chats })
     persistChats()
     // Plan mode stays on for the next task; this one runs with it off.
-    void get().send('Approved — carry out the plan. Keep the checklist updated as you go.', { plan: false })
+    const plan = chat.messages.find((m) => m.id === messageId)?.plan
+    void get().send(plan ? planApprovalMessage(plan) : planApprovalMessage({ title: '', steps: [] }), { plan: false })
+  },
+
+  editPlanSteps(messageId, steps) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const cleaned = cleanPlanSteps(steps)
+    if (cleaned.length === 0) return
+    const chats = get().chats.map((c) =>
+      c.id === chat.id
+        ? {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId && m.plan && m.plan.status === 'pending'
+                ? { ...m, plan: { ...m.plan, steps: cleaned, edited: m.plan.edited || planChanged(m.plan.steps, cleaned) } }
+                : m
+            )
+          }
+        : c
+    )
+    set({ chats })
+    persistChats()
   },
 
   setGoalStatus(status) {

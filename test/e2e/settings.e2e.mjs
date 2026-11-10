@@ -21,7 +21,9 @@ import { openSettings, scenario } from './fixtures.mjs'
 function listControls(page) {
   return page.eval(() => {
     const root = document.querySelector('.settings__inner') ?? document.querySelector('.settings__body')
-    const controls = [...(root?.querySelectorAll('button, [role="switch"], select, input, a[href]') ?? [])]
+    // A text box has nothing to do when clicked; what typing in it saves is not this scenario's question.
+    const typing = (el) => el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes(el.type)
+    const controls = [...(root?.querySelectorAll('button, [role="switch"], select, input, a[href]') ?? [])].filter((el) => !typing(el))
     return controls.map((el, index) => {
       const row = el.closest('.row')
       const title = row?.querySelector('.row__title')?.textContent?.trim() ?? ''

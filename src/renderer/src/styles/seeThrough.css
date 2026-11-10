@@ -65,8 +65,12 @@ body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
   --glass-card: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 42% * var(--glass-clear-k), 100%), transparent);
   --glass-field: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 50% * var(--glass-clear-k), 100%), transparent);
   --glass-code: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 45% * var(--glass-clear-k), 100%), transparent);
-  --glass-blur: blur(calc(26px * var(--glass-blur-k))) saturate(150%);
-  --glass-blur-float: blur(calc(30px * var(--glass-blur-k))) saturate(160%);
+  /* Blur alone only softens the picture and greys it under the panel's tone.
+     What makes glass look like glass (the lift other apps' vibrancy has) is
+     the backdrop pushed brighter and more saturated before that tone goes on. */
+  --glass-lift: 1.2;
+  --glass-blur: blur(calc(32px * var(--glass-blur-k))) saturate(200%) brightness(var(--glass-lift));
+  --glass-blur-float: blur(calc(36px * var(--glass-blur-k))) saturate(210%) brightness(var(--glass-lift));
   background: transparent;
 
   /* The app's solid surfaces become tints of the text colour, so a selected
@@ -118,6 +122,7 @@ body[data-see-through='on'] :is(pre, code, kbd, .xterm, .cm-editor, .monaco-edit
 /* As specific as the block above, or its translucent-window form would win. */
 [data-theme='light'] body[data-see-through='on'],
 [data-theme='light'] body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
+  --glass-lift: 1.06;
   --sunken: color-mix(in srgb, #fff 40%, transparent);
   --halo-split: 0.9;
 }
@@ -370,4 +375,9 @@ body[data-see-through='on'] .home__field {
    a backdrop blur from working (see .msg--user above): near-opaque instead. */
 body[data-see-through='on'] .ask-card {
   background: var(--glass-float);
+}
+
+/* A faint sheen across the top of the big panels, as light catches the edge of glass. */
+body[data-see-through='on'] :is(.sidebar__panel, .settings__nav-panel, .dock, .composer) {
+  background-image: linear-gradient(180deg, color-mix(in srgb, #fff 9%, transparent), transparent 38%);
 }

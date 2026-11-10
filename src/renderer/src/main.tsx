@@ -22,6 +22,7 @@ import './styles/code.css'
 import './styles/scheduler.css'
 import './styles/extension.css'
 import './styles/computer.css'
+import './styles/appControl.css'
 import './styles/models.css'
 import './styles/workers.css'
 import './styles/workerLimits.css'
@@ -35,6 +36,7 @@ import './styles/connectApps.css'
 import './styles/usage.css'
 import './styles/cliAccounts.css'
 import './styles/workerHost.css'
+import './styles/computers.css'
 
 reportRendererErrors()
 

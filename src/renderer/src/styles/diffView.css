@@ -1077,3 +1077,45 @@ button.dv__fold-label:hover {
 .turn-head__toggle[aria-expanded='true'] .turn-head__chevron {
   transform: rotate(90deg);
 }
+
+/* The line above each git hunk: where it is, and Keep / Reject. */
+.dv__hunkbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fg) 8%, transparent);
+  position: sticky;
+  left: 0;
+}
+.dv__hunkbar-where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv__hunkbtn {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  padding: 1px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.dv__hunkbar:hover .dv__hunkbtn,
+.dv__hunkbtn:focus-visible {
+  opacity: 1;
+}
+.dv__hunkbtn:hover {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  color: var(--text);
+}
+.dv__hunkbtn--reject:hover {
+  color: var(--danger, #e5534b);
+}

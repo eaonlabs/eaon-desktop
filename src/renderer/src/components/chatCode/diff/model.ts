@@ -24,7 +24,7 @@ export interface DiffRow {
  * isn't known.
  */
 export type DiffBlock =
-  | { type: 'rows'; rows: DiffRow[] }
+  | { type: 'rows'; rows: DiffRow[]; /** A hunk from git: its `@@` line, which names it when one is accepted or rejected. */ header?: string }
   | { type: 'gap'; count: number; old: number; cur: number; rows: DiffRow[] | null }
   | { type: 'break' }
 
@@ -247,7 +247,7 @@ export function blocksFromHunks(hunks: { header: string; lines: DiffRow[] }[], n
     // A hunk that adds a whole file starts at old 0, one that deletes it at new 0.
     const count = curStart > 0 ? curStart - prevCur - 1 : oldStart - prevOld - 1
     if (count > 0) blocks.push({ type: 'gap', count, old: prevOld + 1, cur: prevCur + 1, rows: gapRows(prevOld + 1, prevCur + 1, count) })
-    blocks.push({ type: 'rows', rows: hunk.lines })
+    blocks.push({ type: 'rows', rows: hunk.lines, header: hunk.header })
     for (const line of hunk.lines) {
       if (line.old !== null) prevOld = Math.max(prevOld, line.old)
       if (line.cur !== null) prevCur = Math.max(prevCur, line.cur)

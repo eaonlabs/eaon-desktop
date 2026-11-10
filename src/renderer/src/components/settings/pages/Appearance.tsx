@@ -441,7 +441,7 @@ function SeeThroughSection(): JSX.Element | null {
         )}
         {see.enabled && usable && (
           <>
-            <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
+            <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable">
               <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
             <Row title="Style" description={styleInfo(style).hint} />
@@ -449,6 +449,7 @@ function SeeThroughSection(): JSX.Element | null {
               value={style}
               tint={see.tint}
               video={video}
+              source={hasCustom ? (see.custom ?? 'custom') : 'desktop'}
               // `texture` follows along for builds from before `style`.
               onChange={(next) => set({ style: next, texture: next === 'halftone' })}
             />

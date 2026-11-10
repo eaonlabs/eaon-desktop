@@ -165,7 +165,7 @@ export function ModelSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`${label}: ${buttonLabel}${resolved.unavailable ? ', unavailable' : ''}`}
-        title={resolved.unavailable ? `Unavailable — ${resolved.unavailable}` : undefined}
+        title={resolved.unavailable ? `Unavailable — ${resolved.unavailable}` : buttonLabel}
         onClick={() => setOpen((v) => !v)}
       >
         {resolved.unavailable && <CircleAlert size={13} strokeWidth={2} className="ms__warn" />}
@@ -179,7 +179,7 @@ export function ModelSelect({
           </span>
         )}
       </button>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement={variant === 'chip' ? 'top-end' : 'bottom-start'} width={Math.max(width, 300)} className="ms">
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement={variant === 'chip' ? 'top-end' : 'bottom-start'} width={Math.max(width, 340)} className="ms">
         <label className="ms__search">
           <Search size={12.5} strokeWidth={2} />
           <input
@@ -230,7 +230,7 @@ export function ModelSelect({
                     data-index={i}
                     data-active={i === active || undefined}
                     data-attention={option && option.availability !== 'ready' ? true : undefined}
-                    title={option?.reason ?? (option && option.label !== option.modelId ? option.modelId : undefined)}
+                    title={option ? [option.label, option.reason ?? (option.label !== option.modelId ? option.modelId : undefined)].filter(Boolean).join('\n') : undefined}
                     onMouseMove={() => i !== active && setActive(i)}
                     onClick={() => pick(option)}
                   >

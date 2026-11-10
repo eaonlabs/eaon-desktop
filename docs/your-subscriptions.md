@@ -48,10 +48,10 @@ Eaon runs your own Claude Code through Anthropic's Agent SDK, the library Anthro
 
 There are two ways to use it:
 
-- **Claude Agent** (Model picker → Claude Agent). Claude models running Eaon's own agent: Eaon's tools, approvals, memory, workers and history, the same as any other model in Eaon, so you can switch models mid-chat. Claude Code supplies only the model. Its built-in tools, its settings, CLAUDE.md files, hooks and memory are switched off for these sessions, and Eaon's tools are offered to it as an MCP server inside Eaon. Eaon's instructions follow Claude Code's own system prompt, with a note that it is running in Eaon.
+- **Claude** (Model picker → Claude). Claude models running Eaon's own agent: Eaon's tools, approvals, memory, workers and history, the same as any other model in Eaon, so you can switch models mid-chat. Claude Code supplies only the model. Its built-in tools, its settings, CLAUDE.md files, hooks and memory are switched off for these sessions, and Eaon's tools are offered to it as an MCP server inside Eaon. Eaon's instructions follow Claude Code's own system prompt, with a note that it is running in Eaon.
 - **The Claude engine** (Settings → Agent engines, and a worker's engine). Claude Code's own agent, with its own tools and your Claude Code settings, inside Eaon. Claude Code's system prompt is left as it is.
 
-To put a worker on your Claude plan, edit the worker, keep its Engine on Eaon and pick a Claude Agent model under Model. It then runs on Eaon's agent with Eaon's tools, like Chat does. Two limits keep this within Anthropic's terms:
+To put a worker on your Claude plan, edit the worker, keep its Engine on Eaon and pick a Claude model under Model. It then runs on Eaon's agent with Eaon's tools, like Chat does. Two limits keep this within Anthropic's terms:
 
 - A worker on your Claude plan (Claude Agent, or the Claude engine signed in with a Claude account) never answers guests, the people you let talk to it from Discord, Telegram, WhatsApp and other chat apps. Their messages would use your plan, and Anthropic's terms say "You also may not make your Account available to anyone else." The guest is told something went wrong, and the worker's status says why. Give the worker a model with an API key, or a local model, to let guests talk to it.
 - Anthropic's plan limits "assume ordinary, individual usage of Claude Code and the Agent SDK". A worker with routines, heartbeats or a long goal runs on its own around the clock, which isn't that. For those, use an Anthropic API key instead. On Max, Ultra and Team plans the monthly API credits cover it (Settings → Model providers → Anthropic shows how).
@@ -72,7 +72,7 @@ How Eaon keeps to those rules:
 - Sign-in happens only in Claude Code's own flow, `claude auth login`, in your terminal. Eaon reads three things from `claude auth status`: whether you're signed in, whether it's a Claude account or a key, and the plan's name. It never reads your email, organization or tokens.
 - Claude Code's own system prompt is used as is. Your project instructions or a worker's role open a new conversation as your words.
 - It says who it is: every session names Eaon (`CLAUDE_AGENT_SDK_CLIENT_APP`), and is kept in Claude Code's own history, where `claude --resume` finds it.
-- The name in menus is "Claude Agent", as Anthropic's branding rules for Agent SDK apps ask, never "Claude Code", and its logo is Anthropic's mark.
+- The name in menus is "Claude", never "Claude Code", and its logo is Anthropic's mark. (It was "Claude Agent", the name Anthropic's branding rules for Agent SDK apps give; "Claude" alone has not been checked against them.)
 
 It never runs on anything Anthropic charges for. Claude Code gets no API key from Eaon's environment; a Claude Code signed in with a key (`claude auth login --console`) is refused before it starts; and if your plan's limit runs out with extra usage switched on, the turn stops at once and the next one waits for your plan to reset.
 

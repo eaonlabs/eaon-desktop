@@ -52,6 +52,9 @@ afterEach(async () => {
   await store.flushWrites()
 })
 
+/** Whether the Trading switch is on for the engine under test (Settings → General → Trading); on, as it was before the switch. */
+let tradingOn = true
+
 function start(runAgent?: RunAgent) {
   const ctx = {
     ipcMain: { handle: () => {} },
@@ -66,7 +69,7 @@ function start(runAgent?: RunAgent) {
       emit({ type: 'done', messageId: request.messageId })
       return { text: 'Ordered. **Pad thai** is on the way.\nMore detail here.', usage }
     })
-  service = createWorkersService(ctx, { runAgent: agent, startDelayMs: 60_000 })
+  service = createWorkersService(ctx, { runAgent: agent, startDelayMs: 60_000, tradingEnabled: () => tradingOn })
   service.start()
   service.engine.start()
   return service.engine
@@ -323,6 +326,13 @@ test('plugins per worker: its choice, plus the broker plugin it trades through',
   assert.deepEqual(engine.pluginsOf(some.id), ['notion'])
   assert.deepEqual(engine.pluginsOf(trader.id), ['robinhood-server'])
   assert.deepEqual(engine.pluginsOf(desk.id), ['notion'])
+  // With Trading switched off a trading worker gets no broker plugin: it is an ordinary worker.
+  tradingOn = false
+  try {
+    assert.deepEqual(engine.pluginsOf(trader.id), [])
+  } finally {
+    tradingOn = true
+  }
 })
 
 /* ---------------------------------------------------------------- tools */

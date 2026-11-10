@@ -188,6 +188,8 @@ export interface WorkersDeps {
   pauseGoal?: (messageId: string) => void
   /** Describes a trading worker's account for its prompt (features/trading/access). */
   tradingVenue?: (via: string) => TradingVenue | null
+  /** Whether Trading is switched on (Settings → General). A worker's trading set-up does nothing while it is off; unset counts as on. */
+  tradingEnabled?: () => boolean
   /** Group chats: where they are kept, and who is told when they change. */
   loadRooms?: () => unknown
   saveRooms?: (data: RoomsFile) => void
@@ -2299,7 +2301,7 @@ export class WorkersEngine {
    */
   private syncTradingRoutine(worker: Worker): void {
     const index = worker.routines.findIndex((r) => r.name === TRADING_ROUTINE_NAME)
-    if (!worker.trading) {
+    if (!worker.trading || !this.tradingOn()) {
       if (index !== -1) worker.routines.splice(index, 1)
       return
     }
@@ -2314,6 +2316,28 @@ export class WorkersEngine {
       Object.assign(routine, { task, ...shape, ...(changed ? { nextAt: routineNextAt(shape, now) } : {}) })
     }
     if (worker.status === 'asleep') worker.status = 'idle'
+  }
+
+  private tradingOn(): boolean {
+    return this.deps.tradingEnabled ? this.deps.tradingEnabled() : true
+  }
+
+  /**
+   * Keeps trading workers in step with the Trading switch: with it off none
+   * wakes to trade, and their set-up is kept so switching it on brings the
+   * routines back. True when a worker changed.
+   */
+  private syncTradingSwitch(): boolean {
+    const on = this.tradingOn()
+    let changed = false
+    for (const worker of this.workers) {
+      const has = worker.routines.some((r) => r.name === TRADING_ROUTINE_NAME)
+      if (on ? Boolean(worker.trading) !== has : has) {
+        this.syncTradingRoutine(worker)
+        changed = true
+      }
+    }
+    return changed
   }
 
   /** A named, repeating job: every N minutes, or daily at a local clock time ("HH:MM"). */
@@ -2935,7 +2959,8 @@ export class WorkersEngine {
     if (!this.started) return
     const now = this.now()
     this.checkWatches(now)
-    let changed = this.rezoneRoutines(now)
+    let changed = this.syncTradingSwitch()
+    changed = this.rezoneRoutines(now) || changed
     changed = this.checkSpend(now) || changed
     this.releaseRetries(now)
     changed = this.expireDelegations(now) || changed
@@ -3437,7 +3462,7 @@ export class WorkersEngine {
   pluginsOf(id: string): string[] | null {
     const worker = this.workers.find((w) => w.id === id)
     if (!worker || worker.plugins === null) return null
-    return worker.trading && worker.trading.via !== TRADING_DESK ? [...worker.plugins, worker.trading.via] : [...worker.plugins]
+    return worker.trading && this.tradingOn() && worker.trading.via !== TRADING_DESK ? [...worker.plugins, worker.trading.via] : [...worker.plugins]
   }
 
   /**
@@ -3764,9 +3789,9 @@ export class WorkersEngine {
       model: info?.model ?? snapshot.model,
       engineSession: slot.engineSession,
       persona: workerPersona(
-        snapshot,
+        this.tradingOn() ? snapshot : { ...snapshot, trading: null },
         creator,
-        snapshot.trading ? (this.deps.tradingVenue?.(snapshot.trading.via) ?? null) : null,
+        snapshot.trading && this.tradingOn() ? (this.deps.tradingVenue?.(snapshot.trading.via) ?? null) : null,
         this.roomsFile.rooms
           .filter((r) => r.members.includes(snapshot.id))
           .map((r) => ({ name: r.name, members: r.members.filter((m) => m !== snapshot.id).map((m) => this.find(m)?.name ?? '').filter(Boolean) })),

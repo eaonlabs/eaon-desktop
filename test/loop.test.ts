@@ -955,3 +955,36 @@ test("a worker's goal continuation tells it to sleep while it waits", async () =
   const nudge = (requests[1] as unknown as Body).messages.at(-1)
   assert.match(String(nudge?.content), /call sleep if you are waiting/)
 })
+
+test('with no step limit, a long reply runs past the old 40 and finishes on its own', { timeout: 20000 }, async () => {
+  store.patchSettings({ codeIndex: { ...store.getSettings().codeIndex, maxToolRounds: 0 } })
+  // Each round reads a file it hasn't read: real exploration, never stuck.
+  const { server, requests } = await setup((_b, i) => (i < 45 ? toolCall('read_file', { path: `f${i}.txt` }, `c${i}`) : say('Read them all.')))
+  const outcome = await runAgent(request(), () => {})
+  server.close()
+  assert.equal(requests.length, 46)
+  assert.equal(outcome.text.includes('Stopped'), false)
+  assert.match(outcome.text, /Read them all\.$/)
+})
+
+test('a reply that keeps repeating itself for the same results is stopped as stuck', { timeout: 20000 }, async () => {
+  store.patchSettings({ codeIndex: { ...store.getSettings().codeIndex, maxToolRounds: 0 } })
+  const req = request()
+  writeFileSync(join(req.cwd!, 'same.txt'), 'nothing new here\n')
+  const { server, requests } = await setup((_b, i) => toolCall('read_file', { path: 'same.txt' }, `c${i}`))
+  const outcome = await runAgent(req, () => {})
+  server.close()
+  // The first read learns something; the next twelve don't.
+  assert.equal(requests.length, 13)
+  assert.match(outcome.text, /Stopped: the last 12 steps changed nothing[\s\S]*looks stuck/)
+})
+
+test('a step limit picked in Settings still stops the reply there, and says where to raise it', { timeout: 20000 }, async () => {
+  store.patchSettings({ codeIndex: { ...store.getSettings().codeIndex, maxToolRounds: 5 } })
+  const { server, requests } = await setup((_b, i) => toolCall('read_file', { path: `f${i}.txt` }, `c${i}`))
+  const outcome = await runAgent(request(), () => {})
+  server.close()
+  store.patchSettings({ codeIndex: { ...store.getSettings().codeIndex, maxToolRounds: 0 } })
+  assert.equal(requests.length, 5)
+  assert.match(outcome.text, /Stopped after 5 tool rounds\. Say "continue" to keep going, or raise the limit in Settings → Code index\._$/)
+})

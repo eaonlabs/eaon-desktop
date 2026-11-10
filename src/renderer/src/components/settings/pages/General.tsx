@@ -8,11 +8,15 @@ import type { LaunchMode } from '@shared/types'
 import { DOCS_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '@shared/links'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useOnboarding } from '../../onboarding/onboardingStore'
+import { useTradingOn } from '../../trading/useTradingOn'
 import { errorText, explainUpdateError } from '../../../lib/errors'
 import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
 import { SpeechModelRow } from './SpeechModelRow'
 import { CustomInstructions } from './CustomInstructions'
+import { CommandRules } from './CommandRules'
+import { ProjectChecks } from './ProjectChecks'
+import { CommandSandbox } from './CommandSandbox'
 import { versionLabel } from '@shared/version'
 
 export function GeneralPage(): JSX.Element {
@@ -69,6 +73,9 @@ export function GeneralPage(): JSX.Element {
         </Card>
       </Section>
       )}
+      {isWork && <CommandRules />}
+      {isWork && <CommandSandbox />}
+      {isWork && <ProjectChecks />}
 
       <Section label="General">
         <Card>
@@ -118,6 +125,7 @@ export function GeneralPage(): JSX.Element {
               onChange={(on) => void patchSettings({ general: { suggestedPrompts: on } })}
             />
           </Row>
+          <TradingRow />
           {/* Accounts only: chats and projects stay in the other apps. Reading
               another app's stored sign-in to "import" it can get the account
               banned, so Link accounts uses each provider's own sign-in. */}
@@ -388,5 +396,27 @@ function BetaUpdates({ version }: { version: string }): JSX.Element {
         )}
       </Card>
     </Section>
+  )
+}
+
+/**
+ * Trading is off unless switched on. Its engine, tools and broker link
+ * start with the app, so switching it on takes a restart; switching it off
+ * stops them at once.
+ */
+function TradingRow(): JSX.Element {
+  const patchSettings = useApp((s) => s.patchSettings)
+  const { wanted, started } = useTradingOn()
+  return (
+    <Row
+      title="Trading"
+      description={
+        wanted && !started
+          ? 'On. Restart Eaon to start the Trading desk, its tools and trading workers.'
+          : 'The Trading desk, its tools and trading workers. Off by default; a trading worker you set up before keeps its settings but stays idle.'
+      }
+    >
+      <Switch label="Trading" checked={wanted} onChange={(on) => void patchSettings({ general: { trading: on } })} />
+    </Row>
   )
 }

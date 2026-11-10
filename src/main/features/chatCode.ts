@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { BrowserWindow, nativeImage, shell } from 'electron'
@@ -11,10 +11,12 @@ import { allowed } from './workspaceFiles'
 import { changes } from './ade/git'
 import { github, untrackedDiffs } from './ade/review'
 import { parseUnifiedDiff } from '@shared/adeReview'
+import { remoteLocation } from '@shared/adeRemote'
+import { hunkBody, hunkFingerprint, hunkPatch, isRepoRelative, splitFileDiff } from '@shared/hunks'
 import { makeRunner, problemOf } from './ade/runner'
 import { sshHosts } from './ade'
 import { findOnPath } from './eaonCode/locate'
-import { dropCheckpoints, restoreTurn, rewindTurns, turnChanges } from './chatCheckpoints'
+import { checkpointDiff, dropCheckpoints, replyDiffs, restoreTurn, rewindTurns, turnChanges } from './chatCheckpoints'
 import { backgroundProcesses, onBackgroundChange, stopBackgroundProcess } from '../localTools'
 import {
   FILES_CAP,
@@ -378,6 +380,42 @@ async function uncommittedDiff(cwd: string): Promise<ChatDiffResult> {
   return { ok: true, files: [...parseUnifiedDiff(diff.stdout), ...untracked].sort((a, b) => a.path.localeCompare(b.path)) }
 }
 
+/**
+ * One hunk of a file's uncommitted changes, rejected (undone in the working
+ * tree) or kept (staged). The hunk is named by its place in the file's diff
+ * and its `@@` line, so a diff that changed since it was drawn is refused
+ * rather than the wrong lines touched.
+ */
+export async function applyHunk(cwd: string, file: unknown, index: unknown, header: unknown, fingerprint: unknown, action: unknown): Promise<{ ok: true; note?: string } | { ok: false; error: string }> {
+  if (remoteLocation(cwd)) return { ok: false, error: 'Accepting or rejecting a hunk works on this computer’s folders, not over SSH.' }
+  if (!isRepoRelative(file)) return { ok: false, error: 'That isn’t a file in this folder.' }
+  if (typeof index !== 'number' || !Number.isInteger(index) || typeof header !== 'string' || typeof fingerprint !== 'string' || (action !== 'reject' && action !== 'keep')) return { ok: false, error: 'Pick a hunk first.' }
+  const head = await run(cwd, 'git', ['rev-parse', '--verify', '--quiet', 'HEAD'], 5000)
+  if (!head.ok) return { ok: false, error: 'This folder has no commits yet, so there is nothing to compare a hunk with.' }
+  const diff = await run(cwd, 'git', ['diff', 'HEAD', '--no-color', '--no-ext-diff', '--no-renames', '-U3', '--', file], 30_000)
+  if (!diff.ok) return { ok: false, error: problemOf(diff, 'git diff failed.') }
+  const split = splitFileDiff(diff.stdout)
+  if (!split) return { ok: false, error: 'This file has no changes git can split into hunks (a new or binary file). Use the file’s own actions instead.' }
+  const hunk = split.hunks[index]
+  if (!hunk || hunk.header !== header || hunkFingerprint(hunkBody(hunk)) !== fingerprint) return { ok: false, error: 'The file changed since this diff was drawn. Reload the changes and try again.' }
+  const patch = hunkPatch(split, index)!
+  const tmp = join(tmpdir(), `eaon-hunk-${randomUUID()}.patch`)
+  await writeFile(tmp, patch, { mode: 0o600 })
+  try {
+    if (action === 'reject') {
+      const res = await run(cwd, 'git', ['apply', '-R', '--whitespace=nowarn', tmp], 15_000)
+      return res.ok ? { ok: true } : { ok: false, error: `The hunk couldn’t be undone, so nothing changed. ${problemOf(res, '')}`.trim() }
+    }
+    // Already in the index: kept before, so there is nothing more to do.
+    const already = await run(cwd, 'git', ['apply', '--cached', '-R', '--check', tmp], 15_000)
+    if (already.ok) return { ok: true, note: 'That hunk was already staged.' }
+    const res = await run(cwd, 'git', ['apply', '--cached', '--whitespace=nowarn', tmp], 15_000)
+    return res.ok ? { ok: true } : { ok: false, error: `The hunk couldn’t be staged. ${problemOf(res, '')}`.trim() }
+  } finally {
+    await rm(tmp, { force: true })
+  }
+}
+
 /** The branch's latest commits, marking the ones its upstream doesn't have yet. */
 async function commits(cwd: string): Promise<ChatCommits> {
   const log = await run(cwd, 'git', ['log', `-n${COMMITS_SHOWN}`, '--no-color', '--format=%H%x00%h%x00%s%x00%ct%x00%an'], 10_000)
@@ -463,6 +501,9 @@ export const chatCodeFeature: Feature = {
     ipcMain.handle('chat-code:switch', async (_e, cwd: unknown, name: unknown, create: unknown) => checkout(await allowed(cwd), branchName(name), create === true))
     ipcMain.handle('chat-code:pull', async (_e, cwd: unknown) => pull(await allowed(cwd)))
     ipcMain.handle('chat-code:diff', async (_e, cwd: unknown) => uncommittedDiff(await allowed(cwd)))
+    ipcMain.handle('chat-code:hunk', async (_e, cwd: unknown, file: unknown, index: unknown, header: unknown, fingerprint: unknown, action: unknown) =>
+      applyHunk(await allowed(cwd), file, index, header, fingerprint, action)
+    )
     ipcMain.handle('chat-code:pull-request', async (_e, cwd: unknown) => pullRequest(await allowed(cwd)))
     ipcMain.handle('chat-code:commits', async (_e, cwd: unknown) => commits(await allowed(cwd)))
     // The editor's git marks: the tree's colours, and the gutter's changed lines.
@@ -537,6 +578,16 @@ export const chatCodeFeature: Feature = {
     ipcMain.handle('chat-code:rewind', async (_e, cwd: unknown, replyIds: unknown) => {
       const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 500) : []
       return rewindTurns(await allowed(cwd), ids)
+    })
+    // What replies changed on disk however they changed it (a patch, a shell command), for the counts and the Changes pane.
+    ipcMain.handle('chat-code:checkpoint-diff', async (_e, cwd: unknown, replyIds: unknown, options: unknown) => {
+      const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 2000) : []
+      const o = options && typeof options === 'object' ? (options as { patch?: unknown; live?: unknown }) : {}
+      return checkpointDiff(await allowed(cwd), ids, { patch: o.patch === true, live: typeof o.live === 'string' ? o.live : null })
+    })
+    ipcMain.handle('chat-code:reply-diffs', async (_e, cwd: unknown, replyIds: unknown) => {
+      const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 500) : []
+      return replyDiffs(await allowed(cwd), ids)
     })
     ipcMain.handle('chat-code:drop-checkpoints', async (_e, cwd: unknown, replyIds: unknown) => {
       const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 2000) : []

@@ -1,5 +1,6 @@
 import type { ReviewFile } from './adeReview'
 import { parseReview } from './prReview'
+import { issueFromBranch } from './trackers'
 
 /**
  * The model's help with git: a commit message from the changes, a pull
@@ -168,8 +169,14 @@ export const COMMIT_SYSTEM = [
 ].join(' ')
 
 export function commitPrompt(input: { diff: DiffForModel; branch: string | null; recent: string[] }): string {
+  const issue = issueFromBranch(input.branch)
   return [
     input.branch ? `Branch: ${input.branch}` : '',
+    issue
+      ? issue.kind === 'jira'
+        ? `The branch is for issue ${issue.key}. Put ${issue.key} in the message: as a prefix on the subject if the recent subjects begin with an issue key, otherwise as a last body line "Refs ${issue.key}".`
+        : `The branch is for GitHub issue #${issue.number}. End the message with a body line "Refs #${issue.number}".`
+      : '',
     input.recent.length ? `Recent commit subjects:\n${input.recent.map((s) => `- ${s}`).join('\n')}` : '',
     input.diff.text,
     'Write the commit message.'
@@ -202,8 +209,14 @@ export const PR_SYSTEM = [
 
 export function prPrompt(input: { diff: DiffForModel; branch: string | null; base: string; commits: string[]; template: string | null }): string {
   const template = input.template?.trim()
+  const issue = issueFromBranch(input.branch)
   return [
     `Branch: ${input.branch ?? '(detached)'}, going into ${input.base}`,
+    issue
+      ? issue.kind === 'jira'
+        ? `The branch is for issue ${issue.key}. Begin the title with ${issue.key} (for example "${issue.key} Add search"), so the issue tracker links this pull request.`
+        : `The branch is for GitHub issue #${issue.number}. End the description with the line "Closes #${issue.number}", so GitHub links it and closes the issue when it merges.`
+      : '',
     input.commits.length ? `Commits on the branch, oldest first:\n${input.commits.map((s) => `- ${s}`).join('\n')}` : '',
     template ? `The repository’s pull request template:\n${template.slice(0, 4000)}` : '',
     input.diff.text,

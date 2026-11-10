@@ -78,6 +78,16 @@ export function LocalReviewDialog({ cwd, onClose, onAdd, addLabel, onOpen }: Pro
     if (onAdd) for (const f of live) onAdd(f)
     else toChat(live)
   }
+  // Sent as the next message, so the agent starts on them now; not while it is still answering.
+  const fixNow = (): void => {
+    const app = useApp.getState()
+    if (app.activeChatId && app.runs[app.activeChatId]) {
+      notify('A reply is still running. Wait for it to finish, or add the findings to your message.', 'error')
+      return
+    }
+    void app.send(findingsMessage(live))
+    onClose()
+  }
 
   return (
     <Modal
@@ -94,6 +104,11 @@ export function LocalReviewDialog({ cwd, onClose, onAdd, addLabel, onOpen }: Pro
           {done && live.length > 0 && (
             <button type="button" className="btn" onClick={addAll}>
               {onAdd ? `${addLabel ?? 'Add'} all` : 'Add all to my message'}
+            </button>
+          )}
+          {done && live.length > 0 && !onAdd && (
+            <button type="button" className="btn" onClick={fixNow}>
+              Fix with the agent
             </button>
           )}
           <button type="button" className="btn btn--primary" disabled={!picked || running || files === null || (files !== undefined && files.length === 0)} onClick={() => void start()}>

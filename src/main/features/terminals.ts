@@ -14,6 +14,7 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
+import { appControlPaneEnv } from './appControl'
 import { cliAccountDirs, cliAccountEnv, cliToolEnv } from './cliAccounts'
 import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccounts/usageReport'
 import { defaultDir, hasRollout } from './cliAccounts/folders'
@@ -208,10 +209,12 @@ function agents(): TerminalAgent[] {
  * Eaon Code shares them; a key already exported in the shell still wins. An
  * Eaon CLI pane gets where Eaon serves the downloaded models, starting the
  * server if it is off; without it, Eaon CLI says what is wrong itself.
+ * While Settings → App control lets coding agents use it, every pane gets
+ * `eaon-apps` on its PATH and the key it needs.
  */
 async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
   // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
-  return { ...cliAccountEnv(), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
+  return { ...cliAccountEnv(), ...(await appControlPaneEnv()), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
 }
 
 async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {

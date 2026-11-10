@@ -17,6 +17,7 @@ import {
   abortMerge,
   baseBranches,
   checkLog,
+  prFeedback,
   commitAll,
   createPullRequest,
   finishMerge,
@@ -264,6 +265,7 @@ export const adeFeature: Feature = {
         workflow: typeof check?.workflow === 'string' ? check.workflow.slice(0, 300) : ''
       })
     )
+    ipcMain.handle('ade:pr-feedback', async (_e, cwd: unknown, url: unknown) => prFeedback(run, await sessionCwd(cwd), url))
     ipcMain.handle('ade:update-from-base', async (_e, cwd: unknown) => updateFromBase(run, await sessionCwd(cwd)))
     ipcMain.handle('ade:conflict-file', async (_e, cwd: unknown, file: unknown) => readConflictFile(run, await sessionCwd(cwd), repoPath(file)))
     ipcMain.handle('ade:write-conflict-file', async (_e, cwd: unknown, file: unknown, content: unknown) => {
