@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## Unreleased
+## [2026.7.6] — 2026-11-10
 
 ### Added
 - **An editor beside the chat.** In a project, the header's Editor button (or ⌘P, to open a file by name) opens the project's code next to the conversation: the files on the left, coloured by what git sees (changed, new, untracked) and opened to the file you're on; the file with its place in the project; and a status bar with the line and column, what's selected, the indent, the line ending, the language and the branch. Lines changed since the last commit are marked in the gutter, and the line the caret is on is lit.
