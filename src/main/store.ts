@@ -206,7 +206,7 @@ export const defaultSettings: Settings = {
     tokens: true
   },
   sidebarFoot: {
-    show: true,
+    show: false,
     period: 'today',
     figure: 'tokens',
     chart: true,
