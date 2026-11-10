@@ -226,8 +226,13 @@ jobs:
           for ($i = 0; $i -lt 60 -and -not (Test-Path $log); $i++) { Start-Sleep -Seconds 2 }
           if (-not (Test-Path $log)) { throw 'The background task did not run tokn' }
           Get-Content $log
-          Start-Sleep -Seconds 5
-          if (Get-Process -Name Eaon -ErrorAction SilentlyContinue) { throw 'Eaon --tokn-sync left Eaon running' }
+          # tokn notes that there is nothing to publish before it has finished (it may
+          # still be reaching for Tokn), so give the run a minute to end.
+          for ($i = 0; $i -lt 30 -and (Get-Process -Name Eaon -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 2 }
+          if (Get-Process -Name Eaon -ErrorAction SilentlyContinue) {
+            Get-CimInstance Win32_Process -Filter "Name = 'Eaon.exe'" | Select-Object ProcessId, ParentProcessId, CommandLine | Format-List
+            throw 'Eaon --tokn-sync left Eaon running'
+          }
 
           $uninstaller = Join-Path $env:LOCALAPPDATA 'Programs\Eaon\Uninstall Eaon.exe'
           Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait
