@@ -427,6 +427,8 @@ export interface Settings {
     bottomPanel: boolean
     preventSleep: boolean
     suggestedPrompts: boolean
+    /** The Trading desk, its tools and trading workers. Off unless switched on; takes effect after a restart. */
+    trading: boolean
     launchAtLogin: boolean
     /** Which mode the app opens in: a fixed one, or wherever it was left. */
     launchMode: LaunchMode

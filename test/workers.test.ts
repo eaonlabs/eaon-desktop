@@ -128,7 +128,8 @@ function heldAgent() {
 
 function start(runAgent: RunAgent, overrides: WorkersOverrides = {}, focused = false) {
   const { ctx, sent } = fakeContext(focused)
-  service = createWorkersService(ctx, { runAgent, startDelayMs: 60_000, ...overrides })
+  // Trading is on here unless a test says otherwise: the app ships with it off (Settings → General).
+  service = createWorkersService(ctx, { runAgent, startDelayMs: 60_000, tradingEnabled: () => true, ...overrides })
   service.start()
   service.engine.start()
   return { engine: service.engine, sent }
@@ -933,6 +934,33 @@ test('a trading worker gets a Trading check that only runs while the market is o
   // Leaving trading out of a draft keeps it (a worker editing itself sends none).
   engine.save({ ...draft('Quant'), id: quant.id, trading: { via: TRADING_DESK, strategy: 'y', everyMinutes: 5, autoPlace: false } })
   assert.equal(engine.save({ ...draft('Quant'), id: quant.id }).trading!.strategy, 'y')
+})
+
+test('with Trading switched off a trading worker keeps its set-up but never wakes to trade, and the brief leaves trading out', async () => {
+  let on = true
+  const agent = fakeAgent('Checked.')
+  const { engine } = start(agent.runAgent, { tradingEnabled: () => on })
+  const quant = engine.save(draft('Quant', { trading: { via: TRADING_DESK, strategy: 'Buy strength in mega caps.', everyMinutes: 15, autoPlace: true } }))
+  assert.ok(quant.routines.some((r) => r.name === TRADING_ROUTINE_NAME))
+
+  // Switched off: the routine goes at the next tick, the set-up stays.
+  on = false
+  engine.tick()
+  const idle = engine.list().find((w) => w.id === quant.id)!
+  assert.ok(!idle.routines.some((r) => r.name === TRADING_ROUTINE_NAME), 'no Trading check while it is off')
+  assert.equal(idle.trading?.strategy, 'Buy strength in mega caps.', 'the strategy is kept')
+  // Saving the worker while it is off doesn't bring the routine back.
+  assert.ok(!engine.save({ ...draft('Quant'), id: quant.id }).routines.some((r) => r.name === TRADING_ROUTINE_NAME))
+  // Its brief is an ordinary worker's: nothing about trading, and no broker plugin added to its plugins.
+  engine.send(quant.id, 'hi')
+  await until(() => agent.requests.length === 1)
+  await engine.whenIdle()
+  assert.doesNotMatch(agent.requests[0].persona!, /Trading — the user set you up to trade/)
+
+  // Switched back on: the routine returns.
+  on = true
+  engine.tick()
+  assert.ok(engine.list().find((w) => w.id === quant.id)!.routines.some((r) => r.name === TRADING_ROUTINE_NAME))
 })
 
 test('market-hours routines skip nights, weekends and holidays', () => {

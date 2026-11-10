@@ -38,6 +38,8 @@ type ConfigPatch = Partial<Pick<TradingConfig, 'broker' | 'simulatorCash' | 'sim
 }
 
 export const tradingApi = {
+  /** Trading is switched on and started this launch (Settings → General → Trading). */
+  available: (): Promise<boolean> => ipcRenderer.invoke('trading:available'),
   snapshot: (): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:snapshot'),
   /** Pulls the account, positions and orders from the broker now. */
   refresh: (): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:refresh'),

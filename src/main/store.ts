@@ -123,6 +123,7 @@ export const defaultSettings: Settings = {
     bottomPanel: false,
     preventSleep: false,
     suggestedPrompts: true,
+    trading: false,
     launchAtLogin: false,
     launchMode: 'chat'
   },

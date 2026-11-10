@@ -7,6 +7,7 @@ import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
 import { openNewSession, useAdeSessions } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
+import { useTradingOn } from './trading/useTradingOn'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { FolderMenu } from './composer/ComposerBits'
 import { notify } from './Notice'
@@ -171,6 +172,7 @@ function ChatMenu(): JSX.Element {
   const { view, setView, setModelsRepo, newChat, setSettingsPage } = useApp(
     useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, setSettingsPage: s.setSettingsPage }))
   )
+  const { on: tradingOn } = useTradingOn()
   return (
     <>
       <NavItem icon={<SquarePen {...ICON} />} label="New chat" onClick={() => newChat()} />
@@ -184,7 +186,7 @@ function ChatMenu(): JSX.Element {
         }}
       />
       <NavItem icon={<LibraryBig {...ICON} />} label="Library" active={view === 'library'} onClick={() => setView('library')} />
-      <NavItem icon={<CandlestickChart {...ICON} />} label="Trading" active={view === 'trading'} onClick={() => setView('trading')} />
+      {tradingOn && <NavItem icon={<CandlestickChart {...ICON} />} label="Trading" active={view === 'trading'} onClick={() => setView('trading')} />}
       <NavItem
         icon={<AtSign {...ICON} />}
         label="Plugins"

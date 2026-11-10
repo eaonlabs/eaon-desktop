@@ -109,6 +109,8 @@ export interface WorkersOverrides {
   look?: (worker: Worker, watch: WorkerWatch) => Promise<WatchReading>
   /** What a run cost in dollars (usage's published rates); tests give their own prices. */
   costOf?: WorkersDeps['costOf']
+  /** Whether Trading is switched on; the settings' own choice when unset. */
+  tradingEnabled?: () => boolean
   /**
    * Where a worker's news goes instead of a notification on this computer:
    * the worker host sends it to the desktop that is watching (see
@@ -389,6 +391,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     routineEnded: purchases.routineEnded,
     pauseGoal,
     tradingVenue,
+    tradingEnabled: overrides.tradingEnabled ?? (() => store.getSettings().general.trading),
     loadRooms: () => store.getJson<unknown>(ROOMS_FILE, null),
     saveRooms: (data) => store.setJsonAsync(ROOMS_FILE, data),
     onRoomsChange: (rooms) => ctx.send('workers:rooms-changed', rooms),
