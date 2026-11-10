@@ -798,8 +798,6 @@ export interface McpServer {
   /** Used when transport is 'http'. */
   url: string
   enabled: boolean
-  /** Names of this server's tools the user has turned off (shared/mcpTools.ts). Every other tool is on. */
-  disabledTools?: string[]
   /** Bundled servers we ship, shown with an "Official" badge. */
   official: boolean
   /**
@@ -809,7 +807,27 @@ export interface McpServer {
    * never kept here, since this file is written to disk in the clear.
    */
   pluginId?: string
+  /**
+   * Tools turned off in Settings → MCP Servers: never offered to the model,
+   * and refused if called. Names as the server gives them.
+   */
+  disabledTools?: string[]
+  /**
+   * Tools with a rule of their own, by name: `allow` skips the approval
+   * question (never for a tool the server marks destructive), `block` refuses
+   * the call. A tool not listed follows the approval mode.
+   */
+  toolPermissions?: Record<string, 'allow' | 'block'>
+  /**
+   * Set on a server that came from a project's own `.mcp.json` or
+   * `.eaon/mcp.json` after the user approved it: the project folder. Its tools
+   * are offered only in chats and tasks in that folder.
+   */
+  projectPath?: string
 }
+
+/** What a tool does when called: `default` follows the approval mode. */
+export type McpToolPermission = 'default' | 'allow' | 'block'
 
 export interface McpTool {
   name: string

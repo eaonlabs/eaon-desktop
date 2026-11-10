@@ -32,6 +32,7 @@ import { engine as engineAdapter } from '../engines'
 import { recordUsage } from '../features/usage/ledger'
 import { agentRunSource, trackAgentRun } from '../features/usage/agentRuns'
 import { usageSource, withUsageProject } from '../features/usage/attribution'
+import { noteProjectRun } from './projectHooks'
 import { runEngineChat } from './engineChat'
 import type { EngineId } from '@shared/engines'
 import { audit, auditIncludesToolInputs } from '../enterprise/audit'
@@ -906,6 +907,7 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
  */
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
   const onEngine = Boolean(request.engine && request.engine !== 'native')
+  if (request.rawSystem === undefined) noteProjectRun(request.cwd)
   const run = trackAgentRun(request.rawSystem !== undefined ? null : agentRunSource(request.mode, onEngine, usageSource()), emit)
   // Every request this run makes (the loop, sub-agents, compaction) is counted for the run's project folder.
   const go = (): Promise<RunOutcome> => (onEngine ? runOnEngine(request, request.engine as EngineId, run.emit, options) : runOwnLoop(request, run.emit, options))

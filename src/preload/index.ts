@@ -79,6 +79,7 @@ import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 import { enterpriseApi } from './features/enterprise'
 import { modsApi } from './features/mods'
+import { mcpToolsApi } from './features/mcpTools'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -407,7 +408,8 @@ const fullApi = {
   searchReplace: searchReplaceApi,
   gitHistory: gitHistoryApi,
   chatContext: chatContextApi,
-  sideQuestion: sideQuestionApi
+  sideQuestion: sideQuestionApi,
+  mcpTools: mcpToolsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

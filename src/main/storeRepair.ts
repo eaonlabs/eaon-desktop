@@ -1,6 +1,7 @@
 import type { AppIcon, ApprovalMode, Chat, ChatMessage, EffortLevel, LaunchMode, McpServer, Project, Settings, ThemeMode, Workspace } from '@shared/types'
 import type { Repaired } from './storeFiles'
 import type { AgentPermission } from '@shared/agentPermissions'
+import { cleanToolRules } from '@shared/mcpTools'
 
 /**
  * Checks for each of the store's own documents, run on every read of the file
@@ -335,6 +336,20 @@ export function repairMcpServers(raw: unknown): Repaired<McpServer[]> | null {
       }
       if (typeof server.official !== 'boolean') {
         server.official = false
+        counts.fixed++
+      }
+      // Per-tool rules and the project a server came from: kept only if well-formed.
+      if (server.disabledTools !== undefined || server.toolPermissions !== undefined) {
+        const clean = cleanToolRules(server)
+        if (JSON.stringify([server.disabledTools, server.toolPermissions]) !== JSON.stringify([clean.disabledTools, clean.toolPermissions])) {
+          delete server.disabledTools
+          delete server.toolPermissions
+          Object.assign(server, clean)
+          counts.fixed++
+        }
+      }
+      if (server.projectPath !== undefined && (typeof server.projectPath !== 'string' || !server.projectPath)) {
+        delete server.projectPath
         counts.fixed++
       }
       return server
