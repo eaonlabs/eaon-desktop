@@ -85,11 +85,10 @@ test('EAON_ONBOARDING=off skips the setup and both tours, even on an updated ins
   try {
     await profile({ 'settings.json': { activeWorkspaceId: 'work' } })
     noteFirstRun()
-    // The Mods intro is a first-run screen too, so it counts as seen.
-    assert.deepEqual(onboarding(), { setup: 'done', tour: 'done', whatsNew: WHATS_NEW_RELEASE, modsIntro: true, finished: false })
+    assert.deepEqual(onboarding(), { setup: 'done', tour: 'done', whatsNew: WHATS_NEW_RELEASE, finished: false })
     await profile({ 'settings.json': { onboarding: { setup: 'done', tour: 'done', finishedAt: 1_760_000_000_000 } } })
     noteFirstRun()
-    assert.deepEqual(onboarding(), { setup: 'done', tour: 'done', whatsNew: WHATS_NEW_RELEASE, modsIntro: true, finished: true })
+    assert.deepEqual(onboarding(), { setup: 'done', tour: 'done', whatsNew: WHATS_NEW_RELEASE, finished: true })
   } finally {
     delete process.env.EAON_ONBOARDING
     await store.flushWrites()
