@@ -26,7 +26,7 @@ export function gatewayProviders(scope: GatewayScope = 'all'): Provider[] {
 }
 
 /** What an app is told when it asks for Claude Agent. */
-export const CLAUDE_AGENT_REFUSED = 'Claude Agent runs only inside Eaon, on your own Claude plan. Other apps can’t use it through the Local API Server.'
+export const CLAUDE_AGENT_REFUSED = 'Claude on your plan runs only inside Eaon. Other apps can’t use it through the Local API Server.'
 
 /**
  * A request naming a Claude Agent model (`claude-agent/haiku`): refused in

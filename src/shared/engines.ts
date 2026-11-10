@@ -23,8 +23,8 @@ export type CliEngineId = Exclude<EngineId, 'native'>
 export const ENGINE_LABEL: Record<EngineId, string> = {
   native: 'Eaon',
   codex: 'Codex',
-  // The Agent SDK's naming for apps built on it: "Claude Agent" in a menu, never "Claude Code".
-  claude: 'Claude Agent',
+  // Shown as "Claude" in a menu, never "Claude Code".
+  claude: 'Claude',
   copilot: 'GitHub Copilot',
   gemini: 'Gemini CLI'
 }

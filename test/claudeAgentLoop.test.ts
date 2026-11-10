@@ -17,7 +17,7 @@ import type { StreamEvent, StreamRequest } from '@shared/types'
 // Claude Code signed in with a Claude account, as the engine's check would have found it.
 noteClaudeCodeStatus({
   id: 'claude',
-  name: 'Claude Agent',
+  name: 'Claude',
   installed: true,
   path: '/usr/local/bin/claude',
   foundIn: 'PATH',

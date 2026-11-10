@@ -1025,8 +1025,8 @@ function KeySection({
   onStatus: (status: { ok: boolean; message: string } | null) => void
 }): JSX.Element {
   // Narrow: a whole-store subscription re-renders this (and every model row) per streamed token.
-  const { refreshProviders, selectModel, settings } = useApp(
-    useShallow((s) => ({ refreshProviders: s.refreshProviders, selectModel: s.selectModel, settings: s.settings }))
+  const { refreshProviders, selectModel, settings, setProviderFocus } = useApp(
+    useShallow((s) => ({ refreshProviders: s.refreshProviders, selectModel: s.selectModel, settings: s.settings, setProviderFocus: s.setProviderFocus }))
   )
   const [key, setKey] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -1140,6 +1140,11 @@ function KeySection({
           <Info size={13} strokeWidth={2} />
           <span>
             {meta.noSignInReason}
+            {meta.planProvider && (
+              <button className="provider-link provider-no-signin__action" onClick={() => setProviderFocus(meta.planProvider!)}>
+                Use my Claude plan
+              </button>
+            )}
             {meta.planInAde && (
               <button className="provider-link provider-no-signin__action" onClick={() => void openInAde(meta.planInAde!)}>
                 Open {PLAN_CLI[meta.planInAde]} in the ADE

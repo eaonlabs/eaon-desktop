@@ -174,7 +174,7 @@ export class ClaudeEngine implements EngineAdapter {
     const path = this.path()
     const status: EngineStatus = {
       id: this.id,
-      name: 'Claude Agent',
+      name: 'Claude',
       installed: path !== null,
       path,
       foundIn: path ? 'PATH' : null,

@@ -98,6 +98,11 @@ export interface ProviderMeta {
    */
   planInAde?: 'claude' | 'antigravity' | 'codex'
   /**
+   * The provider that runs the user's own CLI signed in with their plan (Claude Agent for Anthropic):
+   * offered as a button that opens its page, next to `noSignInReason`.
+   */
+  planProvider?: string
+  /**
    * How a plan's own API allowance reaches Eaon the allowed way — through an
    * API key from the account the plan funds (Anthropic: Max and Team plans'
    * monthly API credits, from a Console organization linked to the plan).

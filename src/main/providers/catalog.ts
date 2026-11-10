@@ -158,7 +158,7 @@ const PROVIDERS: SeedProvider[] = [
     // Its list is Claude Code's for the account, read once signed in; Default
     // (whatever Claude Code is set to use) is there before that.
     id: 'claude-agent',
-    name: 'Claude Agent',
+    name: 'Claude',
     kind: 'claude-agent',
     baseUrl: 'claude-code://local',
     enabled: true,
@@ -437,8 +437,9 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     // in third-party products without its approval — API keys instead. Max and Team plans now include
     // monthly API credits (support.claude.com/en/articles/17154008), which reach Eaon through such a key.
     noSignInReason:
-      'Anthropic doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits, so this provider uses an API key. To use your Claude plan, pick Claude Agent instead: it runs your own Claude Code, signed in with your plan.',
+      'Anthropic doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits, so this provider uses an API key. To use your Claude plan, pick Claude instead: it runs your own Claude Code, signed in with your plan.',
     planInAde: 'claude',
+    planProvider: 'claude-agent',
     planCredits: {
       title: 'Use your Claude plan’s monthly API credits',
       detail:
