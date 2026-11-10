@@ -68,7 +68,6 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Eaon Lite and Eaon Event say why they stopped.** When Eaon Lite's free requests for the day are used up on your network, it says so, with the wait in hours and how to keep going (an event code in Settings → Model providers → Eaon Event, or another model), instead of "limiting how fast requests can be made. Try again in 1086 min". An event code's limit gives the code's own reason. Short limits read as before.
 - **Text stays readable over a bright see-through wallpaper.** A bright picture behind the window washed out the grey labels, placeholders and buttons, which sank into it. The app now reads how bright the picture is behind the text, and the Tint setting rises only as far as needed to keep it readable. Dark pictures keep the Tint you set.
 - **Chat and IDE count files a reply changed with shell commands.** The "+N −M" card and the workspace Changes count missed edits made with `cat >`, `sed -i` or a script, Codex's patches and edit_file calls with several edits. They now also read the reply's git checkpoints.
-- **A Pi host that starts at boot waits up to two minutes for KVM** before starting VMs, and the New computer dialog says how much free space a VM needs and holds back Create when the disk is short.
 - **Wallpaper style previews redraw** when another wallpaper is chosen while Settings → Appearance is open.
 
 ## [2026.7.5] — 2026-10-31
