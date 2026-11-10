@@ -35,7 +35,8 @@ import { useDockPlace } from '../ide/dockPlace'
 import { openInCode } from '../ide/ideStore'
 import { joinPath } from '../ide/paths'
 import { preferredTarget, useChatCode } from './chatCodeStore'
-import { agentFiles, editTurns, fileTree, gitFile, partEdit, relativePath, sameScope, toPatch, type AgentEdit, type FileTreeNode, type ReviewScope } from './changes/build'
+import { useChatDiskChanges, useChatDiskRequest } from './diskChanges'
+import { agentFiles, comparePaths, editTurns, fileTree, gitFile, partEdits, relativePath, sameScope, toPatch, type AgentEdit, type FileTreeNode, type ReviewScope } from './changes/build'
 import { DiffCard, DiffStat, splitFilePath, type DiffLayout, type HunkHandler, type LineComments } from './diff/DiffCard'
 import type { DiffFileModel, DiffRow } from './diff/model'
 
@@ -72,15 +73,12 @@ const store = (key: string, value: string): void => {
   }
 }
 
-const isEdit = (p: ChatToolPart): boolean => p.status === 'done' && (p.name === 'edit_file' || p.name === 'write_file')
+const isEdit = (p: ChatToolPart): boolean => p.status === 'done' && (p.name === 'edit_file' || p.name === 'write_file' || p.name === 'apply_patch')
 
 /** Flat [part, turn, at, …] triples back into edits, made again only when the list changes. */
 const toEdits = (flat: (ChatToolPart | number)[]): AgentEdit[] => {
   const edits: AgentEdit[] = []
-  for (let i = 0; i < flat.length; i += 3) {
-    const edit = partEdit(flat[i] as ChatToolPart, flat[i + 1] as number, flat[i + 2] as number)
-    if (edit) edits.push(edit)
-  }
+  for (let i = 0; i < flat.length; i += 3) edits.push(...partEdits(flat[i] as ChatToolPart, flat[i + 1] as number, flat[i + 2] as number))
   return edits
 }
 
@@ -138,6 +136,18 @@ async function readText(path: string): Promise<string | null> {
 
 type Loaded = { files: DiffFileModel[]; error?: undefined } | { files: null; error: string }
 
+/**
+ * The chat's replies as the checkpoints know them: `replies` is every reply
+ * in order (turn n is `replies[n - 1]`), `ids` the ones whose changes count,
+ * `live` the one running. A new one each time the chat's counts are read
+ * again (a reply ended, or the running one did more), so the diffs are too.
+ */
+interface ScopeDisk {
+  replies: string[]
+  ids: string[]
+  live: string | null
+}
+
 /** A scope's files, read again when the edits change, when asked, and when Eaon comes back to the front. */
 function useScopeFiles(
   scope: ReviewScope,
@@ -146,7 +156,8 @@ function useScopeFiles(
   root: string | null,
   folder: string | null,
   gitStatus: ChatGitStatus | null,
-  nonce: number
+  nonce: number,
+  disk: ScopeDisk | null
 ): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [focusNonce, setFocusNonce] = useState(0)
@@ -182,16 +193,28 @@ function useScopeFiles(
         if (live) setLoaded({ files })
         return
       }
-      const paths = [...new Set(edits.map((e) => relativePath(root, e.path)))]
+      // The replies with checkpoints show what changed on disk, however it was changed; the rest, what their edit calls did.
+      const replyIds = !disk || !folder ? [] : scope.kind === 'turn' ? disk.replies.slice(scope.turn - 1, scope.turn) : disk.ids
+      const checked = replyIds.length ? await window.api.chatCode.checkpointDiff(folder!, replyIds, { patch: true, live: disk!.live }).catch(() => null) : null
+      const covered = new Set(checked?.covered ?? [])
+      const ownEdits = covered.size ? edits.filter((e) => !covered.has(disk!.replies[e.turn - 1])) : edits
+      const paths = [...new Set(ownEdits.map((e) => relativePath(root, e.path)))]
       const texts = await Promise.all(paths.map((p) => readText(root ? joinPath(root, p) : p)))
-      if (live) setLoaded({ files: agentFiles(edits, root, new Map(paths.map((p, i) => [p, texts[i]])), scope, others) })
+      const fromEdits = agentFiles(ownEdits, root, new Map(paths.map((p, i) => [p, texts[i]])), scope, others)
+      const fromDisk = await Promise.all(
+        (checked?.files ?? []).map(async (f) =>
+          gitFile({ ...f, path: relativePath(root, f.path) }, f.binary || f.status === 'deleted' || f.hunks.length === 0 ? null : await readText(f.path))
+        )
+      )
+      const onDisk = new Set(fromDisk.map((f) => f.path))
+      if (live) setLoaded({ files: [...fromDisk, ...fromEdits.filter((f) => !onDisk.has(f.path))].sort((a, b) => comparePaths(a.path, b.path)) })
     })()
     return () => {
       live = false
     }
     // A scope is compared by value; the edits and folder by identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, edits, others, root, folder, nonce, focusNonce, scope.kind === 'git' && streamEnded, scope.kind === 'git' ? gitStatus : null])
+  }, [scopeKey, edits, others, root, folder, nonce, focusNonce, scope.kind === 'git' && streamEnded, scope.kind === 'git' ? gitStatus : null, disk])
   return loaded
 }
 
@@ -208,7 +231,23 @@ export function ChangesPane(): JSX.Element {
   const projectEdits = useProjectEdits()
   const edits = chat ? chatEdits : NO_EDITS
   const others = chat ? projectEdits : NO_EDITS
-  const turns = useMemo(() => editTurns(edits), [edits])
+  const diskRequest = useChatDiskRequest()
+  const diskSummary = useChatDiskChanges()
+  const replies = useApp(useShallow((s) => (s.activeChat()?.messages ?? []).filter((m) => m.role === 'assistant').map((m) => m.id)))
+  const diskIds = diskRequest?.ids ?? null
+  const diskLive = diskRequest?.live ?? null
+  const disk = useMemo<ScopeDisk | null>(
+    () => (chat && diskIds ? { replies, ids: diskIds, live: diskLive } : null),
+    // A new summary is the cue to read the diffs again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chat, diskIds, diskLive, replies, diskSummary]
+  )
+  // The turns that changed files: by their edit calls, and by their checkpoints for changes made any other way.
+  const turns = useMemo(() => {
+    const changed = new Set(editTurns(edits))
+    if (chat) for (const id of diskSummary?.changed ?? []) if (replies.includes(id)) changed.add(replies.indexOf(id) + 1)
+    return [...changed].sort((a, b) => a - b)
+  }, [chat, edits, diskSummary, replies])
 
   const chatId = useApp((s) => s.activeChatId)
   // One dock serves every chat: a review asked from another chat isn't this one's.
@@ -246,7 +285,7 @@ export function ChangesPane(): JSX.Element {
     if (chat && (scope.kind === 'git' || scope.kind === 'commit') && !isRepo && status) setScope({ kind: 'chat' })
   }, [chat, scope, isRepo, status])
 
-  const loaded = useScopeFiles(scope, edits, others, root, folder, status, nonce)
+  const loaded = useScopeFiles(scope, edits, others, root, folder, status, nonce, disk)
   const files = loaded?.files ?? null
   // Each hunk of git's uncommitted changes can be kept (staged) or rejected (undone in the file); the diff is read again after.
   const hunkAction = useMemo(

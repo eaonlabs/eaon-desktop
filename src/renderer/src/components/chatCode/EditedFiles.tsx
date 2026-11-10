@@ -8,7 +8,8 @@ import { useChatCode } from './chatCodeStore'
 import { changeCounts, fileTree, foldChanges, relativePath, type FileTreeNode } from './changes/build'
 import { DiffStat } from './diff/DiffCard'
 import { SnippetDiff } from './diff/SnippetDiff'
-import { restoreReply, useTurnChanges } from './turnUndo'
+import { restoreReply } from './turnUndo'
+import { useReplyDiskChanges } from './diskChanges'
 
 /**
  * What a turn changed, once, at the end of the reply: "3 changed files" and
@@ -19,7 +20,10 @@ import { restoreReply, useTurnChanges } from './turnUndo'
  *
  * In a repository the reply's folder was checkpointed before and after it,
  * so Undo puts its files back as they were (and Redo returns them). Files
- * changed since are named first, and only overwritten when confirmed.
+ * changed since are named first, and only overwritten when confirmed. The
+ * files and counts come from those checkpoints too, so what the agent
+ * changed with a command (`sed -i`, a script, a patch) is here as well as
+ * what its edit calls changed.
  */
 
 interface EditedFile {
@@ -28,6 +32,7 @@ interface EditedFile {
   added: number
   removed: number
   created: boolean
+  deleted?: boolean
 }
 
 /** Folders start open while the tree is this small; a bigger one starts folded. */
@@ -57,11 +62,21 @@ export const EditedFiles = memo(function EditedFiles({
 }): JSX.Element | null {
   const root = useIde((s) => s.root)
   const folder = useChatCode((s) => s.folder)
-  const checkpoint = useTurnChanges(work ? folder : null, messageId)
+  // What the checkpoints saw this reply change; null without them, undefined while asking.
+  const disk = useReplyDiskChanges(work ? folder : null, messageId)
   const [restoring, setRestoring] = useState(false)
   // Files changed since the reply, waiting for "Undo anyway"; or why it couldn't.
   const [blocked, setBlocked] = useState<{ conflicts?: string[]; error?: string } | null>(null)
   const files = useMemo(() => {
+    if (disk)
+      return disk.map((file): EditedFile => ({
+        path: relativePath(folder ?? root, file.path),
+        changes: [],
+        added: file.added,
+        removed: file.removed,
+        created: file.status === 'added',
+        deleted: file.status === 'deleted'
+      }))
     const byFile = new Map<string, FileChange[]>()
     for (const change of changes) {
       const path = relativePath(folder ?? root, change.file)
@@ -74,7 +89,7 @@ export const EditedFiles = memo(function EditedFiles({
       ...changeCounts(list),
       created: list[0].write === true && list[0].created === true
     }))
-  }, [changes, folder, root])
+  }, [disk, changes, folder, root])
   const tree = useMemo(() => fileTree(files), [files])
   const hasFolders = tree.some((n) => !n.file)
   const [allOpen, setAllOpen] = useState(() => files.length <= OPEN_UP_TO)
@@ -92,7 +107,7 @@ export const EditedFiles = memo(function EditedFiles({
     useIde.getState().reviewChanges(turn ? { kind: 'turn', turn } : { kind: 'chat' }, path)
   }
   const isOpen = (path: string): boolean => chosen[path] ?? allOpen
-  const canUndo = Boolean(folder && checkpoint?.available)
+  const canUndo = Boolean(folder && disk && disk.length > 0)
   const restore = async (force = false): Promise<void> => {
     if (!folder || restoring) return
     setRestoring(true)
@@ -141,6 +156,7 @@ export const EditedFiles = memo(function EditedFiles({
             </span>
             <span className="cfiles__name cfiles__name--file">{node.name}</span>
             {file.created && <span className="cfiles__new">New</span>}
+            {file.deleted && <span className="cfiles__new">Deleted</span>}
             <DiffStat added={file.added} removed={file.removed} className="cfiles__stat" />
           </button>
           {inline === file.path && (

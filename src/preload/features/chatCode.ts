@@ -1,5 +1,6 @@
 import { ipcRenderer } from 'electron'
-import type { ChatBranches, ChatCommits, ChatProcess, FileGitState, ChatDiffResult, ChatGitResult, ChatPullRequest, ChatGitStatus, OpenTarget, ProjectScript, ScriptSuggestion, SearchOptions, SearchResult, TurnChanges, TurnRestore } from '@shared/chatCode'
+import type { ReviewFile } from '@shared/adeReview'
+import type { ChatBranches, CheckpointDiff, ChatCommits, ChatProcess, FileGitState, ChatDiffResult, ChatGitResult, ChatPullRequest, ChatGitStatus, OpenTarget, ProjectScript, ScriptSuggestion, SearchOptions, SearchResult, TurnChanges, TurnRestore } from '@shared/chatCode'
 
 /** Renderer bridge for Chat's coding controls. Exposed as `window.api.chatCode`. */
 export const chatCodeApi = {
@@ -46,6 +47,11 @@ export const chatCodeApi = {
   saveScripts: (cwd: string, scripts: ProjectScript[]): Promise<ProjectScript[]> => ipcRenderer.invoke('chat-code:save-scripts', cwd, scripts),
   /** What a reply changed in the folder, by the checkpoints taken around it. */
   turnChanges: (cwd: string, replyId: string): Promise<TurnChanges> => ipcRenderer.invoke('chat-code:turn-changes', cwd, replyId),
+  /** What these replies changed on disk by their checkpoints, however they changed it; `live` is the one still running. */
+  checkpointDiff: (cwd: string, replyIds: string[], options: { patch?: boolean; live?: string | null } = {}): Promise<CheckpointDiff> =>
+    ipcRenderer.invoke('chat-code:checkpoint-diff', cwd, replyIds, options),
+  /** Each finished reply's own changes, counted, by reply id; replies without checkpoints are left out. */
+  replyDiffs: (cwd: string, replyIds: string[]): Promise<Record<string, ReviewFile[]>> => ipcRenderer.invoke('chat-code:reply-diffs', cwd, replyIds),
   /** Puts a reply's files back as they were before it (undo) or as it left them (redo). */
   restoreTurn: (cwd: string, replyId: string, direction: 'undo' | 'redo', force = false): Promise<TurnRestore> =>
     ipcRenderer.invoke('chat-code:restore-turn', cwd, replyId, direction, force),

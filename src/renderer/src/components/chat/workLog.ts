@@ -138,6 +138,7 @@ const KIND: Record<string, StepKind> = {
   write_file: 'edit',
   delete_file: 'edit',
   move_file: 'edit',
+  apply_patch: 'edit',
   edit: 'edit',
   write: 'edit',
   run_command: 'command',

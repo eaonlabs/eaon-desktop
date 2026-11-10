@@ -16,7 +16,7 @@ import { hunkBody, hunkFingerprint, hunkPatch, isRepoRelative, splitFileDiff } f
 import { makeRunner, problemOf } from './ade/runner'
 import { sshHosts } from './ade'
 import { findOnPath } from './eaonCode/locate'
-import { dropCheckpoints, restoreTurn, rewindTurns, turnChanges } from './chatCheckpoints'
+import { checkpointDiff, dropCheckpoints, replyDiffs, restoreTurn, rewindTurns, turnChanges } from './chatCheckpoints'
 import { backgroundProcesses, onBackgroundChange, stopBackgroundProcess } from '../localTools'
 import {
   FILES_CAP,
@@ -578,6 +578,16 @@ export const chatCodeFeature: Feature = {
     ipcMain.handle('chat-code:rewind', async (_e, cwd: unknown, replyIds: unknown) => {
       const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 500) : []
       return rewindTurns(await allowed(cwd), ids)
+    })
+    // What replies changed on disk however they changed it (a patch, a shell command), for the counts and the Changes pane.
+    ipcMain.handle('chat-code:checkpoint-diff', async (_e, cwd: unknown, replyIds: unknown, options: unknown) => {
+      const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 2000) : []
+      const o = options && typeof options === 'object' ? (options as { patch?: unknown; live?: unknown }) : {}
+      return checkpointDiff(await allowed(cwd), ids, { patch: o.patch === true, live: typeof o.live === 'string' ? o.live : null })
+    })
+    ipcMain.handle('chat-code:reply-diffs', async (_e, cwd: unknown, replyIds: unknown) => {
+      const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 500) : []
+      return replyDiffs(await allowed(cwd), ids)
     })
     ipcMain.handle('chat-code:drop-checkpoints', async (_e, cwd: unknown, replyIds: unknown) => {
       const ids = Array.isArray(replyIds) ? replyIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 128).slice(0, 2000) : []
