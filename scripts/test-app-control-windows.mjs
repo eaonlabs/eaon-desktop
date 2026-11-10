@@ -79,6 +79,9 @@ try {
   const all = nodes(snap.tree)
   check(all.length > 3, `snapshot read ${all.length} elements`)
   const editor = all.find((node) => (node.role === 'Edit' || node.role === 'Document') && node.valueSettable)
+  if (!editor) {
+    for (const node of all) console.log(`    ${node.n ?? '-'} ${node.role} “${node.title ?? ''}” id=${node.identifier ?? ''} settable=${Boolean(node.valueSettable)} actions=${(node.actions ?? []).join(',')}`)
+  }
   check(editor, `found the editor (${editor?.role} “${editor?.title ?? ''}”)`)
 
   const text = 'Hello from Eaon app control'
