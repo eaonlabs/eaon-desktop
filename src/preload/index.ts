@@ -252,6 +252,8 @@ const api = {
     pauseGoal: (messageId: string): Promise<void> => ipcRenderer.invoke('chat:pause-goal', messageId),
     approve: (requestId: string, approved: boolean): Promise<void> =>
       ipcRenderer.invoke('chat:approve', requestId, approved),
+    /** Answers to an `ask_user_question` pop-up, one list a question; null when it was dismissed. */
+    answerQuestion: (requestId: string, answers: string[][] | null): Promise<void> => ipcRenderer.invoke('chat:answer-question', requestId, answers),
     title: (request: { providerId: string; modelId: string; message: string; reply: string }): Promise<string | null> =>
       ipcRenderer.invoke('chat:title', request),
     onEvent: (handler: (event: StreamEvent) => void): (() => void) => {

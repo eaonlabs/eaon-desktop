@@ -1,5 +1,6 @@
 /** Types shared between the main and renderer processes. */
 
+import type { AskQuestion } from './askQuestions'
 import type { AppControlSettings } from './appControl'
 import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
@@ -933,6 +934,8 @@ export type StreamEvent =
   | { type: 'notice'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
+  /** The agent is asking the user multiple-choice questions in a pop-up (shared/askQuestions.ts); answered over chat:answer-question. */
+  | { type: 'question-request'; messageId: string; requestId: string; questions: AskQuestion[] }
   | {
       type: 'approval-request'
       messageId: string

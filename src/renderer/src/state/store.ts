@@ -1,3 +1,4 @@
+import type { AskQuestion } from '@shared/askQuestions'
 import { create } from 'zustand'
 import type {
   Chat,
@@ -89,6 +90,8 @@ interface AppState {
   /** The approval being asked now; `approvalQueue` holds any that arrived while it was open. */
   pendingApproval: PendingApproval | null
   approvalQueue: PendingApproval[]
+  /** Questions the agent is asking in a pop-up (shared/askQuestions.ts), oldest first; the first is the one shown. */
+  pendingQuestions: PendingQuestion[]
   /** A suggestion-card prompt waiting to be dropped into the composer, consumed once. */
   composerDraft: string | null
   /** The provider Settings → Model providers should open on, consumed once (see `openProviderSettings`). */
@@ -167,6 +170,8 @@ interface AppState {
   /** Clears or pauses the active chat's goal. */
   setGoalStatus: (status: 'paused' | 'active' | null) => void
   /** Answers the first waiting question, or the one with `requestId`. */
+  /** Sends the answers to the question pop-up (one list a question), or null to dismiss it. */
+  answerQuestion: (requestId: string, answers: string[][] | null) => void
   respondApproval: (approved: boolean, requestId?: string) => void
   /**
    * Switching to full access mid-turn: approves everything waiting that full
@@ -217,6 +222,13 @@ interface AppState {
   /** The sidebar's view of `visibleChats()`, which keeps its identity while only message content changes. */
   chatList: () => ChatListItem[]
   visibleProjects: () => Project[]
+}
+
+/** A question pop-up waiting for the user's answers. */
+export interface PendingQuestion {
+  requestId: string
+  messageId: string
+  questions: AskQuestion[]
 }
 
 export interface PendingApproval {
@@ -389,9 +401,11 @@ function receiveChats(change: { upserts: Chat[]; removed: string[] }): void {
  */
 function withoutApprovals(state: AppState, messageId: string): Partial<AppState> {
   const all = state.pendingApproval ? [state.pendingApproval, ...state.approvalQueue] : state.approvalQueue
-  if (!all.some((a) => a.messageId === messageId)) return {}
+  // A question left open is likewise about a turn that has ended.
+  const questions = state.pendingQuestions.some((q) => q.messageId === messageId) ? { pendingQuestions: state.pendingQuestions.filter((q) => q.messageId !== messageId) } : {}
+  if (!all.some((a) => a.messageId === messageId)) return questions
   const rest = all.filter((a) => a.messageId !== messageId)
-  return { pendingApproval: rest[0] ?? null, approvalQueue: rest.slice(1) }
+  return { pendingApproval: rest[0] ?? null, approvalQueue: rest.slice(1), ...questions }
 }
 
 /**
@@ -549,6 +563,11 @@ function applyStreamEvent(event: StreamEvent): void {
   // Approval requests carry no message content — they open the confirm
   // dialog and the main process blocks on the answer, so they must be
   // handled before the message-indexing path below (which would drop them).
+  if (event.type === 'question-request') {
+    const question: PendingQuestion = { requestId: event.requestId, messageId: event.messageId, questions: event.questions }
+    set((s) => ({ pendingQuestions: [...s.pendingQuestions, question] }))
+    return
+  }
   if (event.type === 'approval-request') {
     const request: PendingApproval = {
       requestId: event.requestId,
@@ -755,6 +774,7 @@ export const useApp = create<AppState>((set, get) => ({
   remoteStreaming: [],
   compactions: {},
   pendingApproval: null,
+  pendingQuestions: [],
   approvalQueue: [],
   composerDraft: null,
   providerFocus: null,
@@ -1299,6 +1319,12 @@ export const useApp = create<AppState>((set, get) => ({
     )
     set({ chats })
     persistChats()
+  },
+
+  answerQuestion(requestId, answers) {
+    if (!get().pendingQuestions.some((q) => q.requestId === requestId)) return
+    void window.api.chat.answerQuestion(requestId, answers)
+    set((s) => ({ pendingQuestions: s.pendingQuestions.filter((q) => q.requestId !== requestId) }))
   },
 
   respondApproval(approved, requestId) {

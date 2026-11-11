@@ -21,6 +21,7 @@ import { WALLPAPER_SCHEME } from '@shared/wallpaper'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
+import { resolveQuestion } from './agent/questions'
 import { applyQuickChat, disposeQuickChat } from './quickChat'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
@@ -912,6 +913,7 @@ function registerIpc(): void {
     cancelRun(messageId)
   })
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
+  ipcMain.handle('chat:answer-question', (_e, requestId: string, answers: unknown) => resolveQuestion(String(requestId), answers))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
   // A new chat's name, from the model it runs on, once its first reply is in.
   ipcMain.handle('chat:title', (_e, request: ChatTitleRequest) => writeChatTitle(request))

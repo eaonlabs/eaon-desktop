@@ -5,6 +5,7 @@
  * their own sources when they load.
  */
 import './workflowTools'
+import './askTools'
 import '../localTools'
 import '../webSearch'
 import './pluginTools'
