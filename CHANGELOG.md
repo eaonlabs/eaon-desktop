@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **How a worker has done lately.** Its Activity panel shows runs, how many completed, the average time and tokens over 7 or 30 days.
+- **Earlier versions of a worker.** More → Earlier versions lists the setups a worker had before each change, shows what changed, and restores one (the setup it replaces is kept, so a restore can be undone).
+- **Tables a worker keeps.** Workers can read and write their own tables (leads, orders, results) with `table_read`, `table_write` and `table_delete_rows`; a table shows in the Activity panel, can be viewed as a grid, copied as CSV and removed.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added
