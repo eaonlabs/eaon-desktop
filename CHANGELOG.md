@@ -9,6 +9,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **The agent can ask you questions in a pop-up.** In Chat and the IDE, when a request is ambiguous or a decision is yours, the agent can stop with a few multiple-choice questions (pick an option, or type something else) instead of guessing. Skip sends it on to use its own judgment. Not used by workers or scheduled tasks, which have nobody to answer.
 - **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
 
+### Changed
+- **New working indicators in the sidebar.** A chat that is replying shows a trace (a dash circling a rounded square); a chat in a project shows a swirl (a bright cell chasing its trail).
+
 ### Fixed
 - **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.
 - **The marks beside a chat highlight your newest message when you are at the bottom,** not the one before it.

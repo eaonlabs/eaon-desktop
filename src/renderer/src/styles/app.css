@@ -947,6 +947,66 @@ a:hover {
 .spinner {
   animation: spin 900ms linear infinite;
 }
+
+/* Working indicators (see Spinner.tsx): swirl for projects, trace for chats. */
+.ld-swirl {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: calc(var(--ld-size) * 0.15625);
+  box-sizing: border-box;
+  padding: calc(var(--ld-size) * 0.0625);
+  width: var(--ld-size);
+  height: var(--ld-size);
+  flex: none;
+}
+.ld-swirl i {
+  display: block;
+}
+.ld-swirl__cell {
+  background: currentColor;
+  border-radius: calc(var(--ld-size) * 0.0625);
+  animation: ld-swirl-fade 1200ms linear infinite;
+  animation-delay: calc(1200ms * (var(--ld-step) - 8) / 8);
+}
+@keyframes ld-swirl-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.2;
+  }
+}
+.ld-trace {
+  width: var(--ld-size);
+  height: var(--ld-size);
+  flex: none;
+}
+.ld-trace__dash {
+  animation: ld-trace-run 1200ms linear infinite;
+}
+@keyframes ld-trace-run {
+  to {
+    stroke-dashoffset: -63.13;
+  }
+}
+body[data-reduce-motion='on'] .ld-swirl__cell {
+  animation: none;
+  opacity: 0.6;
+}
+body[data-reduce-motion='on'] .ld-trace__dash {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ld-swirl__cell {
+    animation: none;
+    opacity: 0.6;
+  }
+  .ld-trace__dash {
+    animation: none;
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

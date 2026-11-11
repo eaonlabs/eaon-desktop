@@ -1,7 +1,8 @@
+import { Spinner } from './Spinner'
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { SidebarFoot } from './SidebarFoot'
@@ -793,7 +794,7 @@ const ChatRow = memo(function ChatRow({
               Needs you
             </span>
           ) : streaming ? (
-            <Loader2 size={14} strokeWidth={2} className="spinner" role="img" aria-label="Replying" />
+            <Spinner kind={inProject ? 'swirl' : 'trace'} size={14} label="Replying" />
           ) : unread && !failed ? (
             <span className="nav-item__unread" role="img" aria-label="New reply" />
           ) : failed ? (
