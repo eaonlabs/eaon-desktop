@@ -3,6 +3,12 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Command rules: an ask list, regular expressions and rules per project.** Settings → General → Command rules now has three lists: always allow, always ask (the command stops and asks in Ask, Auto and Full access, and a worker with nobody to ask doesn't run it) and never allow. A line between slashes, like `/^git (push|reset)/`, is a regular expression. The same lists can be set for one project, and they add to the ones for every project. Never beats ask, which beats allow.
+- **Always allow, from the question itself.** A command the agent asks about has a Rules button: it shows the pattern that would be saved (the tool and its subcommand, such as `npm run build`, not the whole line) and saves it as Always allow or Never allow, for this project or for every project.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added

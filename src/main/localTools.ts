@@ -7,7 +7,7 @@ import { app, shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
 import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand, writtenPaths } from './agent/approvals'
-import { allowedBy, deniedBy, normalizeRules } from '@shared/commandRules'
+import { allowedBy, askedBy, deniedBy, rulesFor } from '@shared/commandRules'
 import { sandboxedSpawn } from './sandbox'
 import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
@@ -999,13 +999,14 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
           (!settings.general.fullAccess &&
             writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         catastrophic: (input) => isCatastrophicCommand(str(input.command)),
-        // The person's own lists (Settings → General → Command rules).
-        denied: (input) => {
-          const pattern = deniedBy(normalizeRules(settings.general.commandRules), str(input.command))
+        // The person's own lists (Settings → General → Command rules, and the project's own).
+        denied: (input, ctx) => {
+          const pattern = deniedBy(rulesFor(settings.general, ctx.cwd), str(input.command))
           return pattern ? `Your command denylist blocks this (“${pattern}”). Do not try to get around it: use another way, or ask the user to change the rule in Settings → General → Command rules.` : null
         },
+        asks: (input, ctx) => askedBy(rulesFor(settings.general, ctx.cwd), str(input.command)),
         allowed: (input, ctx) =>
-          allowedBy(normalizeRules(settings.general.commandRules), str(input.command), isReadOnlyCommand) &&
+          allowedBy(rulesFor(settings.general, ctx.cwd), str(input.command), isReadOnlyCommand) &&
           // An allowed pattern doesn't lift the check on writing outside the work folder.
           (settings.general.fullAccess || !writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         describe: (input) => str(input.command)

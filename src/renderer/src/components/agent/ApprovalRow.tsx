@@ -3,6 +3,7 @@ import { useApp, type PendingApproval } from '../../state/store'
 import { approvalDoes, approvalRisk, CallPreview, CommandPreview, enterApproves } from './ApprovalCard'
 import { approvalRow, approvalSummary, askerName } from './approvalText'
 import { FileDiff } from './FileDiff'
+import { AlwaysRules } from './AlwaysRules'
 
 /**
  * The open chat asks in the conversation itself, where the call is: one row
@@ -100,6 +101,7 @@ export function ApprovalRow({ ask, waiting }: { ask: PendingApproval; waiting: n
     }
   }
   useApprovalKeys(answered ? null : ask, respond)
+  const [rules, setRules] = useState(false)
 
   // It comes into view, so a reader scrolled up still sees the turn is
   // waiting on them, and takes focus, so ⏎ and esc answer it (⏎ never for
@@ -153,8 +155,22 @@ export function ApprovalRow({ ask, waiting }: { ask: PendingApproval; waiting: n
           <button type="button" className="ask-row__stop" disabled={answered} title="Don’t do this (esc)" onClick={() => respond(false)}>
             Stop
           </button>
+          {ask.tool === 'run_command' && (
+            <button
+              type="button"
+              className="ask-row__more-rules"
+              disabled={answered}
+              aria-expanded={rules}
+              aria-label="Always allow or never allow commands like this"
+              title="Always allow or never allow commands like this"
+              onClick={() => setRules(!rules)}
+            >
+              Rules
+            </button>
+          )}
         </div>
       </div>
+      {rules && !answered && <AlwaysRules ask={ask} answer={respond} />}
       {open && (
         <div id={previewId} className="ask-row__preview">
           <ApprovalPreview ask={ask} />

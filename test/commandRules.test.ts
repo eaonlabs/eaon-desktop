@@ -6,8 +6,8 @@ import { allCommands, allowedBy, commandSegments, deniedBy, matchesRule, normali
 
 test('rules typed or stored are cleaned: trimmed, comments and duplicates dropped, bounded', () => {
   assert.deepEqual(parseRuleText('  npm test \n\n# run the tests\nnpm   run  *   # all scripts\nnpm test\n'), ['npm test', 'npm run *'])
-  assert.deepEqual(normalizeRules({ allow: [' git status ', 5, '', 'git status'], deny: 'rm' }), { allow: ['git status'], deny: [] })
-  assert.deepEqual(normalizeRules(null), { allow: [], deny: [] })
+  assert.deepEqual(normalizeRules({ allow: [' git status ', 5, '', 'git status'], deny: 'rm' }), { allow: ['git status'], ask: [], deny: [] })
+  assert.deepEqual(normalizeRules(null), { allow: [], ask: [], deny: [] })
   assert.equal(normalizeRules({ allow: Array.from({ length: 500 }, (_, i) => `cmd${i}`), deny: [] }).allow.length, MAX_RULES)
 })
 
