@@ -2366,6 +2366,35 @@ body[data-idle] .ask-badge__icon {
 .worker-activity__section + .worker-activity__section {
   margin-top: 18px;
 }
+.worker-stats__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.worker-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.worker-stats__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+.worker-stats__value {
+  font-size: var(--fs-base, 15px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.worker-stats__label {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .worker-activity__heading {
   margin: 6px 0 8px;
   font-size: var(--fs-xs);
