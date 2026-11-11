@@ -22,6 +22,7 @@ import type { HouseholdList } from '@shared/workerLists'
 import type { ConnectorId, ConnectorStatus, ConnectorStatuses } from '@shared/workerConnectors'
 import type { VaultLogin, VaultLoginDraft, VaultState } from '@shared/workerVault'
 import type { WorkerVersion } from '@shared/workerVersions'
+import type { WorkerTable } from '@shared/workerTables'
 
 /**
  * Renderer bridge for Eaon Workers. Exposed as `window.api.workers`. Main owns
@@ -61,6 +62,10 @@ export const workersApi = {
     ipcRenderer.invoke('workers:send', id, text, files, options),
   /** Empties a thread (the main one by default) and its summary; mail, wake-ups and settings stay. */
   clear: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:clear', id, threadId),
+  /** The tables the worker keeps. */
+  tables: (id: string): Promise<WorkerTable[]> => ipcRenderer.invoke('workers:tables', id),
+  /** Removes one of the worker's tables; the rest come back. */
+  removeTable: (id: string, name: string): Promise<WorkerTable[]> => ipcRenderer.invoke('workers:table-remove', id, name),
   /** The setups the worker had before each change, newest last. */
   versions: (id: string): Promise<WorkerVersion[]> => ipcRenderer.invoke('workers:versions', id),
   /** Puts the worker's setup back to a saved version; the one it replaces is kept too. */

@@ -87,6 +87,7 @@ const VAULT_SECRET = 'worker-vault'
 /** A thread's file, by threadKey: `worker-<id>.json` for the main thread, `worker-<id>.t-<thread>.json` for the others. */
 const threadFile = (key: string): string => `worker-${key.replace('#', '.t-')}.json`
 const runsFile = (id: string): string => `worker-${id}-runs.json`
+const tablesFile = (id: string): string => `worker-${id}-tables.json`
 const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 /** An id from the renderer: a non-empty string, or a clear refusal rather than a lookup of `undefined`. */
 const idOf = (value: unknown): string => {
@@ -370,6 +371,9 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     loadRuns: (id) => store.getJson<unknown>(runsFile(id), []),
     saveRuns: (id, runs) => store.setJsonAsync(runsFile(id), runs),
     deleteRuns: (id) => removeStoreFile(runsFile(id)),
+    loadTables: (id) => store.getJson<unknown>(tablesFile(id), []),
+    saveTables: (id, tables) => store.setJsonAsync(tablesFile(id), tables),
+    deleteTables: (id) => removeStoreFile(tablesFile(id)),
     onExecution: (execution) => ctx.send('workers:execution', { workerId: execution.workerId, execution } satisfies WorkerExecutionEvent),
     loadDelegations: () => store.getJson<unknown>(DELEGATIONS_FILE, []),
     saveDelegations: (delegations) => store.setJsonAsync(DELEGATIONS_FILE, delegations),
@@ -493,6 +497,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       if (!draft || typeof draft !== 'object') throw new Error('Give the worker a name.')
       return engine.save(draft)
     })
+    ipcMain.handle('workers:tables', (_e, id: unknown) => engine.tables(idOf(id)))
+    ipcMain.handle('workers:table-remove', (_e, id: unknown, name: unknown) => engine.removeTable(idOf(id), str(name)))
     ipcMain.handle('workers:versions', (_e, id: unknown) => engine.versions(idOf(id)))
     ipcMain.handle('workers:restore-version', (_e, id: unknown, versionId: unknown) => engine.restoreVersion(idOf(id), str(versionId)))
     ipcMain.handle('workers:remove', (_e, id: unknown) => remove(idOf(id)))

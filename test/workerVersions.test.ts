@@ -91,3 +91,37 @@ test('only the newest versions are kept, and damaged entries are dropped on read
   assert.equal(versions.at(-1)!.settings.purpose, `Purpose ${MAX_VERSIONS + 3}`)
   assert.deepEqual(normalizeVersions([{ id: 'x' }, null, 'junk', { id: 'y', savedAt: 1, settings: { name: 'A', purpose: 'p', personality: 'q' }, changed: ['purpose', 4] }]).map((v) => [v.id, v.changed]), [['y', ['purpose']]])
 })
+
+/* ------------------------------------------------------------ the worker's tables */
+
+test('a worker keeps tables the engine saves, reads back and removes with it', async () => {
+  const files = new Map<string, unknown>()
+  const engine = new WorkersEngine({
+    runAgent: async () => ({ text: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }),
+    getSettings: () => store.getSettings(),
+    loadWorkers: () => saved,
+    saveWorkers: (workers) => {
+      saved = JSON.parse(JSON.stringify(workers))
+    },
+    loadThread: () => null,
+    saveThread: () => undefined,
+    deleteThread: () => undefined,
+    loadTables: (id) => files.get(id) ?? [],
+    saveTables: (id, tables) => void files.set(id, JSON.parse(JSON.stringify(tables))),
+    deleteTables: (id) => void files.delete(id)
+  })
+  engine.load()
+  const nova = engine.save(draft('Nova'))
+  assert.match(engine.readTable(nova.id, ''), /no tables yet/)
+  assert.match(engine.writeTable(nova.id, 'Leads', [{ Email: 'a@x.dev', Stage: 'new' }, { Email: 'b@x.dev', Stage: 'new' }]), /added 2/)
+  assert.match(engine.writeTable(nova.id, 'Leads', [{ Email: 'a@x.dev', Stage: 'won' }], 'Email'), /updated 1/)
+  assert.match(engine.readTable(nova.id, 'leads', { where: { stage: 'won' } }), /Leads: 1 row/)
+  assert.match(engine.readTable(nova.id, ''), /Leads: 2 rows; columns Email, Stage/)
+  assert.throws(() => engine.readTable(nova.id, 'Missing'), /no table called Missing/)
+  assert.match(engine.deleteTableRows(nova.id, 'Leads', { Stage: 'new' }), /removed 1 row\./)
+  assert.equal(engine.tables(nova.id)[0].rows.length, 1)
+  assert.deepEqual(engine.removeTable(nova.id, 'LEADS'), [])
+  engine.writeTable(nova.id, 'Again', [{ a: '1' }])
+  await engine.remove(nova.id)
+  assert.equal(files.has(nova.id), false, 'removing the worker removes its tables')
+})

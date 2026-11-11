@@ -32,6 +32,7 @@ import {
 import { useApp } from '../../state/store'
 import { MenuItem, MenuSearch, Popover, Segmented, useDisclosure } from '../ui'
 import { workerStats } from '@shared/workerStats'
+import { WorkerTablesSection } from './WorkerTables'
 import { WorkerFace } from './WorkerFace'
 import { errorText, useWorkers } from './workersStore'
 
@@ -309,6 +310,7 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
       </div>
       <div className="worker-activity__body scroll">
         {runs && <StatsStrip runs={runs} now={now} />}
+        <WorkerTablesSection worker={worker} />
         {mine.length > 0 && (
           <section className="worker-activity__section">
             <h2 className="worker-activity__heading">Delegated work</h2>

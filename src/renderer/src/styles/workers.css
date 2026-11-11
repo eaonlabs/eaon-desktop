@@ -5192,3 +5192,29 @@ body[data-reduce-motion='on'] .wui-plot--empty {
   font-size: var(--fs-sm);
   color: var(--text);
 }
+
+.worker-table {
+  max-height: 60vh;
+  overflow: auto;
+}
+.worker-table table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+.worker-table th,
+.worker-table td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.worker-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-3);
+}
