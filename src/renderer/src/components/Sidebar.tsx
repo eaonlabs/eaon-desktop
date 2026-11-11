@@ -1,4 +1,4 @@
-import { Spinner } from './Spinner'
+import { DotMatrix, Spinner } from './Spinner'
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
@@ -790,13 +790,19 @@ const ChatRow = memo(function ChatRow({
         )}
         <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
           {streaming && asking ? (
-            <span className="nav-item__asking" title="Waiting for your answer">
-              Needs you
-            </span>
+            inProject ? (
+              <DotMatrix state="asking" />
+            ) : (
+              <span className="nav-item__asking" title="Waiting for your answer">
+                Needs you
+              </span>
+            )
           ) : streaming ? (
-            <Spinner kind={inProject ? 'swirl' : 'trace'} size={14} label="Replying" />
+            inProject ? <DotMatrix state="running" /> : <Spinner size={14} label="Replying" />
           ) : unread && !failed ? (
-            <span className="nav-item__unread" role="img" aria-label="New reply" />
+            inProject ? <DotMatrix state="done" /> : <span className="nav-item__unread" role="img" aria-label="New reply" />
+          ) : failed && inProject ? (
+            <DotMatrix state="failed" />
           ) : failed ? (
             <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
               <title>The last reply failed</title>

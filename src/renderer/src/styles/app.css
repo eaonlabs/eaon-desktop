@@ -948,35 +948,7 @@ a:hover {
   animation: spin 900ms linear infinite;
 }
 
-/* Working indicators (see Spinner.tsx): swirl for projects, trace for chats. */
-.ld-swirl {
-  display: inline-grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
-  gap: calc(var(--ld-size) * 0.15625);
-  box-sizing: border-box;
-  padding: calc(var(--ld-size) * 0.0625);
-  width: var(--ld-size);
-  height: var(--ld-size);
-  flex: none;
-}
-.ld-swirl i {
-  display: block;
-}
-.ld-swirl__cell {
-  background: currentColor;
-  border-radius: calc(var(--ld-size) * 0.0625);
-  animation: ld-swirl-fade 1200ms linear infinite;
-  animation-delay: calc(1200ms * (var(--ld-step) - 8) / 8);
-}
-@keyframes ld-swirl-fade {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.2;
-  }
-}
+/* Working indicators (see Spinner.tsx): trace for chats, dot matrix for projects. */
 .ld-trace {
   width: var(--ld-size);
   height: var(--ld-size);
@@ -990,21 +962,82 @@ a:hover {
     stroke-dashoffset: -63.13;
   }
 }
-body[data-reduce-motion='on'] .ld-swirl__cell {
-  animation: none;
-  opacity: 0.6;
-}
 body[data-reduce-motion='on'] .ld-trace__dash {
   animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ld-swirl__cell {
-    animation: none;
-    opacity: 0.6;
-  }
   .ld-trace__dash {
     animation: none;
   }
+}
+
+.dotm {
+  display: inline-grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: calc(var(--dotm-size) * 0.07);
+  width: var(--dotm-size);
+  height: var(--dotm-size);
+  flex: none;
+}
+.dotm i {
+  border-radius: 50%;
+}
+.dotm i[data-on] {
+  background: currentColor;
+}
+.dotm[data-state='running'] {
+  color: var(--accent);
+}
+.dotm[data-state='running'] i[data-on] {
+  animation: dotm-chase 1200ms linear infinite;
+  animation-delay: calc(1200ms * (var(--dotm-step) - 16) / 16);
+}
+.dotm[data-state='asking'] {
+  color: var(--accent);
+}
+.dotm[data-state='asking'] i[data-on] {
+  animation: dotm-blink 1200ms ease-in-out infinite;
+  animation-delay: calc(var(--dotm-step) * 200ms);
+}
+.dotm[data-state='done'] {
+  color: var(--accent);
+}
+.dotm[data-state='failed'] {
+  color: var(--danger);
+}
+.dotm[data-state='done'] i[data-on],
+.dotm[data-state='failed'] i[data-on] {
+  animation: dotm-pop 360ms var(--spring-moderate, ease-out) backwards;
+  animation-delay: calc(var(--dotm-step) * 35ms);
+}
+@keyframes dotm-chase {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.15;
+  }
+}
+@keyframes dotm-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.2;
+  }
+  25% {
+    opacity: 1;
+  }
+}
+@keyframes dotm-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
+body[data-reduce-motion='on'] .dotm i {
+  animation: none !important;
+  opacity: 0.8;
 }
 
 @keyframes spin {
