@@ -289,6 +289,9 @@ let listenersBound = false
 /** Identity caches for the derived selectors below — see `availableModels`. */
 let modelsCache: { providers: Provider[]; models: ModelInfo[] } | null = null
 let selectionCache: { providers: Provider[]; settings: Settings | null; selection: ResolvedSelection } | null = null
+/** The chat each workspace tab had open when it was last left, by workspace id. */
+const lastChatByWorkspace = new Map<string, string>()
+
 let chatsCache: { chats: Chat[]; workspaceId: string | undefined; visible: Chat[] } | null = null
 
 let listCache: { visible: Chat[]; items: ChatListItem[] } | null = null
@@ -1399,8 +1402,18 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setWorkspace(id) {
-    void get().patchSettings({ activeWorkspaceId: id })
-    set({ activeChatId: null })
+    const state = get()
+    const leaving = state.settings?.activeWorkspaceId
+    // Each tab keeps the chat that was open when it was left, so coming back
+    // from the ADE lands there rather than on a fresh chat.
+    if (leaving && leaving !== id) {
+      if (state.activeChatId) lastChatByWorkspace.set(leaving, state.activeChatId)
+      else lastChatByWorkspace.delete(leaving)
+    }
+    const back = lastChatByWorkspace.get(id)
+    const kept = back && state.chats.some((c) => c.id === back && c.workspaceId === id && !c.archived) ? back : null
+    void state.patchSettings({ activeWorkspaceId: id })
+    set({ activeChatId: kept })
   },
 
   selectModel(modelId, providerId) {

@@ -103,31 +103,46 @@ const INDICATOR_H = 46
 
 const escapeHtml = (text: string): string => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
+/** The stop shortcut as separate keys: `⌃⌥⌘.` on a Mac, `Ctrl+Alt+Shift+.` elsewhere. */
+const stopKeys = (): string[] => (isMac ? [...STOP_LABEL] : STOP_LABEL.split('+'))
+
+const EYE =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8" fill="currentColor" stroke="none"/></svg>'
+
 function indicatorHtml(): string {
   const text = controlling
     ? `${escapeHtml(controlling.name)} is using your computer${controlling.waiting > 0 ? ` <span class="hint">· ${controlling.waiting} waiting</span>` : ''}`
     : 'Eaon is looking at your screen'
-  const takeBack = controlling ? '<a class="quiet" href="https://eaon.invalid/take-back">Take back control</a>' : ''
+  const takeBack = controlling ? '<a class="quiet" href="https://eaon.invalid/take-back">Take back</a>' : ''
+  const keys = stopKeys()
+    .map((key) => `<kbd>${escapeHtml(key)}</kbd>`)
+    .join('')
   return `<!doctype html><html><head><meta charset="utf-8"><title>Eaon</title><style>
-:root { color-scheme: dark; --pill: rgba(28, 28, 30, 0.94); --text: #f5f5f7; --muted: rgba(245, 245, 247, 0.6);
-  --danger: #ff453a; --danger-soft: rgba(255, 69, 58, 0.2); --danger-hover: rgba(255, 69, 58, 0.32); --border: rgba(255, 255, 255, 0.14); }
+:root { color-scheme: dark; --text: #f5f5f7; --muted: rgba(245, 245, 247, 0.55); --accent: #ff6b5f; --accent-soft: rgba(255, 107, 95, 0.16); }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default;
   font: 500 12.5px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
 body { display: flex; align-items: center; justify-content: center; }
-.pill { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 4px 0 12px; border-radius: 999px;
-  background: var(--pill); border: 0.5px solid var(--border); color: var(--text); white-space: nowrap;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+.pill { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 5px 0 5px; border-radius: 999px; white-space: nowrap; color: var(--text);
+  background: linear-gradient(180deg, rgba(44, 44, 48, 0.96), rgba(24, 24, 27, 0.96));
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), inset 0 0.5px 0 rgba(255, 255, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.38); }
+.live { position: relative; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); }
+.live::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 1px var(--accent); opacity: 0; animation: ping 2.2s ease-out infinite; }
+@keyframes ping { 0% { transform: scale(1); opacity: 0.55; } 100% { transform: scale(1.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .live::after { animation: none; } }
+.label { letter-spacing: 0.005em; }
 .hint { color: var(--muted); }
-a { display: inline-flex; align-items: center; height: 24px; padding: 0 11px; border-radius: 999px; background: var(--danger-soft);
-  color: #ff6961; font-weight: 600; text-decoration: none; }
-a:hover { background: var(--danger-hover); }
-a.quiet { background: rgba(255, 255, 255, 0.12); color: var(--text); }
-a.quiet:hover { background: rgba(255, 255, 255, 0.2); }
-</style></head><body><div class="pill" role="status"><span class="dot"></span><span>${text}</span>
-<span class="hint">${STOP_LABEL} to stop</span>${takeBack}<a href="https://eaon.invalid/stop">Stop</a></div></body></html>`
+.keys { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); }
+kbd { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 5px;
+  font: 600 11px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; color: rgba(245, 245, 247, 0.78);
+  background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08); }
+a { display: inline-flex; align-items: center; height: 26px; padding: 0 13px; border-radius: 999px; background: var(--accent-soft);
+  color: var(--accent); font-weight: 600; text-decoration: none; }
+a:hover { background: rgba(255, 107, 95, 0.28); }
+a.quiet { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+a.quiet:hover { background: rgba(255, 255, 255, 0.18); }
+</style></head><body><div class="pill" role="status"><span class="live">${EYE}</span><span class="label">${text}</span>
+<span class="keys" title="Stop shortcut">${keys}</span>${takeBack}<a href="https://eaon.invalid/stop">Stop</a></div></body></html>`
 }
 
 const indicatorUrl = (): string => `data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml())}`

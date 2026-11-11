@@ -83,6 +83,12 @@ export function Minimap({ thread, version }: { thread: RefObject<HTMLDivElement>
     const node = thread.current
     if (!node || marks.length === 0) return
     const onScroll = (): void => {
+      // At the very end the newest message is the one being read, even when it
+      // starts further down than the read line (a short reply fits below it).
+      if (node.scrollHeight - node.scrollTop - node.clientHeight < 8) {
+        setActive(marks[marks.length - 1].id)
+        return
+      }
       const line = (node.scrollTop + READ_LINE) / node.scrollHeight
       let current: string | null = marks[0].id
       for (const mark of marks) if (mark.at <= line) current = mark.id

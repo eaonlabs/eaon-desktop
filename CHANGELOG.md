@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Fixed
+- **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.
+- **The marks beside a chat highlight your newest message when you are at the bottom,** not the one before it.
+- **"Eaon is looking at your screen" has a new look:** a quiet pill with an eye, the stop shortcut as keys, and a softer Stop button.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added
