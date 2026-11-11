@@ -82,7 +82,11 @@ served over HTTP on 127.0.0.1 (the guest's 10.0.2.2), its path carrying a
 random token, and the guest is told where through the SMBIOS serial. The
 service manager ends QEMU with the host app, so the host shuts its VMs down
 properly when it stops and starts them again after (an update restarts the
-VMs). VMs marked "Keep it running" start when the host does.
+VMs). VMs marked "Keep it running" start when the host does. KVM is looked
+for again at every start: on a Pi that logs itself in, `/dev/kvm` is often
+granted to the desktop login (an ACL) rather than the `kvm` group, so a host
+that starts at boot can't use it for its first moments; starting VMs waits up
+to two minutes for it rather than running them slowly.
 
 Snapshots are taken while a VM is off: APFS clones of the disk on a Mac (instant,
 free until the VM writes), qcow2 internal snapshots under QEMU.
