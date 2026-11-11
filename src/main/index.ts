@@ -21,6 +21,7 @@ import { WALLPAPER_SCHEME } from '@shared/wallpaper'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
+import { applyQuickChat, disposeQuickChat } from './quickChat'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { forScreens, hideEaonAddress } from './eaonAddress'
@@ -409,6 +410,22 @@ async function openReleaseNotes(): Promise<void> {
   await shell.openExternal(url)
 }
 
+/** The quick chat key: Eaon comes to the front on a new chat, a window opened first if none is left. */
+function openQuickChat(): void {
+  const window = currentWindow()
+  if (window) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+    window.webContents.send('menu:new-chat')
+    return
+  }
+  const fresh = createWindow()
+  fresh.webContents.once('did-finish-load', () => {
+    if (!fresh.isDestroyed()) fresh.webContents.send('menu:new-chat')
+  })
+}
+
 /**
  * `bare`: with no accelerators, while Settings → Keyboard shortcuts is waiting
  * for a new key (the menu would take a key already in it before the page saw it).
@@ -632,6 +649,7 @@ function registerIpc(): void {
     if (patch.appearance) applyWindowAppearance(next)
     // The menu's accelerators are its commands' keys.
     if (patch.shortcuts) buildMenu()
+    if (patch.general?.quickChat !== undefined) applyQuickChat(next.general.quickChat === true, openQuickChat)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     if (patch.cliUsage && patch.cliUsage.claudeEverywhere !== undefined) applyClaudeEverywhere(next.cliUsage.claudeEverywhere)
     broadcast('settings:changed', forRenderer(next), e.sender)
@@ -1110,6 +1128,7 @@ app.whenReady().then(async () => {
     nativeTheme.themeSource = settings.appearance.mode
   })
   step('menu', buildMenu)
+  step('quick chat', () => void applyQuickChat(store.getSettings().general.quickChat === true, openQuickChat))
   // Started at login for scheduled tasks: no window until someone asks for one.
   if (!launchedInBackground()) createWindow()
   step('updater', () => initUpdater(openWindows))
@@ -1215,6 +1234,7 @@ function beginShutdown(): void {
   shutDown = true
   audit('app.stopped', undefined, { via: 'system' })
   cancelAllDownloads()
+  disposeQuickChat()
   // Held for by the caller: the SDK closes a stdio server by ending its stdin,
   // then SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned
   // any server that ignores EOF. One that exits on EOF costs no wait.

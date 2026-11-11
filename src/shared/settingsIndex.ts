@@ -61,6 +61,7 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "general", title: "Open on launch", description: "The mode Eaon opens in when it starts", section: "General" },
   { page: "general", title: "Prevent sleep while running", description: "Keep your computer awake while the assistant is running a task", section: "General" },
   { page: "general", title: "Notify me when an agent needs me", description: "A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t the window in front. It covers Chat, Workers, scheduled tasks and the ADE.", section: "General" },
+  { page: "general", title: "Quick chat shortcut", description: "Opens Eaon on a new chat from any app, with . Off until you turn it on.", section: "General" },
   { page: "general", title: "Auto-compact long chats", description: "When a chat nears the model’s context limit, summarize its older messages so it can keep going. Nothing in the chat is removed.", section: "General" },
   { page: "general", title: "Suggested prompts", description: "Show starter prompts under the message box on the home screen", section: "General" },
   { page: "general", title: "Use your accounts from other AI apps", description: "Finds the AI apps on this computer and signs in to their providers the official way. Chats and projects stay in those apps.", section: "General" },

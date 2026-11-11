@@ -122,6 +122,7 @@ export const defaultSettings: Settings = {
     showInMenuBar: true,
     bottomPanel: false,
     preventSleep: false,
+    quickChat: false,
     suggestedPrompts: true,
     trading: false,
     launchAtLogin: false,

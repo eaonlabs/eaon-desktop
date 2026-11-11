@@ -10,6 +10,7 @@ import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useOnboarding } from '../../onboarding/onboardingStore'
 import { useTradingOn } from '../../trading/useTradingOn'
 import { errorText, explainUpdateError } from '../../../lib/errors'
+import { isMac } from '../../../lib/platform'
 import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
 import { SpeechModelRow } from './SpeechModelRow'
@@ -107,6 +108,12 @@ export function GeneralPage(): JSX.Element {
               checked={settings.notifications?.taskComplete !== false}
               onChange={(on) => void patchSettings({ notifications: { taskComplete: on } })}
             />
+          </Row>
+          <Row
+            title="Quick chat shortcut"
+            description={`Opens Eaon on a new chat from any app, with ${isMac ? '⌘⇧Space' : 'Ctrl+Shift+Space'}. Off until you turn it on.`}
+          >
+            <Switch label="Quick chat shortcut" checked={g.quickChat === true} onChange={(on) => void patchSettings({ general: { quickChat: on } })} />
           </Row>
           <Row
             title="Auto-compact long chats"

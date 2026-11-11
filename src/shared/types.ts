@@ -426,6 +426,8 @@ export interface Settings {
     showInMenuBar: boolean
     bottomPanel: boolean
     preventSleep: boolean
+    /** A system-wide key (⌘⇧Space, Ctrl+Shift+Space) that brings Eaon to the front on a new chat. Off until switched on. */
+    quickChat?: boolean
     suggestedPrompts: boolean
     /** The Trading desk, its tools and trading workers. Off unless switched on; takes effect after a restart. */
     trading: boolean

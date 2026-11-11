@@ -5,6 +5,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
+
 ### Fixed
 - **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.
 - **The marks beside a chat highlight your newest message when you are at the bottom,** not the one before it.
