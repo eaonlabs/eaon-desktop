@@ -1343,7 +1343,8 @@ export const useApp = create<AppState>((set, get) => ({
 
   async reindex(force = false) {
     const cwd = codeFolder(get())
-    if (!cwd) return
+    // The code index reads this computer's disk; a project on another machine has none.
+    if (!cwd || cwd.startsWith('ssh://')) return
     set({ indexStatus: await window.api.codeIndex.build(cwd, force) })
   },
 

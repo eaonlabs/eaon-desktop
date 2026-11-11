@@ -2,6 +2,7 @@ import { relative, sep } from 'node:path'
 import type { Feature } from './types'
 import { sshHosts } from './ade'
 import { allowed } from './workspaceFiles'
+import { remoteLocation } from '@shared/adeRemote'
 import { makeRunner } from './ade/runner'
 import { fileCommits, lineBlame } from './ade/blame'
 
@@ -17,6 +18,14 @@ const run = makeRunner(sshHosts)
 async function place(cwd: unknown, file: unknown): Promise<{ folder: string; rel: string }> {
   const folder = await allowed(cwd)
   const path = await allowed(file)
+  // On another machine both are `ssh://host/…`: the file's place is by the host's own path.
+  const rf = remoteLocation(folder)
+  const rp = remoteLocation(path)
+  if (rf || rp) {
+    const base = rf?.path.replace(/\/$/, '')
+    if (!rf || !rp || rf.hostId !== rp.hostId || !rp.path.startsWith(`${base}/`)) throw new Error('That file isn’t in this folder.')
+    return { folder, rel: rp.path.slice(base!.length + 1) }
+  }
   const rel = relative(folder, path)
   if (!rel || rel.startsWith('..') || /^[a-z]:/i.test(rel)) throw new Error('That file isn’t in this folder.')
   return { folder, rel: rel.split(sep).join('/') }
