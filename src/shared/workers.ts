@@ -1,3 +1,4 @@
+import type { WorkerVersion } from './workerVersions'
 import type { ChannelKind, GuestAccess } from './channels'
 import type { ChatMessage, EffortLevel, GoalState, StreamEvent, TokenUsage } from './types'
 import type { EngineId } from './engines'
@@ -910,6 +911,8 @@ export interface Worker {
    * 'read-only' may only look. See WORKER_ACCESS.
    */
   access: WorkerAccess
+  /** Earlier setups, newest last (shared/workerVersions.ts). */
+  versions?: WorkerVersion[]
   /** Set when the user made this worker a trader. */
   trading: WorkerTrading | null
   heartbeat: WorkerHeartbeat

@@ -21,6 +21,7 @@ import type { WorkerAppLink } from '@shared/workerApps'
 import type { HouseholdList } from '@shared/workerLists'
 import type { ConnectorId, ConnectorStatus, ConnectorStatuses } from '@shared/workerConnectors'
 import type { VaultLogin, VaultLoginDraft, VaultState } from '@shared/workerVault'
+import type { WorkerVersion } from '@shared/workerVersions'
 
 /**
  * Renderer bridge for Eaon Workers. Exposed as `window.api.workers`. Main owns
@@ -60,6 +61,10 @@ export const workersApi = {
     ipcRenderer.invoke('workers:send', id, text, files, options),
   /** Empties a thread (the main one by default) and its summary; mail, wake-ups and settings stay. */
   clear: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:clear', id, threadId),
+  /** The setups the worker had before each change, newest last. */
+  versions: (id: string): Promise<WorkerVersion[]> => ipcRenderer.invoke('workers:versions', id),
+  /** Puts the worker's setup back to a saved version; the one it replaces is kept too. */
+  restoreVersion: (id: string, versionId: string): Promise<Worker> => ipcRenderer.invoke('workers:restore-version', id, versionId),
   /** The worker's run receipts, newest last. */
   executions: (id: string): Promise<WorkerExecution[]> => ipcRenderer.invoke('workers:executions', id),
   /** Runs a finished run's work again in the same thread. */

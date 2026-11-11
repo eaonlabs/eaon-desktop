@@ -99,6 +99,7 @@ import {
   type WorkerSettings,
   type WorkerSetup
 } from '@shared/workerSetup'
+import { normalizeVersions, withVersion, type WorkerVersion } from '@shared/workerVersions'
 import {
   addSpend,
   budgetHit,
@@ -570,6 +571,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     access: raw.access === 'read-only' || raw.access === 'autonomous' ? raw.access : 'safe',
     trading: normalizeTrading(raw.trading),
     ...limitsOf(raw, raw.paused === true),
+    versions: normalizeVersions(raw.versions),
     heartbeat,
     routines: Array.isArray(raw.routines)
       ? raw.routines
@@ -1074,7 +1076,9 @@ export class WorkersEngine {
       }
       const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
       const budgetBefore = existing.budget
+      const settingsBefore = settingsOf(existing)
       Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading, budget, retry, sites, toolRules })
+      existing.versions = withVersion(existing.versions, settingsBefore, existing, randomUUID(), this.now())
       // A cap just set counts what the worker already used in the period; one removed forgets the count.
       if (!budget) existing.spend = null
       else if (!budgetBefore || budgetBefore.period !== budget.period) existing.spend = this.seedSpend(existing, budget)
@@ -1187,6 +1191,22 @@ export class WorkersEngine {
       }
     }
     return clone(this.require(worker.id))
+  }
+
+  /** A worker's earlier setups, newest last. */
+  versions(id: string): WorkerVersion[] {
+    return clone(this.require(id).versions ?? [])
+  }
+
+  /**
+   * Puts a worker's setup back to one it had. It goes through `save`, so the
+   * setup being replaced is kept as a version too and the restore can be undone.
+   */
+  restoreVersion(id: string, versionId: string): Worker {
+    const worker = this.require(id)
+    const version = (worker.versions ?? []).find((v) => v.id === versionId)
+    if (!version) throw new Error('That version is no longer kept.')
+    return this.save(settingsDraft(version.settings, id))
   }
 
   /** A copy of a worker under a new name and its own colour: its settings, routines and playbooks, and nothing it was signed in to. */

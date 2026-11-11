@@ -493,6 +493,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       if (!draft || typeof draft !== 'object') throw new Error('Give the worker a name.')
       return engine.save(draft)
     })
+    ipcMain.handle('workers:versions', (_e, id: unknown) => engine.versions(idOf(id)))
+    ipcMain.handle('workers:restore-version', (_e, id: unknown, versionId: unknown) => engine.restoreVersion(idOf(id), str(versionId)))
     ipcMain.handle('workers:remove', (_e, id: unknown) => remove(idOf(id)))
     // Duplicate, export and import (shared/workerSetup.ts). The file dialogs are the desktop's own (files.ts).
     ipcMain.handle('workers:duplicate', (_e, id: unknown) => engine.duplicate(idOf(id)))
