@@ -8,6 +8,9 @@ const isAbsolute = (path: string): boolean => path.startsWith('/') || /^[A-Za-z]
  * the result matches the paths the tree lists.
  */
 export function joinPath(root: string, path: string): string {
+  // On another machine (`ssh://host/folder`) an absolute path is the host's: keep the host in front of it.
+  const host = /^(ssh:\/\/[^/]+)\//.exec(root)
+  if (host && path.startsWith('/')) return `${host[1]}${path}`
   if (isAbsolute(path)) return path
   const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/'
   const parts = root.split(/[\\/]/)

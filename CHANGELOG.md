@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Projects on another machine, over SSH.** In Edit project, "On another machine…" picks a host from `~/.ssh/config` (or adds one) and a folder on it. The project's chats then read, search, edit and run commands there: every file and shell tool runs on the host, inside that folder, and the editor beside the chat, the file tree's git marks, the Git panel, search and the @ menu's files read it too. Eaon connects with your own SSH keys and agent and never asks for a password; a key with a passphrase has to be in the agent (`ssh-add`). Calls to one host share a connection. The folder is a boundary: paths elsewhere on the host, `..` and links that lead out are refused, delete moves into `~/.eaon-trash` on the host, and your command rules still decide every command. Not on a project over SSH: Claude, Codex and the other CLI engines, the code index, replace in files, per-reply undo, and opening it in an app on this computer.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added

@@ -8,13 +8,14 @@ import { BrowserWindow, nativeImage, shell } from 'electron'
 import { store } from '../store'
 import type { Feature } from './types'
 import { allowed } from './workspaceFiles'
-import { changes } from './ade/git'
 import { github, untrackedDiffs } from './ade/review'
 import { parseUnifiedDiff } from '@shared/adeReview'
-import { remoteLocation } from '@shared/adeRemote'
+import { remoteCwd, remoteLocation } from '@shared/adeRemote'
+import { posixNormalize } from '@shared/remotePath'
+import { openRemote, remoteFiles, remoteGrep } from '../remoteWork'
 import { hunkBody, hunkFingerprint, hunkPatch, isRepoRelative, splitFileDiff } from '@shared/hunks'
 import { makeRunner, problemOf } from './ade/runner'
-import { sshHosts } from './ade'
+import { changesIn, sshHosts } from './ade'
 import { findOnPath } from './eaonCode/locate'
 import { checkpointDiff, dropCheckpoints, replyDiffs, restoreTurn, rewindTurns, turnChanges } from './chatCheckpoints'
 import { backgroundProcesses, onBackgroundChange, stopBackgroundProcess } from '../localTools'
@@ -70,7 +71,7 @@ async function gitStatus(cwd: string): Promise<ChatGitStatus> {
     run(cwd, 'git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], 5000),
     run(cwd, 'git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], 5000),
     run(cwd, 'git', ['remote', 'get-url', 'origin'], 5000),
-    changes(cwd)
+    changesIn(cwd)
   ])
   let ahead = 0
   let behind = 0
@@ -230,6 +231,7 @@ function launch(cmd: string, args: string[], cwd: string): Promise<void> {
 
 /** Opens the folder, or a file in it at a line, in the chosen app. */
 async function openIn(folder: string, targetId: string, file: string | null, line: number | null): Promise<void> {
+  if (remoteLocation(folder)) throw new Error('A project on another machine can’t be opened in an app on this computer from here. Use the editor beside the chat, or the ADE’s terminal on that host.')
   const target = file ?? folder
   if (targetId === 'files') {
     if (file) shell.showItemInFolder(file)
@@ -272,7 +274,24 @@ async function search(cwd: string, query: string, options: SearchOptions): Promi
     if (!res.ok && res.code !== 1) return { matches: [], truncated: false, error: problemOf(res, 'The search didn’t run.') }
     return parseGrep(res.stdout)
   }
+  if (remoteLocation(cwd)) return remoteSearch(cwd, query, options)
   return walkSearch(cwd, query, options)
+}
+
+/** Search on a host that isn't a repository: its ripgrep or grep, in the project's folder. */
+async function remoteSearch(cwd: string, query: string, options: SearchOptions): Promise<SearchResult> {
+  const source = options.regex ? query : escapeRegex(query)
+  try {
+    const lines = await remoteGrep(await openRemote(cwd), options.word ? `\\b(${source})\\b` : source, options.caseSensitive === true, SEARCH_CAP + 1)
+    const matches: SearchMatch[] = []
+    for (const raw of lines) {
+      const m = /^(.*?):(\d+):(.*)$/.exec(raw)
+      if (m) matches.push({ path: m[1], line: Number(m[2]), text: m[3].slice(0, 400) })
+    }
+    return { matches: matches.slice(0, SEARCH_CAP), truncated: matches.length > SEARCH_CAP }
+  } catch (error) {
+    return { matches: [], truncated: false, error: error instanceof Error ? error.message : 'The search didn’t run.' }
+  }
 }
 
 /** Search without git: the folder walked, skipping what every project has and no one means. */
@@ -328,6 +347,7 @@ async function* walk(root: string, limit: number): AsyncGenerator<string> {
 async function files(cwd: string): Promise<string[]> {
   const res = await run(cwd, 'git', ['ls-files', '-co', '--exclude-standard', '-z'], 15_000)
   if (res.ok) return res.stdout.split('\0').filter(Boolean).slice(0, FILES_CAP)
+  if (remoteLocation(cwd)) return (await remoteFiles(await openRemote(cwd), FILES_CAP)).paths
   const out: string[] = []
   for await (const file of walk(cwd, FILES_CAP)) out.push(relative(cwd, file).split(sep).join('/'))
   return out
@@ -351,6 +371,8 @@ function cleanScripts(value: unknown): ProjectScript[] {
 }
 
 async function suggestions(cwd: string): Promise<ScriptSuggestion[]> {
+  // Reading a package.json on another machine is a round trip per file; saved scripts are what a remote project has.
+  if (remoteLocation(cwd)) return []
   const names = await readdir(cwd).catch(() => [] as string[])
   const out: ScriptSuggestion[] = []
   if (names.includes('package.json')) {
@@ -441,10 +463,12 @@ async function topOf(cwd: string): Promise<string | null> {
 async function fileStates(cwd: string): Promise<Record<string, FileGitState>> {
   const top = await topOf(cwd)
   if (!top) return {}
-  const res = await run(top, 'git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], 15_000)
+  // On a host the keys are `ssh://` folders too, as the editor's tree names its files.
+  const remote = remoteLocation(cwd)
+  const res = await run(remote ? remoteCwd(remote.hostId, top) : top, 'git', ['status', '--porcelain=v1', '-z', '--untracked-files=all'], 15_000)
   if (!res.ok) return {}
   const states: Record<string, FileGitState> = {}
-  for (const [path, state] of Object.entries(parsePorcelain(res.stdout))) states[join(top, path)] = state
+  for (const [path, state] of Object.entries(parsePorcelain(res.stdout))) states[remote ? remoteCwd(remote.hostId, posixNormalize(`${top}/${path}`)) : join(top, path)] = state
   return states
 }
 
@@ -454,11 +478,17 @@ const HEAD_TEXT_MAX = 2 * 1024 * 1024
 /** A file as it is in the last commit, for the editor's gutter; null when git has none of it. */
 async function textAtHead(cwd: string, file: string): Promise<string | null> {
   const top = await topOf(cwd)
-  if (!top || !inside(top, file)) return null
-  const rel = relative(top, file).split(sep).join('/')
-  const size = await run(top, 'git', ['cat-file', '-s', `HEAD:${rel}`], 5000)
+  if (!top) return null
+  const remote = remoteLocation(cwd)
+  const there = remote ? remoteLocation(file) : null
+  // A file of a project on a host is named `ssh://host/…`; its place in the repository is by the host's own path.
+  if (remote && (!there || there.hostId !== remote.hostId || !(there.path === top || there.path.startsWith(`${top.replace(/\/$/, '')}/`)))) return null
+  if (!remote && !inside(top, file)) return null
+  const rel = remote ? there!.path.slice(top.replace(/\/$/, '').length + 1) : relative(top, file).split(sep).join('/')
+  const at = remote ? remoteCwd(remote.hostId, top) : top
+  const size = await run(at, 'git', ['cat-file', '-s', `HEAD:${rel}`], 5000)
   if (!size.ok || Number(size.stdout) > HEAD_TEXT_MAX) return null
-  const res = await run(top, 'git', ['show', `HEAD:${rel}`], 10_000)
+  const res = await run(at, 'git', ['show', `HEAD:${rel}`], 10_000)
   return res.ok ? res.stdout : null
 }
 
