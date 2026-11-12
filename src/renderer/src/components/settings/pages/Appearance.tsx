@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
 import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
-import { THEMES, type Palette, type Theme } from '../../../lib/themes'
+import { allThemes, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
+import { useMods } from '../../../state/mods'
 import { isMac } from '../../../lib/platform'
 import { wallpaperVideoUrl } from '@shared/wallpaper'
 import { styleInfo } from '../../seeThrough/styles'
@@ -35,7 +36,8 @@ const APP_ICONS: { id: AppIcon; label: string; image: string }[] = [
 
 const GROUPS: { id: Theme['group']; label: string }[] = [
   { id: 'neutral', label: 'Neutral' },
-  { id: 'coloured', label: 'Coloured' }
+  { id: 'coloured', label: 'Coloured' },
+  { id: 'mods', label: 'From mods' }
 ]
 
 /**
@@ -56,20 +58,14 @@ function useResolvedTone(mode: ThemeMode): 'light' | 'dark' {
   return mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
 }
 
-/**
- * Choosing a theme or mode here takes the app back from the ADE's terminal
- * theme, which restyles the app while it is picked: the terminals go back to
- * following the app (`eaon`), so the two never disagree.
- */
-function releaseAde(settings: Settings | null): Partial<Settings> {
-  if (!settings || settings.ade.theme === 'eaon') return {}
-  return { ade: { ...settings.ade, theme: 'eaon', appBefore: null } }
-}
-
 export function AppearancePage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const a = settings?.appearance
   const tone = useResolvedTone(a?.mode ?? 'dark')
+  // Eaon's themes, then those of the mods that are on.
+  const modsVersion = useMods((s) => s.version)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const themes = useMemo(() => allThemes(), [modsVersion])
   if (!settings || !a) return <></>
 
   return (
@@ -106,30 +102,16 @@ export function AppearancePage(): JSX.Element {
       </Section>
 
       <Section label="Color theme">
-        {GROUPS.map((group) => (
+        {GROUPS.filter((group) => themes.some((theme) => theme.group === group.id)).map((group) => (
           <div key={group.id} className="theme-group">
             <div className="theme-group__label">{group.label}</div>
             <div className="theme-swatch-grid">
-              {THEMES.filter((theme) => theme.group === group.id).map((theme) => (
+              {themes.filter((theme) => theme.group === group.id).map((theme) => (
                 <button
                   key={theme.name}
                   className="theme-swatch"
                   data-active={a.light.preset === theme.name || undefined}
-                  onClick={() => {
-                    // textFade belongs to the theme, not the stored palette —
-                    // useTheme() looks it up by preset name.
-                    const { textFade: _lightFade, ...light } = theme.light
-                    const { textFade: _darkFade, ...dark } = theme.dark
-                    void patchSettings({
-                      appearance: {
-                        // Both appearances move together, so switching Light/Dark
-                        // never drops you into a different theme.
-                        light: { preset: theme.name, ...light },
-                        dark: { preset: theme.name, ...dark }
-                      },
-                      ...releaseAde(settings)
-                    })
-                  }}
+                  onClick={() => void patchSettings(themePatch(theme, settings))}
                 >
                   <ThemeSwatch palette={theme[tone]} tone={tone} />
                   <span className="theme-swatch__name">{theme.name}</span>
@@ -459,7 +441,7 @@ function SeeThroughSection(): JSX.Element | null {
         )}
         {see.enabled && usable && (
           <>
-            <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
+            <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable">
               <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
             <Row title="Style" description={styleInfo(style).hint} />
@@ -467,6 +449,7 @@ function SeeThroughSection(): JSX.Element | null {
               value={style}
               tint={see.tint}
               video={video}
+              source={hasCustom ? (see.custom ?? 'custom') : 'desktop'}
               // `texture` follows along for builds from before `style`.
               onChange={(next) => set({ style: next, texture: next === 'halftone' })}
             />

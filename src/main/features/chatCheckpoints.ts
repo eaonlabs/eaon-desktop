@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { isRemote } from '@shared/adeRemote'
-import { CHECKPOINT_REF_ROOT, checkpointRef, parseNameStatus, type TurnChanges, type TurnRestore } from '@shared/chatCode'
+import { parseUnifiedDiff, type ReviewFile } from '@shared/adeReview'
+import { CHECKPOINT_REF_ROOT, checkpointRef, parseNameStatus, parseRawNumstat, type CheckpointDiff, type TurnChanges, type TurnRestore } from '@shared/chatCode'
 
 /**
  * Checkpoints: a coding chat's folder as it was when a reply started and
@@ -128,6 +129,128 @@ export async function turnChanges(cwd: string, replyId: string): Promise<TurnCha
   const files = await changedPaths(top, before, after)
   if (!files) return { available: false, reason: 'no-checkpoint', files: [] }
   return { available: files.length > 0, files: files.map((f) => f.path) }
+}
+
+/**
+ * The repository's top as the chat's folder spells it, so the full paths
+ * given back match the folder's: git names the real one, and a folder
+ * reached through a link (or /tmp, which is /private/tmp) is spelled otherwise.
+ */
+async function spelledTop(cwd: string, top: string): Promise<string> {
+  const res = await git(cwd, ['rev-parse', '--show-prefix'], {}, 5000)
+  if (!res.ok) return top
+  const depth = res.stdout.trim().split('/').filter(Boolean).length
+  return resolve(cwd, ...new Array<string>(depth).fill('..'))
+}
+
+/** Every checkpoint ref in the repository and the commit it points at, in one call. */
+async function checkpointRefs(top: string): Promise<Map<string, string>> {
+  const res = await git(top, ['for-each-ref', '--format=%(objectname) %(refname)', CHECKPOINT_REF_ROOT], {}, 5000)
+  const refs = new Map<string, string>()
+  if (!res.ok) return refs
+  for (const line of res.stdout.split('\n')) {
+    const at = line.indexOf(' ')
+    if (at > 0) refs.set(line.slice(at + 1), line.slice(0, at))
+  }
+  return refs
+}
+
+/** Paths given to git are names, not patterns: a file can be called `*.ts`. */
+const LITERAL = { GIT_LITERAL_PATHSPECS: '1' }
+
+/** Two commits never change, so what changed between them is asked once. Paths from the top of the repository. */
+const counted = new Map<string, ReviewFile[]>()
+const COUNTED_KEPT = 2000
+
+async function countBetween(top: string, from: string, to: string, keep: boolean): Promise<ReviewFile[] | null> {
+  const key = `${from}..${to}`
+  const known = counted.get(key)
+  if (known) return known
+  const res = await git(top, ['diff', '--raw', '--numstat', '-z', '--no-renames', from, to])
+  if (!res.ok) return null
+  const files = parseRawNumstat(res.stdout)
+  if (keep) {
+    if (counted.size >= COUNTED_KEPT) counted.delete(counted.keys().next().value as string)
+    counted.set(key, files)
+  }
+  return files
+}
+
+/** The reply's checkpoints; the running reply's end is the folder now, taken once by `now`. */
+async function endsOf(
+  refs: Map<string, string>,
+  replyId: string,
+  live: string | null,
+  now: () => Promise<string | null>
+): Promise<{ before: string; after: string; done: boolean } | null> {
+  const before = refs.get(checkpointRef(replyId, 'before'))
+  if (!before) return null
+  const after = refs.get(checkpointRef(replyId, 'after'))
+  if (after) return { before, after, done: true }
+  const current = replyId === live ? await now() : null
+  return current ? { before, after: current, done: false } : null
+}
+
+/**
+ * What a chat's replies changed, from their checkpoints: whatever changed
+ * the files, an edit tool or a command, and nothing the agent only read.
+ * Each file runs from before the first of these replies that changed it to
+ * after the last, so one written by two replies counts once. `live` is the
+ * reply still running, compared with the folder as it is now; `patch` adds
+ * each file's hunks.
+ */
+export async function checkpointDiff(cwd: string, replyIds: string[], options: { patch?: boolean; live?: string | null } = {}): Promise<CheckpointDiff> {
+  const top = await topOf(cwd)
+  if (!top || replyIds.length === 0) return { covered: [], changed: [], files: [] }
+  const [refs, base] = await Promise.all([checkpointRefs(top), spelledTop(cwd, top)])
+  let taken: Promise<string | null> | null = null
+  const now = (): Promise<string | null> => (taken ??= snapshot(top))
+  const covered: string[] = []
+  const changed: string[] = []
+  const spans = new Map<string, { from: string; to: string; done: boolean }>()
+  for (const id of replyIds) {
+    const ends = await endsOf(refs, id, options.live ?? null, now)
+    const files = ends ? await countBetween(top, ends.before, ends.after, ends.done) : null
+    if (!ends || !files) continue
+    covered.push(id)
+    if (files.length) changed.push(id)
+    for (const { path } of files) spans.set(path, { from: spans.get(path)?.from ?? ends.before, to: ends.after, done: ends.done })
+  }
+  const groups = new Map<string, { from: string; to: string; done: boolean; paths: string[] }>()
+  for (const [path, span] of spans) {
+    const key = `${span.from}..${span.to}`
+    const group = groups.get(key)
+    if (group) group.paths.push(path)
+    else groups.set(key, { ...span, paths: [path] })
+  }
+  const files: ReviewFile[] = []
+  for (const { from, to, done, paths } of groups.values()) {
+    if (!options.patch) {
+      const wanted = new Set(paths)
+      for (const file of (await countBetween(top, from, to, done)) ?? []) if (wanted.has(file.path)) files.push({ ...file, path: join(base, file.path) })
+      continue
+    }
+    for (let i = 0; i < paths.length; i += 200) {
+      const res = await git(top, ['diff', '--no-color', '--no-ext-diff', '--no-renames', '-U3', from, to, '--', ...paths.slice(i, i + 200)], LITERAL, 30_000)
+      if (res.ok) for (const file of parseUnifiedDiff(res.stdout)) files.push({ ...file, path: join(base, file.path), oldPath: null })
+    }
+  }
+  return { covered, changed, files: files.sort((a, b) => a.path.localeCompare(b.path)) }
+}
+
+/** Each finished reply's own changes by its checkpoints, counted, for its changed-files card. Replies without both are left out. */
+export async function replyDiffs(cwd: string, replyIds: string[]): Promise<Record<string, ReviewFile[]>> {
+  const top = await topOf(cwd)
+  const out: Record<string, ReviewFile[]> = {}
+  if (!top || replyIds.length === 0) return out
+  const [refs, base] = await Promise.all([checkpointRefs(top), spelledTop(cwd, top)])
+  const never = async (): Promise<null> => null
+  for (const id of replyIds) {
+    const ends = await endsOf(refs, id, null, never)
+    const files = ends ? await countBetween(top, ends.before, ends.after, true) : null
+    if (files) out[id] = files.map((file) => ({ ...file, path: join(base, file.path) }))
+  }
+  return out
 }
 
 /**

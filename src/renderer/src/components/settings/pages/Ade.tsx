@@ -8,10 +8,12 @@ import { Card, Row, Section, Select, Switch } from '../../ui'
 import { useLocalSpeech } from '../../../lib/localSpeech'
 import { LOCAL_SPEECH_ID, LOCAL_SPEECH_MODELS, SPEECH_PROVIDERS, localSpeechModel } from '@shared/speech'
 import { useTerminals } from '../../code/terminal/terminalStore'
-import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../code/terminal/themes'
+import { allTerminalThemes, DEFAULT_THEME_ID, type TerminalTheme } from '../../code/terminal/themes'
+import { useMods } from '../../../state/mods'
 import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 import { HoldToTalkRows } from './HoldToTalk'
+import { WorktreeCopySection } from './AdeWorktreeCopy'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
@@ -209,6 +211,7 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <WorktreeCopySection />
       <DictationSection />
       <TerminalThemeSection />
     </>
@@ -221,6 +224,8 @@ export function AdePage(): JSX.Element {
  * any terminal still opens the picker that previews them in place.
  */
 function TerminalThemeSection(): JSX.Element {
+  // Re-drawn when a mod's themes come or go.
+  useMods((s) => s.version)
   const ade = useApp((s) => s.settings?.ade)
   const saveLook = useTerminals((s) => s.saveLook)
   const current = ade?.theme ?? DEFAULT_THEME_ID
@@ -229,7 +234,7 @@ function TerminalThemeSection(): JSX.Element {
     <Section label="Terminal theme">
       <Card>
         <div className="ade-themes" role="radiogroup" aria-label="Terminal theme">
-          {TERMINAL_THEMES.map((theme) => (
+          {allTerminalThemes().map((theme) => (
             <button
               key={theme.id}
               type="button"

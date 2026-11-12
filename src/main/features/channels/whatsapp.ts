@@ -336,18 +336,24 @@ export class WhatsAppConnector implements Connector {
     if (content.imageMessage) files.push(media(`photo-${key.id}.jpg`, content.imageMessage.fileLength))
     if (content.videoMessage) files.push(media(`video-${key.id}.mp4`, content.videoMessage.fileLength))
     if (content.documentMessage) files.push(media(content.documentMessage.fileName ?? `file-${key.id}`, content.documentMessage.fileLength))
-    const unsupported = content.audioMessage
-      ? 'a voice message'
-      : content.stickerMessage
-        ? 'a sticker'
-        : content.locationMessage || content.liveLocationMessage
-          ? 'a location'
-          : content.contactMessage
-            ? 'a contact'
-            : content.pollCreationMessage || content.pollCreationMessageV3
-              ? 'a poll'
-              : undefined
-    if (!text && files.length === 0 && !unsupported) return
+    // A voice note, or an audio file sent from the phone (which the speech step may not be able to open).
+    const voice = content.audioMessage
+      ? {
+          download: async () => (await baileys.downloadMediaMessage(message, 'buffer', {})) as Buffer,
+          seconds: content.audioMessage.seconds ? Number(content.audioMessage.seconds) : null,
+          size: content.audioMessage.fileLength === null || content.audioMessage.fileLength === undefined ? null : Number(content.audioMessage.fileLength)
+        }
+      : undefined
+    const unsupported = content.stickerMessage
+      ? 'a sticker'
+      : content.locationMessage || content.liveLocationMessage
+        ? 'a location'
+        : content.contactMessage
+          ? 'a contact'
+          : content.pollCreationMessage || content.pollCreationMessageV3
+            ? 'a poll'
+            : undefined
+    if (!text && files.length === 0 && !voice && !unsupported) return
 
     this.recent.set(key.id, message)
     if (this.recent.size > 200) this.recent.delete(this.recent.keys().next().value!)
@@ -364,6 +370,7 @@ export class WhatsAppConnector implements Connector {
       fromSelf,
       selfChat: !isGroup && this.isSelf(jid),
       files,
+      ...(voice ? { voice } : {}),
       ...(unsupported ? { unsupported } : {})
     })
   }

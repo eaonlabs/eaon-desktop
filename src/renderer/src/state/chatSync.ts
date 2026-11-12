@@ -6,7 +6,8 @@ import type { Chat } from '@shared/types'
  * identity is enough), and the ones that are gone.
  */
 export function chatChanges(synced: ReadonlyMap<string, Chat>, chats: readonly Chat[]): { upserts: Chat[]; removed: string[] } {
-  const upserts = chats.filter((chat) => synced.get(chat.id) !== chat)
+  // A temporary chat is never saved, so main never hears of it: not as a new chat, a change or a removal.
+  const upserts = chats.filter((chat) => !chat.temporary && synced.get(chat.id) !== chat)
   const present = new Set(chats.map((chat) => chat.id))
   const removed = [...synced.keys()].filter((id) => !present.has(id))
   return { upserts, removed }

@@ -3,6 +3,8 @@
  * pressed inside a page) and the renderer (the panel, the picker, the tray).
  */
 
+import { matchesChord } from './keybindings'
+
 /** Where a picked element comes from in the project's source, when the page says. */
 export interface SourceLocation {
   file: string
@@ -68,52 +70,20 @@ export interface KeyLike {
   ctrl: boolean
   alt: boolean
   shift: boolean
+  /** The physical key ("KeyA"), when the page has one: what ⌥ and ⇧ chords are matched by. */
+  code?: string
+  /** Windows reports AltGr as Ctrl+Alt; a chord typed with it is text. */
+  altGraph?: boolean
 }
 
 /**
  * Whether a key press matches a binding as the shortcuts page stores it:
  * macOS glyphs ("⇧⌘C") or names ("Ctrl+Shift+C"). ⌘ in a glyph binding is
  * the platform's command key, Ctrl off a Mac, so a default written once
- * works everywhere.
+ * works everywhere. The rules are shared/keybindings.ts's.
  */
 export function matchesBinding(binding: string | null | undefined, event: KeyLike, mac: boolean): boolean {
-  if (!binding) return false
-  const want = { meta: false, ctrl: false, alt: false, shift: false }
-  let key: string
-  if (binding.includes('+') && binding.length > 1) {
-    const parts = binding.split('+')
-    key = parts.pop() || '+'
-    for (const part of parts) {
-      const name = part.toLowerCase()
-      if (name === 'ctrl') want.ctrl = true
-      else if (name === 'alt') want.alt = true
-      else if (name === 'shift') want.shift = true
-      else if (name === 'win' || name === 'super' || name === 'cmd') want.meta = true
-    }
-  } else {
-    let rest = binding
-    while (rest.length > 1 && '⌃⌥⇧⌘'.includes(rest[0])) {
-      const glyph = rest[0]
-      if (glyph === '⌃') want.ctrl = true
-      if (glyph === '⌥') want.alt = true
-      if (glyph === '⇧') want.shift = true
-      if (glyph === '⌘') {
-        if (mac) want.meta = true
-        else want.ctrl = true
-      }
-      rest = rest.slice(1)
-    }
-    key = rest
-  }
-  const named: Record<string, string> = { '↑': 'ArrowUp', '↓': 'ArrowDown', '←': 'ArrowLeft', '→': 'ArrowRight', '↩': 'Enter', '⌫': 'Backspace', '⇥': 'Tab', Space: ' ' }
-  key = named[key] ?? key
-  return (
-    event.key.toLowerCase() === key.toLowerCase() &&
-    event.meta === want.meta &&
-    event.ctrl === want.ctrl &&
-    event.alt === want.alt &&
-    event.shift === want.shift
-  )
+  return matchesChord(binding, event, mac)
 }
 
 /**

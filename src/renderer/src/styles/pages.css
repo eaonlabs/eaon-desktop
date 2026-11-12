@@ -1669,3 +1669,39 @@ body[data-platform='linux'] .browser__tabs {
   flex: none;
   margin-left: auto;
 }
+
+/* Issues: the tracker tabs, and Jira's three fields. */
+.issues-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.issues-tab {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.issues-tab:hover {
+  color: var(--text);
+}
+.issues-tab[data-on] {
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  color: var(--text);
+}
+.issues-connect__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 420px;
+  align-items: flex-start;
+}
+.issues-connect__fields .input {
+  width: 100%;
+}

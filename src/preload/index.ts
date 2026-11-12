@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { PostReviewResult, PrReview, ReviewState, StartReviewResult } from '@shared/prReview'
 import type { LinearIssuesResult, LinearStatus, StartIssueResult } from '@shared/linear'
+import type { TrackerId, TrackerIssuesResult, TrackerStartResult, TrackerStatus } from '@shared/trackers'
 import type {
   Chat,
   DownloadedModel,
@@ -29,6 +30,7 @@ import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
+import { appControlApi } from './features/appControl'
 import { browserControlApi } from './features/browserControl'
 import { inAppBrowserApi } from './features/inAppBrowser'
 import { eaonCodeApi } from './features/eaonCode'
@@ -37,9 +39,15 @@ import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { workspaceFilesApi } from './features/workspaceFiles'
 import { chatCodeApi } from './features/chatCode'
+import { gitAssistApi } from './features/gitAssist'
+import { searchReplaceApi } from './features/searchReplace'
+import { gitHistoryApi } from './features/gitHistory'
+import { chatContextApi } from './features/chatContext'
+import { sideQuestionApi } from './features/sideQuestion'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
+import { adeToolsApi } from './features/adeTools'
 import { workersApi } from './features/workers'
 import { channelsApi } from './features/channels'
 import { agentBrowserApi } from './features/agentBrowser'
@@ -51,20 +59,27 @@ import { agentProvidersApi } from './features/agentProviders'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
+import { importAppsApi } from './features/importApps'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
+import { personalizeApi } from './features/personalize'
+import { chatExportApi } from './features/chatExport'
+import { savedPromptsApi } from './features/savedPrompts'
 import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
 import { remoteApi } from './features/remote'
 import { workerHostApi } from './features/workerHost'
+import { vmsApi } from './features/vms'
 import { rcApi } from './features/rc'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
 import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 import { enterpriseApi } from './features/enterprise'
+import { modsApi } from './features/mods'
+import { mcpToolsApi } from './features/mcpTools'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -130,6 +145,8 @@ const api = {
     save: (value: McpServer[]): Promise<McpServer[]> => ipcRenderer.invoke('mcp:save', value),
     statuses: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp:statuses'),
     tools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:tools'),
+    /** Every connected tool, including those turned off in Settings. */
+    allTools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp:all-tools'),
     sync: (): Promise<void> => ipcRenderer.invoke('mcp:sync'),
     onStatus: (handler: (statuses: McpServerStatus[]) => void): (() => void) => {
       const listener = (_e: unknown, payload: McpServerStatus[]): void => handler(payload)
@@ -175,6 +192,15 @@ const api = {
     issues: (): Promise<LinearIssuesResult> => ipcRenderer.invoke('linear:issues'),
     start: (issueId: string, project: string): Promise<StartIssueResult> => ipcRenderer.invoke('linear:start', issueId, project),
     sync: (): Promise<void> => ipcRenderer.invoke('linear:sync')
+  },
+  /** Jira and GitHub issues as ADE sessions (shared/trackers.ts). */
+  trackers: {
+    status: (tracker: TrackerId): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:status', tracker),
+    connect: (tracker: TrackerId, input?: { site: string; email: string; token: string }): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:connect', tracker, input),
+    disconnect: (tracker: TrackerId): Promise<TrackerStatus> => ipcRenderer.invoke('trackers:disconnect', tracker),
+    issues: (tracker: TrackerId): Promise<TrackerIssuesResult> => ipcRenderer.invoke('trackers:issues', tracker),
+    start: (tracker: TrackerId, id: string, project: string): Promise<TrackerStartResult> => ipcRenderer.invoke('trackers:start', tracker, id, project),
+    sync: (): Promise<void> => ipcRenderer.invoke('trackers:sync')
   },
   codeIndex: {
     status: (cwd: string | null): Promise<IndexStatus> => ipcRenderer.invoke('index:status', cwd),
@@ -253,6 +279,8 @@ const api = {
     showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     /** Brings this window to the front, e.g. when its notification is clicked. */
     focusWindow: (): Promise<void> => ipcRenderer.invoke('app:focus-window'),
+    /** Settings → Keyboard shortcuts is waiting for a key: the menu stops taking its own keys until it is done. */
+    shortcutsRecording: (on: boolean): Promise<void> => ipcRenderer.invoke('app:shortcuts-recording', on),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     /** This version's GitHub release page when it has one, else the list of releases. */
     openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
@@ -332,6 +360,7 @@ const fullApi = {
   pluginAuth: pluginsApi,
   scheduler: schedulerApi,
   computerUse: computerUseApi,
+  appControl: appControlApi,
   browserControl: browserControlApi,
   inAppBrowser: inAppBrowserApi,
   eaonCode: eaonCodeApi,
@@ -343,6 +372,7 @@ const fullApi = {
   wallpaper: wallpaperApi,
   terminals: terminalsApi,
   ade: adeApi,
+  adeTools: adeToolsApi,
   workers: workersApi,
   channels: channelsApi,
   agentBrowser: agentBrowserApi,
@@ -354,20 +384,32 @@ const fullApi = {
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
+  importApps: importAppsApi,
   providerLogos: providerLogosApi,
   usage: usageApi,
+  personalize: personalizeApi,
+  chatExport: chatExportApi,
+  prompts: savedPromptsApi,
   toknCli: toknCliApi,
   payments: paymentsApi,
   engines: enginesApi,
   storage: storageApi,
   remote: remoteApi,
   workerHost: workerHostApi,
+  vms: vmsApi,
   rc: rcApi,
   control: controlApi,
   star: starApi,
   freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi,
-  enterprise: enterpriseApi
+  enterprise: enterpriseApi,
+  mods: modsApi,
+  gitAssist: gitAssistApi,
+  searchReplace: searchReplaceApi,
+  gitHistory: gitHistoryApi,
+  chatContext: chatContextApi,
+  sideQuestion: sideQuestionApi,
+  mcpTools: mcpToolsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

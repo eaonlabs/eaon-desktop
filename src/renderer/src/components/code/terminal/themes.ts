@@ -33,6 +33,23 @@ export type SceneId =
   | 'meadow'
   | 'mesa'
   | 'fireworks'
+  | 'blackhole'
+  | 'circuit'
+  | 'koi'
+  | 'train'
+  | 'storm'
+  | 'ufo'
+  | 'neoncity'
+  | 'satellite'
+  | 'skywhale'
+  | 'bamboo'
+  | 'autumn'
+  | 'launch'
+  | 'mushrooms'
+  | 'windmills'
+  | 'beach'
+  | 'zen'
+  | 'moonbase'
 
 export interface TerminalColors {
   background: string
@@ -130,6 +147,19 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     colors: palette('#0c0c10', '#f5f5f7', ['#2a2a33', '#ff7a85', '#7ee2a8', '#ffd479', '#7cb7ff', '#d39bff', '#6fe3e3', '#e6e6ea', '#8a8a96', '#ff9aa3', '#9df0bf', '#ffe29e', '#a3cdff', '#e2b8ff', '#98eded', '#ffffff'], {
       cursor: '#ffffff',
       selection: '#7cb7ff55'
+    })
+  },
+  {
+    id: 'frosted-slate',
+    name: 'Frosted Slate',
+    mode: 'dark',
+    app: 'Slate',
+    scene: null,
+    glass: true,
+    blurb: 'Soft slate glass over your wallpaper, blue links, green for running',
+    colors: palette('#2e3337', '#f1f4f6', ['#3a4246', '#ff8a80', '#5fd98a', '#ffb938', '#5b9bff', '#c9a3ff', '#6fd8e0', '#dfe4e7', '#7b858b', '#ffa59c', '#84e4a8', '#ffcb66', '#8db4ff', '#dcc0ff', '#98e8ee', '#ffffff'], {
+      cursor: '#8db4ff',
+      selection: '#5b9bff55'
     })
   },
   {
@@ -322,6 +352,177 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     colors: palette('#1c1e26', '#d5d8da', ['#16161c', '#e95678', '#29d398', '#fab795', '#26bbd9', '#ee64ac', '#59e1e3', '#d5d8da', '#5b5858', '#ec6a88', '#3fdaa4', '#fbc3a7', '#3fc4de', '#f075b5', '#6be4e6', '#d5d8da'], { cursor: '#e95678' })
   },
   {
+    id: 'andromeda',
+    name: 'Andromeda',
+    mode: 'dark',
+    app: 'Indigo',
+    scene: 'blackhole',
+    blurb: 'A black hole, its glowing disk swirling round it',
+    colors: palette('#262a33', '#e5e5e5', ['#000000', '#cd3131', '#05bc79', '#e5e512', '#2472c8', '#bc3fbc', '#0fa8cd', '#e5e5e5', '#666666', '#cd3131', '#05bc79', '#e5e512', '#2472c8', '#bc3fbc', '#0fa8cd', '#e5e5e5'], { cursor: '#f8f8f0' })
+  },
+  {
+    id: 'oxocarbon',
+    name: 'Oxocarbon',
+    mode: 'dark',
+    app: 'Rose',
+    scene: 'neoncity',
+    blurb: 'Neon signs and flying cars over a city at night',
+    colors: palette('#161616', '#f2f4f8', ['#161616', '#00dfdb', '#00b4ff', '#ff4297', '#00c15a', '#c693ff', '#ff74b8', '#f2f4f8', '#585858', '#00dfdb', '#00b4ff', '#ff4297', '#00c15a', '#c693ff', '#ff74b8', '#f2f4f8'], { cursor: '#ffffff' })
+  },
+  {
+    id: 'poimandres',
+    name: 'Poimandres',
+    mode: 'dark',
+    app: 'Glacier',
+    scene: 'koi',
+    blurb: 'Koi circling a pond between the lily pads',
+    colors: palette('#1a1e28', '#a6accd', ['#1a1e28', '#d0679d', '#5de4c7', '#fffac2', '#89ddff', '#fcc5e9', '#add7ff', '#ffffff', '#a6accd', '#d0679d', '#5de4c7', '#fffac2', '#add7ff', '#fae4fc', '#89ddff', '#ffffff'], { cursor: '#ffffff' })
+  },
+  {
+    id: 'nightfox',
+    name: 'Nightfox',
+    mode: 'dark',
+    app: 'Tokyo Night',
+    scene: 'train',
+    blurb: 'A night train crossing the viaduct under the moon',
+    colors: palette('#192330', '#cdcecf', ['#393b44', '#c94f6d', '#81b29a', '#dbc074', '#719cd6', '#9d79d6', '#63cdcf', '#dfdfe0', '#575860', '#d16983', '#8ebaa4', '#e0c989', '#86abdc', '#baa1e2', '#7ad5d6', '#e4e4e5'], { cursor: '#cdcecf' })
+  },
+  {
+    id: 'tokyo-night-storm',
+    name: 'Tokyo Night Storm',
+    mode: 'dark',
+    app: 'Tokyo Night',
+    scene: 'storm',
+    blurb: 'Lightning over the hills, and the rain coming down',
+    colors: palette('#24283b', '#c0caf5', ['#1d202f', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#a9b1d6', '#4e5575', '#f7768e', '#9ece6a', '#e0af68', '#7aa2f7', '#bb9af7', '#7dcfff', '#c0caf5'], { cursor: '#c0caf5' })
+  },
+  {
+    id: 'shades-of-purple',
+    name: 'Shades of Purple',
+    mode: 'dark',
+    app: 'Synthwave',
+    scene: 'ufo',
+    blurb: 'A flying saucer over a farm, beaming up a cow',
+    colors: palette('#1e1d40', '#ffffff', ['#000000', '#d90429', '#3ad900', '#ffe700', '#6943ff', '#ff2c70', '#00c5c7', '#c7c7c7', '#686868', '#f92a1c', '#43d426', '#f1d000', '#6871ff', '#ff77ff', '#79e8fb', '#ffffff'], { cursor: '#fad000' })
+  },
+  {
+    id: 'cobalt2',
+    name: 'Cobalt2',
+    mode: 'dark',
+    app: 'Abyss',
+    scene: 'satellite',
+    blurb: 'A satellite passing high over a blue planet',
+    colors: palette('#132738', '#ffffff', ['#000000', '#ff0000', '#38de21', '#ffe50a', '#1460d2', '#ff005d', '#00bbbb', '#bbbbbb', '#555555', '#f40e17', '#3bd01d', '#edc809', '#5555ff', '#ff55ff', '#6ae3fa', '#ffffff'], { cursor: '#f0cc09' })
+  },
+  {
+    id: 'catppuccin-macchiato',
+    name: 'Catppuccin Macchiato',
+    mode: 'dark',
+    app: 'Catppuccin',
+    scene: 'skywhale',
+    blurb: 'A whale swimming slowly through the clouds',
+    colors: palette('#24273a', '#cad3f5', ['#494d64', '#ed8796', '#a6da95', '#eed49f', '#8aadf4', '#f5bde6', '#8bd5ca', '#b8c0e0', '#5b6078', '#f2a7b2', '#bde3b0', '#f4e3c1', '#adc5f7', '#f493da', '#a5ded6', '#a5adcb'], { cursor: '#f4dbd6' })
+  },
+  {
+    id: 'catppuccin-frappe',
+    name: 'Catppuccin Frappé',
+    mode: 'dark',
+    app: 'Catppuccin',
+    scene: 'aurora',
+    blurb: 'Northern lights over the mountains',
+    colors: palette('#303446', '#c6d0f5', ['#51576d', '#e78284', '#a6d189', '#e5c890', '#8caaee', '#f4b8e4', '#81c8be', '#b5bfe2', '#626880', '#eda0a2', '#b9dba2', '#ecd7ae', '#adc2f3', '#f38ed8', '#98d2ca', '#a5adce'], { cursor: '#f2d5cf' })
+  },
+  {
+    id: 'kanagawa-dragon',
+    name: 'Kanagawa Dragon',
+    mode: 'dark',
+    app: 'Kanagawa',
+    scene: 'bamboo',
+    blurb: 'Bamboo swaying in the mist, its leaves falling',
+    colors: palette('#181616', '#c5c9c5', ['#0d0c0c', '#c4746e', '#8a9a7b', '#c4b28a', '#8ba4b0', '#a292a3', '#8ea4a2', '#c8c093', '#a6a69c', '#e46876', '#87a987', '#e6c384', '#7fb4ca', '#938aa9', '#7aa89f', '#c5c9c5'], { cursor: '#c8c093' })
+  },
+  {
+    id: 'melange',
+    name: 'Melange',
+    mode: 'dark',
+    app: 'Sand',
+    scene: 'autumn',
+    blurb: 'Autumn leaves blowing off the maples',
+    colors: palette('#292522', '#ece1d7', ['#34302c', '#bd8183', '#78997a', '#e49b5d', '#7f91b2', '#b380b0', '#7b9695', '#c1a78e', '#867462', '#d47766', '#85b695', '#ebc06d', '#a3a9ce', '#cf9bc2', '#89b3b6', '#ece1d7'], { cursor: '#ece1d7' })
+  },
+  {
+    id: 'github-dark',
+    name: 'GitHub Dark',
+    mode: 'dark',
+    app: 'Glacier',
+    scene: 'circuit',
+    blurb: 'Signals racing along a circuit board',
+    colors: palette('#0d1117', '#e6edf3', ['#484f58', '#ff7b72', '#3fb950', '#d29922', '#58a6ff', '#bc8cff', '#39c5cf', '#b1bac4', '#6e7681', '#ffa198', '#56d364', '#e3b341', '#79c0ff', '#d2a8ff', '#56d4dd', '#ffffff'], { cursor: '#2f81f7' })
+  },
+  {
+    id: 'everblush',
+    name: 'Everblush',
+    mode: 'dark',
+    app: 'Moss',
+    scene: 'mushrooms',
+    blurb: 'Glowing mushrooms on the forest floor, spores rising',
+    colors: palette('#141b1e', '#dadada', ['#232a2d', '#e57474', '#8ccf7e', '#e5c76b', '#67b0e8', '#c47fd5', '#6cbfbf', '#b3b9b8', '#464e50', '#ef7e7e', '#96d988', '#f4d67a', '#71baf2', '#ce89df', '#67cbe7', '#bdc3c2'], { cursor: '#dadada' })
+  },
+  {
+    id: 'ayu-mirage',
+    name: 'Ayu Mirage',
+    mode: 'dark',
+    app: 'Sand',
+    scene: 'beach',
+    blurb: 'The sun going down over the sea, a palm in the breeze',
+    colors: palette('#1f2430', '#cccac2', ['#171b24', '#ed8274', '#87d96c', '#facc6e', '#6dcbfa', '#dabafa', '#90e1c6', '#c7c7c7', '#686868', '#f28779', '#d5ff80', '#ffd173', '#73d0ff', '#dfbfff', '#95e6cb', '#ffffff'], { cursor: '#ffcc66' })
+  },
+  {
+    id: 'ayu',
+    name: 'Ayu',
+    mode: 'dark',
+    app: 'Ember',
+    scene: 'launch',
+    blurb: 'A rocket on the pad, and every so often, liftoff',
+    colors: palette('#0b0e14', '#bfbdb6', ['#11151c', '#ea6c73', '#7fd962', '#f9af4f', '#53bdfa', '#cda1fa', '#90e1c6', '#c7c7c7', '#686868', '#f07178', '#aad94c', '#ffb454', '#59c2ff', '#d2a6ff', '#95e6cb', '#ffffff'], { cursor: '#e6b450' })
+  },
+  {
+    id: 'moonfly',
+    name: 'Moonfly',
+    mode: 'dark',
+    app: 'Vantablack',
+    scene: 'moonbase',
+    blurb: 'A rover on the moon, the Earth hanging in the sky',
+    colors: palette('#080808', '#bdbdbd', ['#323437', '#ff5454', '#8cc85f', '#e3c78a', '#80a0ff', '#cf87e8', '#79dac8', '#c6c6c6', '#949494', '#ff5189', '#36c692', '#c6c684', '#74b2ff', '#ae81ff', '#85dc85', '#e4e4e4'], { cursor: '#9e9e9e' })
+  },
+  {
+    id: 'gruvbox-material',
+    name: 'Gruvbox Material',
+    mode: 'dark',
+    app: 'Gruvbox',
+    scene: 'windmills',
+    blurb: 'Wind turbines turning on the hills at dusk',
+    colors: palette('#282828', '#d4be98', ['#282828', '#ea6962', '#a9b665', '#d8a657', '#7daea3', '#d3869b', '#89b482', '#d4be98', '#7c6f64', '#ea6962', '#a9b665', '#d8a657', '#7daea3', '#d3869b', '#89b482', '#ddc7a1'], { cursor: '#d4be98' })
+  },
+  {
+    id: 'vesper',
+    name: 'Vesper',
+    mode: 'dark',
+    app: 'Sand',
+    scene: 'zen',
+    blurb: 'Raked sand round the stones of a zen garden, by moonlight',
+    colors: palette('#101010', '#ffffff', ['#101010', '#f5a191', '#90b99f', '#e6b99d', '#aca1cf', '#e29eca', '#ea83a5', '#a0a0a0', '#7e7e7e', '#ff8080', '#99ffe4', '#ffc799', '#b9aeda', '#ecaad6', '#f591b2', '#ffffff'], { cursor: '#acb1ab' })
+  },
+  {
+    id: 'material-ocean',
+    name: 'Material Ocean',
+    mode: 'dark',
+    app: 'Glacier',
+    scene: 'deepsea',
+    blurb: 'Deep under the sea, fish passing through the light',
+    colors: palette('#0f111a', '#8f93a2', ['#546e7a', '#ff5370', '#c3e88d', '#ffcb6b', '#82aaff', '#c792ea', '#89ddff', '#ffffff', '#546e7a', '#ff5370', '#c3e88d', '#ffcb6b', '#82aaff', '#c792ea', '#89ddff', '#ffffff'], { cursor: '#ffcc00' })
+  },
+  {
     id: 'rose-pine-dawn',
     name: 'Rosé Pine Dawn',
     mode: 'light',
@@ -365,11 +566,77 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     scene: null,
     blurb: 'Colours alone, ink on paper',
     colors: palette('#fffcf0', '#100f0f', ['#100f0f', '#af3029', '#66800b', '#ad8301', '#205ea6', '#a02f6f', '#24837b', '#6f6e69', '#575653', '#d14d41', '#879a39', '#d0a215', '#4385be', '#ce5d97', '#3aa99f', '#b7b5ac'], { cursor: '#100f0f', selection: '#cecdc355' })
+  },
+  {
+    id: 'github-light',
+    name: 'GitHub Light',
+    mode: 'light',
+    app: 'Cobalt',
+    scene: 'circuit',
+    blurb: 'Signals racing along a circuit board, by daylight',
+    colors: palette('#ffffff', '#1f2328', ['#24292f', '#cf222e', '#116329', '#4d2d00', '#0969da', '#8250df', '#1b7c83', '#6e7781', '#57606a', '#a40e26', '#1a7f37', '#633c01', '#218bff', '#a475f9', '#3192aa', '#8c959f'], { cursor: '#0969da' })
+  },
+  {
+    id: 'kanagawa-lotus',
+    name: 'Kanagawa Lotus',
+    mode: 'light',
+    app: 'Kanagawa',
+    scene: 'koi',
+    blurb: 'Koi turning under the lotus leaves',
+    colors: palette('#f2ecbc', '#545464', ['#1f1f28', '#c84053', '#6f894e', '#77713f', '#4d699b', '#b35b79', '#597b75', '#545464', '#8a8980', '#d7474b', '#6e915f', '#836f4a', '#6693bf', '#624c83', '#5e857a', '#43436c'], { cursor: '#43436c' })
+  },
+  {
+    id: 'tokyo-night-day',
+    name: 'Tokyo Night Day',
+    mode: 'light',
+    app: 'Tokyo Night',
+    scene: 'beach',
+    blurb: 'A palm, the waves and the sun over the sea',
+    colors: palette('#e1e2e7', '#3760bf', ['#e9e9ed', '#f52a65', '#587539', '#8c6c3e', '#2e7de9', '#9854f1', '#007197', '#6172b0', '#a1a6c5', '#f52a65', '#587539', '#8c6c3e', '#2e7de9', '#9854f1', '#007197', '#3760bf'], { cursor: '#3760bf', selection: '#99a7df88' })
+  },
+  {
+    id: 'alabaster',
+    name: 'Alabaster',
+    mode: 'light',
+    app: 'Graphite',
+    scene: 'zen',
+    blurb: 'A zen garden in the morning light',
+    colors: palette('#f7f7f7', '#000000', ['#000000', '#aa3731', '#448c27', '#cb9000', '#325cc0', '#7a3e9d', '#0083b2', '#b7b7b7', '#777777', '#f05050', '#60cb00', '#f2af50', '#007acc', '#e64ce6', '#00aacb', '#f7f7f7'], { cursor: '#007acc', selection: '#bfdbfe88' })
+  },
+  {
+    id: 'dawnfox',
+    name: 'Dawnfox',
+    mode: 'light',
+    app: 'Rosé Pine',
+    scene: 'windmills',
+    blurb: 'Wind turbines turning over green hills',
+    colors: palette('#faf4ed', '#575279', ['#575279', '#b4637a', '#618774', '#ea9d34', '#286983', '#907aa9', '#56949f', '#b2b6bd', '#5f5695', '#c26d85', '#629f81', '#eea846', '#2d81a3', '#9a80b9', '#5ca7b4', '#e6ebf3'], { cursor: '#575279', selection: '#d0d8d888' })
+  },
+  {
+    id: 'melange-light',
+    name: 'Melange Light',
+    mode: 'light',
+    app: 'Sand',
+    scene: 'autumn',
+    blurb: 'Maple leaves drifting down on an autumn afternoon',
+    colors: palette('#f1f1f1', '#54433a', ['#e9e1db', '#c77b8b', '#6e9b72', '#bc5c00', '#7892bd', '#be79bb', '#739797', '#7d6658', '#a98a78', '#bf0021', '#3a684a', '#a06d00', '#465aa4', '#904180', '#3d6568', '#54433a'], { cursor: '#54433a' })
   }
 ]
 
+/** Terminal themes the enabled mods add (renderer state/mods.ts), ids `<mod id>/<theme id>`. */
+let modThemes: TerminalTheme[] = []
+
+export function setModTerminalThemes(themes: TerminalTheme[]): void {
+  modThemes = themes
+}
+
+/** Every terminal theme: the ADE's own, then the mods'. */
+export function allTerminalThemes(): TerminalTheme[] {
+  return modThemes.length ? [...TERMINAL_THEMES, ...modThemes] : TERMINAL_THEMES
+}
+
 export function findTheme(id: string | null | undefined): TerminalTheme {
-  return TERMINAL_THEMES.find((theme) => theme.id === id) ?? TERMINAL_THEMES[0]
+  return TERMINAL_THEMES.find((theme) => theme.id === id) ?? modThemes.find((theme) => theme.id === id) ?? TERMINAL_THEMES[0]
 }
 
 /* ------------------------------------------------------------------ colour */

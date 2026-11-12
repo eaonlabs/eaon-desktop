@@ -1,0 +1,78 @@
+/* The command palette (palette/CommandPalette.tsx), on the find-in-project box's frame (codeTools.css). */
+
+.code-search.palette {
+  width: min(600px, 100%);
+  max-height: min(520px, 72vh);
+}
+.palette__results {
+  flex: 0 1 auto;
+  padding: 4px;
+}
+.palette__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  text-align: left;
+}
+.palette__row[data-current] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.palette__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.palette__title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette__detail {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette__check {
+  flex: none;
+  color: var(--accent-text, var(--link));
+}
+.palette__state {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.palette__group {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.palette__kbd {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+  white-space: nowrap;
+}
+.palette__empty {
+  padding: 18px 14px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.palette__foot {
+  gap: 16px;
+}

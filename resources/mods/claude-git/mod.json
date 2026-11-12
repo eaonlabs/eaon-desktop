@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.claude-git",
+  "name": "Git commands for Claude Code",
+  "category": "cli",
+  "description": "Adds /commit-message, /pr-description and /changelog to the Claude Code sessions Eaon starts.",
+  "contributes": {
+    "claudePlugin": "claude"
+  }
+}

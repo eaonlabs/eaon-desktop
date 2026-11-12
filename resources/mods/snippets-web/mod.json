@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.snippets-web",
+  "name": "Web snippets",
+  "category": "editor",
+  "description": "TypeScript, JavaScript and React snippets for the code editor: type the prefix, then press Tab.",
+  "contributes": {
+    "snippets": [
+      {
+        "prefix": "log",
+        "description": "console.log",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "console.log($0)"
+      },
+      {
+        "prefix": "imp",
+        "description": "Import from a module",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "import { $0 } from ''"
+      },
+      {
+        "prefix": "fn",
+        "description": "Function",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "function name() {\n  $0\n}"
+      },
+      {
+        "prefix": "afn",
+        "description": "Async arrow function",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "const name = async () => {\n  $0\n}"
+      },
+      {
+        "prefix": "try",
+        "description": "try / catch",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "try {\n  $0\n} catch (error) {\n  console.error(error)\n}"
+      },
+      {
+        "prefix": "fetchjson",
+        "description": "Fetch JSON",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "const response = await fetch(url)\nif (!response.ok) throw new Error(`HTTP ${response.status}`)\nconst data = await response.json()$0"
+      },
+      {
+        "prefix": "rfc",
+        "description": "React function component",
+        "languages": [
+          "tsx",
+          "jsx"
+        ],
+        "body": "export function Name(): JSX.Element {\n  return <div>$0</div>\n}"
+      },
+      {
+        "prefix": "ue",
+        "description": "useEffect with cleanup",
+        "languages": [
+          "tsx",
+          "jsx",
+          "ts",
+          "js"
+        ],
+        "body": "useEffect(() => {\n  $0\n  return () => {}\n}, [])"
+      },
+      {
+        "prefix": "us",
+        "description": "useState",
+        "languages": [
+          "tsx",
+          "jsx",
+          "ts",
+          "js"
+        ],
+        "body": "const [value, setValue] = useState($0)"
+      },
+      {
+        "prefix": "desc",
+        "description": "Test suite",
+        "languages": [
+          "ts",
+          "tsx",
+          "js",
+          "jsx",
+          "mjs",
+          "cjs"
+        ],
+        "body": "describe('$0', () => {\n  it('works', () => {\n  })\n})"
+      }
+    ]
+  }
+}

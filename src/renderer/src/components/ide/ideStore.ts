@@ -16,7 +16,7 @@ import { useApp } from '../../state/store'
  * their own (`useIde`, and `useAdeDock` in adeDock.ts).
  */
 
-export type SurfaceKind = 'browser' | 'agent' | 'terminal' | 'files' | 'file' | 'diff' | 'pr' | 'linked' | 'device'
+export type SurfaceKind = 'browser' | 'agent' | 'terminal' | 'files' | 'file' | 'diff' | 'pr' | 'linked' | 'device' | 'mod'
 
 /** A tab in the dock. */
 export interface Surface {
@@ -28,6 +28,8 @@ export interface Surface {
   tabId?: string
   /** A terminal's name. */
   title?: string
+  /** A mod's panel: `<mod id>/<panel id>` (renderer state/mods.ts). */
+  mod?: string
 }
 
 /** Kinds there is only ever one of: opening one again goes to it. */
@@ -71,7 +73,7 @@ interface IdeState {
    * the kinds there is one of by kind. A terminal is always a new one.
    * Returns its id.
    */
-  openSurface: (kind: SurfaceKind, extra?: Pick<Surface, 'path' | 'tabId' | 'title'>) => string
+  openSurface: (kind: SurfaceKind, extra?: Pick<Surface, 'path' | 'tabId' | 'title' | 'mod'>) => string
   closeSurface: (id: string) => void
   setActiveSurface: (id: string) => void
   setMaximized: (maximized: boolean) => void
@@ -179,7 +181,9 @@ export function createDock({ surfacesKey, widthKey, root: rootOf, owner }: DockO
           ? surfaces.find((s) => s.kind === 'file' && s.path === extra?.path)
           : kind === 'browser'
             ? surfaces.find((s) => s.kind === 'browser' && s.tabId === extra?.tabId)
-            : SINGLE.has(kind)
+            : kind === 'mod'
+              ? surfaces.find((s) => s.kind === 'mod' && s.mod === extra?.mod)
+              : SINGLE.has(kind)
               ? surfaces.find((s) => s.kind === kind)
               : undefined
       if (existing) {

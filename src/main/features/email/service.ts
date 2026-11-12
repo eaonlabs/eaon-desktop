@@ -12,13 +12,17 @@ import {
   type EmailSignUp,
   type EmailState,
   type EmailStatus,
+  type EmailTriggerRule,
+  type EmailTriggerStatus,
   type CloudflareSetup,
   type CloudflareZoneChoice,
   cleanCloudflareKey,
-  cloudflareKeyKind
+  cloudflareKeyKind,
+  DEFAULT_EMAIL_TRIGGER
 } from '@shared/email'
 import { AgentMailError, type AgentMailClient, type AgentMailDomain, type AgentMailInbox, type AgentMailMessageItem } from './agentmail'
 import { MAIL_WORKER_NAME, MAIL_WORKER_VERSION, type CloudflareMailClient, type CloudflareMailConfig } from './cloudflare'
+import { cleanRule, triggerDecision, whoSent, withinHour } from './trigger'
 
 /**
  * The agent's own email: one inbox the agent reads and sends from, at
@@ -107,6 +111,19 @@ export interface SavedEmail {
    */
   read: string[]
   lastCheckedAt: number | null
+  /** What new mail to a worker's own address does, by worker id. Absent means nothing: off. */
+  triggers: Record<string, EmailTriggerRule>
+  /** Message ids already looked at in a worker's inbox. A worker with none here hasn't been looked at since it was turned on: its first look only records. */
+  triggerSeen: Record<string, string[]>
+  /** When mail last started work for a worker, and what was left alone, so the hourly limit survives a restart. */
+  triggerUse: Record<string, { started: number[]; held: number[]; last: { at: number; label: string; error?: string } | null }>
+}
+
+/** Fresh mail in a worker's inbox that its rule lets start work. */
+export interface IncomingMail {
+  workerId: string
+  message: EmailMessage
+  rule: EmailTriggerRule
 }
 
 export interface EmailServiceDeps {
@@ -119,6 +136,14 @@ export interface EmailServiceDeps {
   save: (saved: SavedEmail) => void
   now?: () => number
   notify?: (notice: EmailNotice) => void
+  /**
+   * Mail that has just arrived at a worker whose rule is on and allows it:
+   * wake the worker, or start an automation. Without it, mail starts nothing.
+   * A throw is kept as the last error of that worker's rule.
+   */
+  onIncoming?: (mail: IncomingMail) => Promise<void> | void
+  /** False for a worker that has been deleted: its rule is dropped. Absent counts every worker as there. */
+  workerExists?: (workerId: string) => boolean
   onChange?: (state: EmailState) => void
   /** Idempotency keys for sends. */
   newId?: () => string
@@ -224,6 +249,7 @@ export class EmailService {
       checkEveryMinutes: s.checkEveryMinutes,
       notifyNew: s.notifyNew,
       lastCheckedAt: on ? s.lastCheckedAt : null,
+      triggers: on ? this.triggerStatuses() : [],
       error: on ? (this.problem?.message ?? null) : null
     }
   }
@@ -531,6 +557,8 @@ export class EmailService {
     )
     const before = this.saved.workerInboxes[id]
     this.saved.workerInboxes = { ...this.saved.workerInboxes, [id]: inbox }
+    // A different inbox: what was seen in the old one says nothing about this one.
+    if (before && before.id !== inbox.id) delete this.saved.triggerSeen[id]
     if (before && before.id !== inbox.id) await this.retireAddress(before)
     this.persist()
     this.emit()
@@ -545,6 +573,7 @@ export class EmailService {
     const rest = { ...this.saved.workerInboxes }
     delete rest[String(workerId)]
     this.saved.workerInboxes = rest
+    this.forgetTrigger(String(workerId))
     this.persist()
     this.emit()
     return this.state()
@@ -553,6 +582,119 @@ export class EmailService {
   /** The address a worker reads and sends as: its own, or Eaon's. */
   addressFor(workerId?: string | null): EmailInbox | null {
     return (workerId ? this.saved.workerInboxes[workerId] : null) ?? this.saved.inbox
+  }
+
+  // — New mail starting work ————————————————————————————————————
+
+  /**
+   * Changes what new mail to this worker's own address does. Off until
+   * turned on, and only for a worker that has an address of its own (mail to
+   * Eaon's address is the user's). Turning it on records what is in the inbox
+   * as already seen, so old mail never starts anything.
+   */
+  async setTrigger(workerId: string, patch: Partial<EmailTriggerRule>): Promise<EmailState> {
+    this.requireKey()
+    const id = String(workerId ?? '').trim()
+    const inbox = this.saved.workerInboxes[id]
+    if (!inbox) throw new Error('Give this worker an address of its own first. Mail to Eaon’s address is yours, not the worker’s.')
+    const before = this.saved.triggers[id] ?? DEFAULT_EMAIL_TRIGGER
+    const rule = cleanRule(patch, before)
+    this.saved.triggers = { ...this.saved.triggers, [id]: rule }
+    if (rule.enabled && !before.enabled) {
+      // What is there now is old: remember it so only mail from here on counts.
+      const items = await this.call((client) => client.listMessages(inbox.id, { limit: RECENT }))
+      this.saved.triggerSeen = { ...this.saved.triggerSeen, [id]: items.map((m) => String(m.message_id)).slice(-SEEN_CAP) }
+    }
+    if (!rule.enabled) delete this.saved.triggerSeen[id]
+    this.persist()
+    this.emit()
+    return this.state()
+  }
+
+  /** The rule and how it has been used, for every worker with an address of its own. */
+  private triggerStatuses(): EmailTriggerStatus[] {
+    const now = this.now()
+    return Object.keys(this.saved.workerInboxes).map((workerId) => {
+      const use = this.saved.triggerUse[workerId]
+      return {
+        workerId,
+        rule: this.saved.triggers[workerId] ?? DEFAULT_EMAIL_TRIGGER,
+        startedLastHour: withinHour(use?.started ?? [], now).length,
+        heldLastHour: withinHour(use?.held ?? [], now).length,
+        last: use?.last ?? null
+      }
+    })
+  }
+
+  private forgetTrigger(workerId: string): void {
+    const { [workerId]: _rule, ...triggers } = this.saved.triggers
+    const { [workerId]: _seen, ...triggerSeen } = this.saved.triggerSeen
+    const { [workerId]: _use, ...triggerUse } = this.saved.triggerUse
+    Object.assign(this.saved, { triggers, triggerSeen, triggerUse })
+  }
+
+  /**
+   * Looks in each turned-on worker's inbox and starts work for mail that
+   * arrived since the last look. A worker's first look only records. A look
+   * that fails for one worker doesn't stop the others.
+   */
+  private async checkTriggers(client: MailClient, generation: number): Promise<void> {
+    if (!this.deps.onIncoming) return
+    const own = new Set([this.saved.inbox?.address, ...Object.values(this.saved.workerInboxes).map((i) => i.address)].filter(Boolean).map((a) => a!.toLowerCase()))
+    for (const [workerId, rule] of Object.entries(this.saved.triggers)) {
+      if (!rule.enabled) continue
+      const inbox = this.saved.workerInboxes[workerId]
+      if (!inbox) continue
+      if (this.deps.workerExists && !this.deps.workerExists(workerId)) {
+        this.forgetTrigger(workerId)
+        continue
+      }
+      let items: AgentMailMessageItem[]
+      try {
+        items = await client.listMessages(inbox.id, { limit: RECENT })
+      } catch (error) {
+        console.error('[email] could not look in', inbox.address, error)
+        continue
+      }
+      if (generation !== this.generation) return
+      const messages = items.map((m) => this.toMessage(m, inbox))
+      const before = this.saved.triggerSeen[workerId]
+      const seen = new Set(before ?? [])
+      // Mail from one of our own addresses is never a request: two workers writing to each other would never stop.
+      const fresh = before === undefined ? [] : messages.filter((m) => !seen.has(m.id) && !m.sent && m.unread && !own.has(addressOf(m.from))).sort((a, b) => a.at - b.at)
+      const next = [...(before ?? [])]
+      for (const m of messages) if (!seen.has(m.id)) next.push(m.id)
+      this.saved.triggerSeen = { ...this.saved.triggerSeen, [workerId]: next.slice(-SEEN_CAP) }
+      this.persist()
+      for (const message of fresh) await this.startFrom(workerId, rule, message)
+    }
+  }
+
+  /** One fresh email: start work for it if the rule allows it and the hour's limit isn't used up. */
+  private async startFrom(workerId: string, rule: EmailTriggerRule, message: EmailMessage): Promise<void> {
+    const now = this.now()
+    const use = this.saved.triggerUse[workerId] ?? { started: [], held: [], last: null }
+    use.started = withinHour(use.started, now)
+    use.held = withinHour(use.held, now)
+    this.saved.triggerUse = { ...this.saved.triggerUse, [workerId]: use }
+    const decision = triggerDecision(rule, addressOf(message.from), use.started, now)
+    if (!decision.run) {
+      if (decision.reason === 'limit') use.held.push(now)
+      this.persist()
+      this.emit()
+      return
+    }
+    use.started.push(now)
+    use.last = { at: now, label: `${message.subject || '(no subject)'}, from ${whoSent(message.from)}` }
+    this.persist()
+    try {
+      await this.deps.onIncoming!({ workerId, message, rule })
+    } catch (error) {
+      use.last = { ...use.last, error: error instanceof Error ? error.message : String(error) }
+      console.error('[email] could not start work for an email:', error)
+    }
+    this.persist()
+    this.emit()
   }
 
   // — Reading ———————————————————————————————————————————————————
@@ -736,6 +878,8 @@ export class EmailService {
       this.recent = recent
       this.unreadIds = new Set([...unreadItems.map((m) => this.toMessage(m)), ...recent].filter((m) => m.unread).map((m) => m.id))
       this.markSeen(recent, announce)
+      await this.checkTriggers(client, generation)
+      if (generation !== this.generation) return
       if (this.saved.provider === 'cloudflare' && this.saved.cloudflare) {
         const cf = this.cloudflare(this.key)
         // Email Sending turned on in the dashboard since the last look: pick it up without "Check again".
@@ -1057,12 +1201,16 @@ function blank(): SavedEmail {
     seen: [],
     seeded: false,
     read: [],
-    lastCheckedAt: null
+    lastCheckedAt: null,
+    triggers: {},
+    triggerSeen: {},
+    triggerUse: {}
   }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [])
+const numbers = (value: unknown): number[] => (Array.isArray(value) ? value.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)).slice(-100) : [])
 const isInbox = (value: unknown): value is EmailInbox => isRecord(value) && typeof value.id === 'string' && typeof value.address === 'string'
 const isCloudflareConfig = (value: unknown): value is CloudflareMailConfig =>
   isRecord(value) &&
@@ -1098,7 +1246,26 @@ function sanitize(raw: unknown): SavedEmail {
     seen: strings(raw.seen).slice(-SEEN_CAP),
     seeded: raw.seeded === true,
     read: strings(raw.read).slice(-READ_CAP),
-    lastCheckedAt: typeof raw.lastCheckedAt === 'number' ? raw.lastCheckedAt : null
+    lastCheckedAt: typeof raw.lastCheckedAt === 'number' ? raw.lastCheckedAt : null,
+    triggers: isRecord(raw.triggers) ? Object.fromEntries(Object.entries(raw.triggers).map(([id, rule]) => [id, cleanRule(rule)])) : {},
+    triggerSeen: isRecord(raw.triggerSeen) ? Object.fromEntries(Object.entries(raw.triggerSeen).map(([id, ids]) => [id, strings(ids).slice(-SEEN_CAP)])) : {},
+    triggerUse: isRecord(raw.triggerUse)
+      ? Object.fromEntries(
+          Object.entries(raw.triggerUse)
+            .filter((entry): entry is [string, Record<string, unknown>] => isRecord(entry[1]))
+            .map(([id, use]) => [
+              id,
+              {
+                started: numbers(use.started),
+                held: numbers(use.held),
+                last:
+                  isRecord(use.last) && typeof use.last.at === 'number' && typeof use.last.label === 'string'
+                    ? { at: use.last.at, label: use.last.label, ...(typeof use.last.error === 'string' ? { error: use.last.error } : {}) }
+                    : null
+              }
+            ])
+        )
+      : {}
   }
 }
 

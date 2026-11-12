@@ -4,6 +4,7 @@ import { formatMoney } from '@shared/payments'
 import { describeSchedule, runReason, type ScheduledTask, type TaskRun } from '@shared/scheduler'
 import { Switch } from '../ui'
 import { formatDuration, formatRelative, formatStamp, formatWhen, STATUS_LABEL } from './format'
+import { HookControl } from './HookControl'
 
 /** One scheduled task: what it does, when it runs next, how the last runs went. */
 
@@ -18,6 +19,7 @@ interface Props {
   onRetry: (task: ScheduledTask, run: TaskRun) => void
   onStop: (task: ScheduledTask) => void
   onOpenChat: (chatId: string) => void
+  onError: (message: string) => void
 }
 
 const MACHINE = navigator.platform.startsWith('Mac') ? 'Mac' : 'computer'
@@ -26,7 +28,10 @@ const TRIGGER_LABEL: Record<TaskRun['trigger'], string> = {
   schedule: 'On schedule',
   manual: 'Run now',
   'catch-up': 'Caught up late',
-  retry: 'Retry'
+  retry: 'Retry',
+  email: 'An email',
+  webhook: 'A webhook call',
+  list: 'A list run'
 }
 
 /** Runs worth running again: they didn't produce a result. */
@@ -34,6 +39,8 @@ const RETRYABLE = new Set<TaskRun['status']>(['failed', 'cancelled', 'missed', '
 
 /** The line under a run: why it ran late or didn't run, else its error or its reply's first line. */
 function runDetail(run: TaskRun): string | undefined {
+  // A failure Eaon will try again (or has given up on) says so before its error.
+  if (run.status === 'failed' && run.retryNote) return run.retryNote
   if (run.status === 'failed' || run.status === 'cancelled') return run.error
   return runReason(run, MACHINE) ?? run.summary ?? run.error
 }
@@ -101,7 +108,21 @@ function RunRow({
         <span className="sched-run__when">{formatStamp(run.slotAt ?? run.startedAt, now)}</span>
         <span className="sched-run__status" data-status={run.status}>
           {STATUS_LABEL[run.status]}
-          {run.trigger === 'manual' ? ' · manual' : run.trigger === 'catch-up' ? ' · caught up' : run.trigger === 'retry' ? ' · retry' : ''}
+          {run.trigger === 'manual'
+            ? ' · manual'
+            : run.trigger === 'catch-up'
+              ? ' · caught up'
+              : run.trigger === 'retry'
+                ? run.attempt !== undefined && run.attempts !== undefined
+                  ? ` · retry ${run.attempt} of ${run.attempts}`
+                  : ' · retry'
+                : run.trigger === 'email'
+                  ? ' · email'
+                  : run.trigger === 'webhook'
+                    ? ' · webhook'
+                    : run.trigger === 'list'
+                      ? ' · list'
+                      : ''}
         </span>
         <span className="sched-run__detail">{detail ?? ''}</span>
         {duration && <span className="sched-run__duration">{duration}</span>}
@@ -133,7 +154,7 @@ function RunRow({
               </>
             )}
             <dt>Started by</dt>
-            <dd>{TRIGGER_LABEL[run.trigger] ?? run.trigger}</dd>
+            <dd>{run.attempt !== undefined && run.attempts !== undefined ? `Retry ${run.attempt} of ${run.attempts}` : run.input ? `${TRIGGER_LABEL[run.trigger] ?? run.trigger}: ${run.input}` : (TRIGGER_LABEL[run.trigger] ?? run.trigger)}</dd>
             {tokens && (
               <>
                 <dt>Tokens</dt>
@@ -163,7 +184,7 @@ function RunRow({
                 Open chat
               </button>
             )}
-            {RETRYABLE.has(run.status) && (
+            {RETRYABLE.has(run.status) && !run.input && (
               <button
                 type="button"
                 className="btn btn--sm"
@@ -205,7 +226,8 @@ export const TaskCard = memo(function TaskCard({
   onRunNow,
   onRetry,
   onStop,
-  onOpenChat
+  onOpenChat,
+  onError
 }: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   // A slot skipped while a run goes on is newer than that run; the run is
@@ -288,6 +310,15 @@ export const TaskCard = memo(function TaskCard({
             )}
           </dd>
         </div>
+        {/* A purchase's orders and an order's tracking run on their own terms; nothing outside starts them. */}
+        {!task.purchase && !task.watch && (
+          <div className="sched-fact">
+            <dt>Webhook</dt>
+            <dd>
+              <HookControl task={task} now={now} onError={onError} />
+            </dd>
+          </div>
+        )}
       </dl>
 
       {task.history.length > 0 && (

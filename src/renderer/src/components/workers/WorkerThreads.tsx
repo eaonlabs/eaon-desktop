@@ -320,6 +320,12 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
                         {run.error ?? run.reason ?? run.result}
                       </div>
                     )}
+                    {/* What Eaon does about a failure (retries it, gives up) comes after the error itself. */}
+                    {run.error && run.reason && (
+                      <div className="worker-run__detail" title={run.reason}>
+                        {run.reason}
+                      </div>
+                    )}
                     <div className="worker-run__actions">
                       {run.messageId && (
                         <button className="btn btn--ghost btn--sm" onClick={() => selectThread(worker.id, run.threadId)}>

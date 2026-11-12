@@ -35,7 +35,7 @@ const TALK = new Set(['web_fetch', 'set_status', 'ask_user', 'notify_user', 'sen
 
 /** The cap for this turn: the weakest a guest's message allows, never above the worker's own access. Null when no guest wrote. */
 export function guestCap(mail: WorkerMail[], access: WorkerAccess): GuestAccess | null {
-  const caps = mail.map((m) => m.channel?.cap).filter((cap): cap is GuestAccess => Boolean(cap && ACCESS_ORDER.includes(cap)))
+  const caps = mail.map((m) => m.channel?.cap ?? m.email?.cap).filter((cap): cap is GuestAccess => Boolean(cap && ACCESS_ORDER.includes(cap)))
   if (caps.length === 0) return null
   return caps.reduce<GuestAccess>((weakest, cap) => weakerAccess(weakest, cap), access)
 }
@@ -62,12 +62,13 @@ export function isPrivateHost(host: string): boolean {
 /**
  * Tools that see what is signed in or on screen: the worker's own browser
  * (features/workers/browser.ts) and the user's Chrome through the extension
- * both carry the user's logins, and computer use sees the user's screen.
+ * both carry the user's logins, computer use sees the user's screen, and
+ * app control reads and operates the user's apps.
  * Their "read-only" actions (a screenshot, reading a tab) are exactly how a
  * guest would read the user's accounts back out, so below "Same as you" a
  * guest's turn can't use them at all.
  */
-const PRIVATE = new Set(['web_browser', 'browser', 'computer'])
+const PRIVATE = new Set(['web_browser', 'browser', 'computer', 'app_control'])
 /** The computer (Cua Driver's desktop_*) and the user's own browser (Browser Use's browser_*), by family. */
 const isPrivate = (name: string): boolean => PRIVATE.has(name) || name.startsWith('desktop_') || name.startsWith('browser_')
 const PRIVATE_REFUSAL =

@@ -1,0 +1,52 @@
+/* Settings → General → Custom instructions, and Settings → Memory. */
+
+.personal {
+  padding: 14px 16px 12px;
+}
+.personal__area {
+  min-height: 120px;
+  font-family: inherit;
+}
+.personal__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.personal__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.memory-add {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px;
+}
+.memory-add .input {
+  flex: 1;
+  min-width: 0;
+}
+.memory-edit {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.memory-edit .input {
+  flex: 1;
+  min-width: 0;
+}
+.memory-error {
+  padding: 0 16px 12px;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+.memory-text {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}

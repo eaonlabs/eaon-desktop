@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.theme-harbor",
+  "name": "Harbor",
+  "category": "themes",
+  "description": "A deep sea-blue app theme in light and dark, with a matching ADE terminal.",
+  "contributes": {
+    "appThemes": [
+      {
+        "name": "Harbor",
+        "light": {
+          "accent": "#1C6CB0",
+          "background": "#F3F6F9",
+          "foreground": "#0F1B26",
+          "contrast": 40
+        },
+        "dark": {
+          "accent": "#6DB6EC",
+          "background": "#122130",
+          "foreground": "#EEF4F9",
+          "contrast": 44
+        }
+      }
+    ],
+    "terminalThemes": [
+      {
+        "id": "harbor",
+        "name": "Harbor",
+        "mode": "dark",
+        "blurb": "Night water under a lighthouse",
+        "scene": "lighthouse",
+        "app": "Harbor",
+        "colors": {
+          "background": "#0E1B27",
+          "foreground": "#D9E5EF",
+          "cursor": "#D9E5EF",
+          "selection": "#5AA9E655",
+          "black": "#1B2B3A",
+          "red": "#E06C75",
+          "green": "#7FC8A9",
+          "yellow": "#E5C07B",
+          "blue": "#5AA9E6",
+          "magenta": "#B48EDB",
+          "cyan": "#5CCFE6",
+          "white": "#C4D3E0",
+          "brightBlack": "#4A6276",
+          "brightRed": "#F08A92",
+          "brightGreen": "#9BE0C3",
+          "brightYellow": "#F2D49B",
+          "brightBlue": "#82C1F2",
+          "brightMagenta": "#CAA8EC",
+          "brightCyan": "#86DFF0",
+          "brightWhite": "#F2F7FB"
+        }
+      }
+    ]
+  }
+}

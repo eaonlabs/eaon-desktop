@@ -8,6 +8,8 @@ import { AppPicker, PluginPicker } from './WorkerApps'
 import { workerAppsEnabled } from '@shared/workerApps'
 import type { WorkerShape } from '@shared/workerLook'
 import { WorkerTradingFields } from './WorkerTradingFields'
+import { limitsOf, WorkerLimitsFields, type LimitsDraft } from './WorkerLimits'
+import { useTradingOn } from '../trading/useTradingOn'
 import { useWorkers } from './workersStore'
 import { WORKER_ACCESS, WORKER_COLORS, WORKER_PERSONALITIES, type WorkerAccess, type WorkerMood, type WorkerTrading } from '@shared/workers'
 import { ENGINE_LABEL, type EngineId, type EngineModels, type EngineStatus } from '@shared/engines'
@@ -65,6 +67,7 @@ function engineNote(status: EngineStatus | undefined, name: string): { text: str
  * it reacts: happy when a name goes in, serious while it is being given a job.
  */
 export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Element {
+  const { on: tradingOn } = useTradingOn()
   const { workers, save, closeEditor, select } = useWorkers(
     useShallow((s) => ({ workers: s.workers, save: s.save, closeEditor: s.closeEditor, select: s.select }))
   )
@@ -89,6 +92,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   // New workers are trusted to act on their own; the catastrophic floor still applies.
   const [access, setAccess] = useState<WorkerAccess>(existing?.access ?? 'autonomous')
   const [trading, setTrading] = useState<WorkerTrading | null>(existing?.trading ?? null)
+  const [limits, setLimits] = useState<LimitsDraft>(() => limitsOf(existing))
   const [focus, setFocus] = useState<'name' | 'purpose' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -126,7 +130,8 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
         engine,
         effort: effort || null,
         access,
-        trading
+        trading,
+        ...limits
       })
       closeEditor()
       if (!existing) select(saved.id)
@@ -293,7 +298,9 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
           </div>
         )}
 
-        <WorkerTradingFields value={trading} onChange={setTrading} access={access} />
+        {tradingOn && <WorkerTradingFields value={trading} onChange={setTrading} access={access} />}
+
+        <WorkerLimitsFields worker={existing} value={limits} onChange={setLimits} />
 
         {error && <div className="msg__error">{error}</div>}
       </div>

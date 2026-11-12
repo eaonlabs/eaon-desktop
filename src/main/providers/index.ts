@@ -128,6 +128,30 @@ export function onModelUsage(listener: UsageListener): () => void {
   return () => usageListeners.delete(listener)
 }
 
+type RequestGate = (provider: Provider, modelId: string) => void
+const requestGates = new Set<RequestGate>()
+
+/**
+ * A check made before every model request Eaon sends to a provider, other
+ * apps' through the Local API Server included. A gate refuses a request by
+ * throwing (a `ProviderIssueError`, so the chat or the app gets its words);
+ * the Usage budget's hard cap is one (features/usage).
+ */
+export function onBeforeModelRequest(gate: RequestGate): () => void {
+  requestGates.add(gate)
+  return () => requestGates.delete(gate)
+}
+
+function gated(adapter: Adapter, provider: Provider): Adapter {
+  return {
+    ...adapter,
+    async turn(request) {
+      for (const gate of requestGates) gate(provider, request.modelId)
+      return adapter.turn(request)
+    }
+  }
+}
+
 function tracked(adapter: Adapter, provider: Provider): Adapter {
   return {
     ...adapter,
@@ -162,6 +186,7 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
   if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
   // Eaon Event's daily allowance, for Eaon's own requests and other apps' through its local server alike.
   if (provider.id === FREE_PROVIDER_ID) adapter = withFreeLimits(adapter)
+  adapter = gated(adapter, provider)
   return options.track === false ? adapter : tracked(adapter, provider)
 }
 

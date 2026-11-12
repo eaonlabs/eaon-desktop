@@ -31,7 +31,7 @@ test('the Anthropic provider offers no sign-in with a Claude account (Claude Age
   const meta = providerMeta('anthropic')
   assert.equal(meta.signInLabel, undefined)
   assert.match(meta.noSignInReason ?? '', /doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits/)
-  assert.match(meta.noSignInReason ?? '', /pick Claude Agent instead: it runs your own Claude Code/, 'and where the plan is used instead')
+  assert.match(meta.noSignInReason ?? '', /pick Claude instead: it runs your own Claude Code/, 'and where the plan is used instead')
   assert.equal(meta.planInAde, 'claude', 'the plan itself is used in Claude Code, as itself')
   const credits = meta.planCredits!
   assert.match(credits.detail, /Max and Team plans include monthly API credits/)

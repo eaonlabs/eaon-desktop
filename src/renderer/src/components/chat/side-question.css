@@ -1,0 +1,83 @@
+/* The side-question card ("/btw", chat/SideQuestion.tsx). It sits just above
+   the composer stack like the "/" and "@" menus, over the conversation's foot,
+   so the box keeps its place and focus while it is open. */
+.side-card {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: calc(100% + 8px);
+  max-height: min(55vh, 440px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: var(--menu-bg);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+  z-index: 21;
+  animation: pop var(--dur-spring-fast) var(--spring-fast);
+  transform-origin: bottom center;
+}
+.side-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.side-card__kind {
+  color: var(--text);
+  font-weight: 600;
+}
+.side-card__note {
+  flex: 1;
+  min-width: 0;
+}
+.side-card__close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.side-card__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.side-card__close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.side-card__question {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.side-card__answer {
+  min-height: 20px;
+  line-height: 1.5;
+}
+.side-card__wait {
+  margin: 0;
+  color: var(--text-3);
+}
+.side-card__error {
+  margin: 0;
+  color: var(--danger);
+}
+.side-card__foot {
+  display: flex;
+  gap: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-card {
+    animation: none;
+  }
+}

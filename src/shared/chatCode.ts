@@ -200,6 +200,41 @@ export interface TurnChanges {
   files: string[]
 }
 
+/**
+ * What replies changed on disk by their checkpoints, however the change was
+ * made: an edit tool, a patch, a shell command, a script the agent ran.
+ */
+export interface CheckpointDiff {
+  /** The replies these files are from: checkpoints on both sides (the running reply's compared with now). */
+  covered: string[]
+  /** Of those, the ones that changed something. */
+  changed: string[]
+  /** A file each, by full path; one changed and put back again isn't here. Hunks only when the patch was asked for. */
+  files: ReviewFile[]
+}
+
+/** `git diff --raw --numstat -z` output as files with their status and line counts (renames are off). Hunks are left empty. */
+export function parseRawNumstat(out: string): ReviewFile[] {
+  const tokens = out.split('\0')
+  const status = new Map<string, ReviewFile['status']>()
+  const files: ReviewFile[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (token.startsWith(':')) {
+      const letter = token.trim().slice(-1)
+      const path = tokens[++i]
+      if (path) status.set(path, letter === 'A' ? 'added' : letter === 'D' ? 'deleted' : 'modified')
+      continue
+    }
+    const row = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(token)
+    if (!row) continue
+    const binary = row[1] === '-'
+    const path = row[3]
+    files.push({ path, oldPath: null, status: status.get(path) ?? 'modified', added: binary ? 0 : Number(row[1]), removed: binary ? 0 : Number(row[2]), binary, hunks: [] })
+  }
+  return files
+}
+
 /** How an undo, redo or rewind went. `conflicts`: files changed since, left alone until confirmed. */
 export type TurnRestore = { ok: true; files: string[] } | { ok: false; error?: string; conflicts?: string[] }
 

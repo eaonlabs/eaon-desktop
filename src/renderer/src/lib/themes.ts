@@ -1,4 +1,4 @@
-import type { ThemePalette } from '@shared/types'
+import type { Settings, ThemePalette } from '@shared/types'
 
 /** The four values a theme writes into settings for one appearance. */
 export type Palette = Pick<ThemePalette, 'accent' | 'background' | 'foreground' | 'contrast'>
@@ -22,7 +22,7 @@ export interface Theme {
    * Neutral themes keep a near-grey canvas and let the accent carry the colour;
    * coloured ones put the hue into the background and every surface mixed from it.
    */
-  group: 'neutral' | 'coloured'
+  group: 'neutral' | 'coloured' | 'mods'
   light: ThemeTone
   dark: ThemeTone
 }
@@ -221,9 +221,52 @@ export const THEMES: Theme[] = [
     dark: { accent: '#F38ABE', background: '#341832', foreground: '#F9E9F7', contrast: 52, textFade: 0.94 }
   },
   {
+    name: 'Slate',
+    group: 'coloured',
+    light: { accent: '#2F66C8', background: '#F2F5F7', foreground: '#1B2429', contrast: 42, textFade: 0.9 },
+    dark: { accent: '#8DB4FF', background: '#3A4246', foreground: '#F1F4F6', contrast: 52, textFade: 0.6 }
+  },
+  {
     name: 'Synthwave',
     group: 'coloured',
     light: { accent: '#D0268C', background: '#FBEEFE', foreground: '#341A62', contrast: 42, textFade: 0.89 },
     dark: { accent: '#F252A6', background: '#261547', foreground: '#FBECFF', contrast: 54, textFade: 0.98 }
   }
 ]
+
+/** App themes the enabled mods add (renderer state/mods.ts), listed after Eaon's own. */
+let modThemes: Theme[] = []
+
+export function setModThemes(themes: Theme[]): void {
+  modThemes = themes
+}
+
+/** Every app theme: Eaon's, then the mods'. Read when drawing, so a mod turned on shows on the next render. */
+export function allThemes(): Theme[] {
+  return modThemes.length ? [...THEMES, ...modThemes.filter((t) => !THEMES.some((own) => own.name === t.name))] : THEMES
+}
+
+/**
+ * Choosing a theme or mode takes the app back from the ADE's terminal theme,
+ * which restyles the app while it is picked: the terminals go back to
+ * following the app (`eaon`), so the two never disagree.
+ */
+export function releaseAde(settings: Settings | null): Partial<Settings> {
+  if (!settings || settings.ade.theme === 'eaon') return {}
+  return { ade: { ...settings.ade, theme: 'eaon', appBefore: null } }
+}
+
+/**
+ * What picking `theme` writes to the settings. Both appearances move
+ * together, so switching Light/Dark never drops you into a different theme.
+ * `textFade` belongs to the theme, not the stored palette (`useTheme()` looks
+ * it up by preset name).
+ */
+export function themePatch(theme: Theme, settings: Settings | null): Omit<Partial<Settings>, 'appearance'> & { appearance: { light: Partial<ThemePalette>; dark: Partial<ThemePalette> } } {
+  const { textFade: _lightFade, ...light } = theme.light
+  const { textFade: _darkFade, ...dark } = theme.dark
+  return {
+    appearance: { light: { preset: theme.name, ...light }, dark: { preset: theme.name, ...dark } },
+    ...releaseAde(settings)
+  }
+}

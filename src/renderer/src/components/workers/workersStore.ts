@@ -71,6 +71,8 @@ interface WorkersState {
   appsFor: string | null
   /** The password vault's page is open instead of the team. */
   vaultOpen: boolean
+  /** The dialog that imports a worker from a setup file. */
+  importOpen: boolean
 
   init: () => Promise<void>
   select: (id: string | null) => void
@@ -110,6 +112,9 @@ interface WorkersState {
   setCreating: (open: boolean) => void
   setAppsFor: (workerId: string | null) => void
   setVaultOpen: (open: boolean) => void
+  setImportOpen: (open: boolean) => void
+  /** Makes a copy of a worker and opens it. */
+  duplicate: (id: string) => Promise<Worker>
 }
 
 let bound = false
@@ -142,6 +147,7 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   creating: false,
   appsFor: null,
   vaultOpen: false,
+  importOpen: false,
 
   init() {
     if (get().ready) return Promise.resolve()
@@ -256,6 +262,15 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   },
   setVaultOpen(open) {
     set({ vaultOpen: open, ...(open ? { selectedId: null, selectedRoomId: null, creating: false } : {}) })
+  },
+  setImportOpen(open) {
+    set({ importOpen: open })
+  },
+  async duplicate(id) {
+    const worker = await window.api.workers.duplicate(id)
+    set((s) => ({ workers: s.workers.some((w) => w.id === worker.id) ? s.workers : [...s.workers, worker] }))
+    get().select(worker.id)
+    return worker
   },
   async loadLists() {
     if (!workerAppsEnabled()) return

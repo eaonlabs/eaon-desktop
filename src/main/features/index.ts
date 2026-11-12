@@ -1,6 +1,7 @@
 import { browserUseFeature } from './browserUse'
 import { inAppBrowserFeature } from './inAppBrowser'
 import { computerUseFeature } from './computerUse'
+import { appControlFeature } from './appControl'
 import { discordPresenceFeature } from './discordPresence'
 import { eaonCodeFeature } from './eaonCode'
 import { schedulerFeature } from './scheduler'
@@ -12,10 +13,13 @@ import { chatCodeFeature } from './chatCode'
 import { wallpaperFeature } from './wallpaper'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
+import { adeToolsFeature } from './adeTools'
 import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
+import { trackersFeature } from './trackers'
 import { workersFeature } from './workers'
 import { workerHostFeature } from './workerHost'
+import { vmsFeature } from './vms'
 import { remoteFeature } from './remote'
 import { rcFeature } from './rc'
 import { controlFeature } from './control'
@@ -35,11 +39,22 @@ import { agentProvidersFeature } from './agentProviders'
 import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
+import { importAppsFeature } from './importApps'
 import { providerLogosFeature } from './providerLogos'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
 import { enterpriseFeature } from './enterprise'
+import { modsFeature } from './mods'
+import { gitAssistFeature } from './gitAssist'
+import { searchReplaceFeature } from './searchReplace'
+import { gitHistoryFeature } from './gitHistory'
+import { personalizeFeature } from './personalize'
+import { chatExportFeature } from './chatExport'
+import { savedPromptsFeature } from './savedPrompts'
+import { chatContextFeature } from './chatContext'
+import { sideQuestionFeature } from './sideQuestion'
+import { mcpToolsFeature } from './mcpTools'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -50,9 +65,16 @@ export const FEATURES: Feature[] = [
   // Agent engines (Codex…) before workers, which run turns on them.
   enginesFeature,
   pluginsFeature,
+  // Mods' tools and instructions, read by the agent loop; their CLI parts, by the terminals below.
+  modsFeature,
+  // Custom instructions and memory for Chat; its `remember` tool is offered to the loop like the mods' tools.
+  personalizeFeature,
+  chatExportFeature,
+  savedPromptsFeature,
   modelLibraryFeature,
   skillsFeature,
   computerUseFeature,
+  appControlFeature,
   browserUseFeature,
   inAppBrowserFeature,
   schedulerFeature,
@@ -63,14 +85,18 @@ export const FEATURES: Feature[] = [
   wallpaperFeature,
   terminalsFeature,
   adeFeature,
+  adeToolsFeature,
   // Make ADE sessions, so after it.
   prReviewFeature,
   linearFeature,
+  trackersFeature,
   workersFeature,
   // Built on the workers engine, so after it; before the worker computer, which may move them with the workers.
   channelsFeature,
   // Decides where the workers run (here, or on a linked worker computer) before anything else uses them.
   workerHostFeature,
+  // After the worker computer's link, which it reaches that computer's VMs through.
+  vmsFeature,
   // Follows the workers engine, so right after it.
   remoteFeature,
   // After workers, terminals and the ADE, whose parts it serves.
@@ -88,11 +114,20 @@ export const FEATURES: Feature[] = [
   gatewayFeature,
   connectAppsFeature,
   linkAccountsFeature,
+  importAppsFeature,
   providerLogosFeature,
   usageFeature,
   starRepoFeature,
   toknCliFeature,
   freeCreditsFeature,
   cliAccountsFeature,
-  discordPresenceFeature
+  discordPresenceFeature,
+  // After the ADE, whose sessions' folders it may work in.
+  gitAssistFeature,
+  searchReplaceFeature,
+  gitHistoryFeature,
+  // What Chat's message box pulls in (git, terminals, rules files, prompt commands); reads the chat folders the dock may.
+  chatContextFeature,
+  sideQuestionFeature,
+  mcpToolsFeature
 ]

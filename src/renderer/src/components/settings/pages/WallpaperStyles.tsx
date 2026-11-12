@@ -14,8 +14,12 @@ import { useLightTheme, washOf } from '../../SeeThrough'
 const W = 232
 const H = 145
 
-/** What the previews are drawn from: the picture behind the window, or the chosen video's frame. */
-function usePreviewSource(video: string | null): Paint | null {
+/**
+ * What the previews are drawn from: the picture behind the window, or the chosen video's frame.
+ * `source` names which picture that is (the desktop's, or the copy Eaon holds of a chosen one),
+ * so choosing another while this page is open draws them again.
+ */
+function usePreviewSource(video: string | null, source: string): Paint | null {
   const [paint, setPaint] = useState<Paint | null>(null)
   useEffect(() => {
     let live = true
@@ -58,7 +62,7 @@ function usePreviewSource(video: string | null): Paint | null {
     return () => {
       live = false
     }
-  }, [video])
+  }, [video, source])
   return paint
 }
 
@@ -78,14 +82,17 @@ export function WallpaperStyles({
   value,
   tint,
   video,
+  source,
   onChange
 }: {
   value: SeeThroughStyle
   tint: number
   video: string | null
+  /** 'desktop', or the chosen picture's path: a change redraws the previews. */
+  source: string
   onChange: (style: SeeThroughStyle) => void
 }): JSX.Element {
-  const paint = usePreviewSource(video)
+  const paint = usePreviewSource(video, source)
   const light = useLightTheme()
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
   const wash = washOf(tint, light)

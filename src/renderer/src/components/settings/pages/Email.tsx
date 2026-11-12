@@ -14,6 +14,7 @@ import type { Worker } from '@shared/workers'
 import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
 import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { notify } from '../../Notice'
+import { MailTriggers } from './EmailTriggers'
 
 /**
  * Settings → Workers → Email: the agent's own address. Either on the user's own domain,
@@ -100,6 +101,7 @@ export function EmailPage(): JSX.Element {
           {state.status !== 'verifying' && <InboxPreview state={state} run={run} />}
           <Domains state={state} run={run} busy={busy} apply={setState} />
           {state.status === 'ready' && <WorkerAddresses state={state} run={run} busy={busy} />}
+          {state.status === 'ready' && <MailTriggers state={state} run={run} busy={busy} />}
           <Options state={state} run={run} />
         </>
       )}

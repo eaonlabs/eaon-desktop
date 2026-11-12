@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.plain-answers",
+  "name": "Plain answers",
+  "category": "instructions",
+  "description": "Chat leads with the answer, keeps it short, and skips filler and closing offers.",
+  "contributes": {
+    "instructions": "Answer in plain language. Lead with the answer, then the reasons. Keep replies short unless I ask for detail. Don't restate my question, and don't end with an offer to help further."
+  }
+}

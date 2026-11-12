@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.planning-commands",
+  "name": "Planning commands",
+  "category": "commands",
+  "description": "Slash commands for thinking things through: plans, pros and cons, decisions, checklists and meeting notes.",
+  "contributes": {
+    "commands": [
+      {
+        "name": "plan",
+        "description": "Turn a goal into steps",
+        "prompt": "Turn the goal below into a short plan: numbered steps, each one something I can do in a sitting, with what has to happen first marked clearly.\n\nGoal:\n"
+      },
+      {
+        "name": "pros-cons",
+        "description": "Weigh the options",
+        "prompt": "Lay out the pros and cons of each option below in a table, then say which you'd pick and the one thing that would change your mind.\n\nOptions:\n"
+      },
+      {
+        "name": "decide",
+        "description": "Make a decision with me",
+        "prompt": "Help me make this decision. Ask me up to three questions first, one at a time, then recommend an option and say why.\n\nThe decision:\n"
+      },
+      {
+        "name": "checklist",
+        "description": "A checklist for a task",
+        "prompt": "Write a checklist for the task below: the steps in order, what to have ready before starting, and the easy-to-forget parts at the end.\n\nTask:\n"
+      },
+      {
+        "name": "meeting-notes",
+        "description": "Notes into decisions and actions",
+        "prompt": "Turn the notes below into: decisions made, action items (who, what, by when), and open questions. Leave out small talk.\n\nNotes:\n"
+      }
+    ]
+  }
+}

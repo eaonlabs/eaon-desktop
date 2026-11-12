@@ -10,6 +10,7 @@ import { editRequest, indentOf, languageName, lineRef, selectionSnippet } from '
 import { gutterMarks } from '../gitGutter'
 import { isDirty, type IdeTab, type Surface } from '../ideStore'
 import { FilesView } from './FilesView'
+import { BlameItem, FileHistoryButton } from './FileHistory'
 
 /**
  * A file in a tab of its own, laid out as an editor: the project's files on
@@ -19,7 +20,9 @@ import { FilesView } from './FilesView'
  * disk under unsaved edits asks which to keep. Lines changed since the last
  * commit are marked in the gutter. The agent is a keystroke away: ⌘L adds
  * the selection to what the user is writing, ⌘K asks for a change to it,
- * and a line's number, clicked, puts the line there.
+ * and a line's number, clicked, puts the line there. In a repository, History
+ * lists the file's commits and the status bar names who last changed the
+ * caret's line (FileHistory.tsx).
  */
 
 const WRAP_KEY = 'eaon.dock.wrap'
@@ -154,11 +157,12 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
             >
               <WrapText size={15} strokeWidth={1.8} />
             </button>
+            <FileHistoryButton path={path} rel={rel} />
             <OpenInButton icon file={path} folder={place.folder} />
           </div>
         </div>
         <div className="file-surface__body">{tab ? <TabBody tab={tab} wrap={wrap} rel={rel} onCaret={setCaret} /> : <div className="file-surface__loading" />}</div>
-        {tab?.kind === 'text' && <StatusBar tab={tab} caret={caret} />}
+        {tab?.kind === 'text' && <StatusBar tab={tab} caret={caret} rel={rel} />}
       </div>
     </div>
   )
@@ -256,7 +260,7 @@ function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel:
 }
 
 /** Under the editor: where the caret is and what is selected, then the language, the indent, the line ending and the branch. */
-function StatusBar({ tab, caret }: { tab: IdeTab; caret: EditorCaret }): JSX.Element {
+function StatusBar({ tab, caret, rel }: { tab: IdeTab; caret: EditorCaret; rel: string }): JSX.Element {
   const { status } = useDockPlace()
   const indent = useMemo(() => indentOf(tab.saved), [tab.saved])
   const branch = status?.branch ?? status?.detached ?? null
@@ -271,6 +275,7 @@ function StatusBar({ tab, caret }: { tab: IdeTab; caret: EditorCaret }): JSX.Ele
           </span>
         ) : null}
       </span>
+      <BlameItem path={tab.path} rel={rel} line={caret.line} ready={!isDirty(tab)} version={tab.modified} />
       <span className="file-status__spacer" />
       {indent && <span className="file-status__item">{indent}</span>}
       <span className="file-status__item">{(tab.eol ?? '\n') === '\r\n' ? 'CRLF' : 'LF'}</span>

@@ -700,6 +700,824 @@ const fireworks: Paint = (g, w, h, t, c, rnd) => {
   }
 }
 
+/* ------------------------------------------------------------ more helpers */
+
+/** An ellipse's outline. */
+function ring(g: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, color: string, step = 0.12): void {
+  for (let a = 0; a < Math.PI * 2; a += step) dot(g, cx + Math.cos(a) * rx, cy + Math.sin(a) * ry, color)
+}
+
+/** A filled ellipse. */
+function oval(g: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, color: string): void {
+  g.fillStyle = color
+  const rows = Math.max(1, Math.round(ry))
+  for (let y = -rows; y <= rows; y++) {
+    const half = Math.round(rx * Math.sqrt(Math.max(0, 1 - (y * y) / (rows * rows))))
+    g.fillRect(Math.round(cx - half), Math.round(cy + y), half * 2 + 1, 1)
+  }
+}
+
+/** Twinkling stars over the top `share` of the scene. */
+function starfield(g: CanvasRenderingContext2D, w: number, h: number, t: number, c: TerminalColors, rnd: () => number, share = 0.55, density = 0.003): void {
+  for (let i = 0; i < w * h * density; i++) dot(g, rnd() * w, rnd() * h * share, tone(c, c.foreground, 0.08 + 0.22 * ((Math.sin(t * (0.6 + (i % 5) * 0.3) + i) + 1) / 2)))
+}
+
+/** A bird far off, its wings going up and down. */
+function bird(g: CanvasRenderingContext2D, x: number, y: number, t: number, i: number, color: string): void {
+  const flap = Math.sin(t * 6 + i) > 0 ? 1 : 0
+  dot(g, x - 2, y - flap, color)
+  dot(g, x - 1, y - 1 + flap, color)
+  dot(g, x, y, color)
+  dot(g, x + 1, y - 1 + flap, color)
+  dot(g, x + 2, y - flap, color)
+}
+
+type Pt = [number, number]
+
+/** Every pixel along a path of straight and 45° runs. */
+function walk(path: Pt[], visit: (x: number, y: number) => void): void {
+  for (let i = 1; i < path.length; i++) {
+    const [x0, y0] = path[i - 1]
+    const [x1, y1] = path[i]
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))
+    for (let s = 0; s < steps; s++) visit(x0 + ((x1 - x0) * s) / steps, y0 + ((y1 - y0) * s) / steps)
+  }
+}
+
+/** The point `d` pixels along a path. */
+function along(path: Pt[], d: number): Pt {
+  for (let i = 1; i < path.length; i++) {
+    const [x0, y0] = path[i - 1]
+    const [x1, y1] = path[i]
+    const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))
+    if (d <= steps) return [x0 + ((x1 - x0) * d) / steps, y0 + ((y1 - y0) * d) / steps]
+    d -= steps
+  }
+  return path[path.length - 1]
+}
+
+const lengthOf = (path: Pt[]): number => path.slice(1).reduce((sum, [x, y], i) => sum + Math.max(Math.abs(x - path[i][0]), Math.abs(y - path[i][1])), 0)
+
+/* -------------------------------------------------------------- more scenes */
+
+const blackhole: Paint = (g, w, h, t, c, rnd) => {
+  const cx = w * 0.7
+  const cy = h * 0.4
+  const r = Math.max(6, Math.round(h * 0.1))
+  // Stars wheeling slowly round the hole, the nearer ones faster.
+  for (let i = 0; i < w * h * 0.003; i++) {
+    const d = r * 3 + rnd() * w
+    const a = rnd() * Math.PI * 2 + t * (0.01 + 1.2 / d)
+    const x = cx + Math.cos(a) * d
+    const y = cy + Math.sin(a) * d * 0.6
+    if (x >= 0 && x < w && y >= 0 && y < h) dot(g, x, y, tone(c, c.foreground, 0.08 + 0.24 * ((Math.sin(t * 1.3 + i) + 1) / 2)))
+  }
+  // The disk: rings of gas, hot and quick near the hole, cooler and slower
+  // further out, with brighter streaks swirling round.
+  const disk = (front: boolean): void => {
+    for (let k = 0; k < 9; k++) {
+      const band = k / 8
+      const rx = r * (1.5 + band * 2.4)
+      const color = band < 0.35 ? c.yellow : band < 0.7 ? c.red : c.magenta
+      for (let a = 0; a < Math.PI * 2; a += 0.7 / rx) {
+        const s = Math.sin(a)
+        if (front !== s > 0) continue
+        const streak = (Math.sin(a * 4 - t * (2.2 - band * 1.4) + k * 1.3) + 1) / 2
+        dot(g, cx + Math.cos(a) * rx, cy + s * rx * 0.2, tone(c, color, (0.12 + 0.45 * (1 - band)) * (0.45 + 0.55 * streak)))
+      }
+    }
+  }
+  disk(false)
+  // The far side of the disk, bent up over the top of the hole.
+  for (let a = Math.PI; a <= Math.PI * 2; a += 0.04) dot(g, cx + Math.cos(a) * r * 1.5, cy + Math.sin(a) * r * 1.35, tone(c, c.yellow, 0.28))
+  disc(g, cx, cy, r + 1, tone(c, c.yellow, 0.6))
+  disc(g, cx, cy, r, mix(c.background, '#000000', 0.75))
+  disk(true)
+}
+
+const circuit: Paint = (g, w, h, t, c, rnd) => {
+  const top = Math.round(h * 0.46)
+  // Traces: straight runs with the odd 45° jog.
+  const traces: Pt[][] = []
+  for (let y0 = top + 2; y0 < h - 1; y0 += 4 + Math.floor(rnd() * 3)) {
+    let x = -Math.floor(rnd() * 30)
+    let y = y0
+    const path: Pt[] = [[x, y]]
+    while (x < w + 2) {
+      x += 6 + Math.floor(rnd() * 28)
+      path.push([x, y])
+      const jog = rnd() < 0.45 ? (rnd() < 0.5 ? -1 : 1) * (2 + Math.floor(rnd() * 3)) : 0
+      if (jog && y + jog > top && y + jog < h - 1) {
+        x += Math.abs(jog)
+        y += jog
+        path.push([x, y])
+      }
+    }
+    traces.push(path)
+  }
+  const copper = tone(c, c.green, 0.2)
+  for (const path of traces) walk(path, (x, y) => dot(g, x, y, copper))
+  // Vias where a trace turns.
+  for (const path of traces) {
+    for (const [x, y] of path.slice(1, -1)) {
+      if (seeded(x * 31 + y * 7)() < 0.72) continue
+      dot(g, x - 1, y - 1, tone(c, c.yellow, 0.3), 3, 3)
+      g.clearRect(x, y, 1, 1)
+    }
+  }
+  // Chips sitting on the traces.
+  for (let x = 14 + rnd() * 30; x < w - 16; x += 60 + rnd() * 80) {
+    const cw = 12 + Math.floor(rnd() * 10)
+    const ch = 6 + Math.floor(rnd() * 3)
+    const y = Math.round(top + 2 + rnd() * Math.max(1, h - top - ch - 4))
+    for (let px = 1; px < cw - 1; px += 2) {
+      dot(g, x + px, y - 1, tone(c, c.foreground, 0.28))
+      dot(g, x + px, y + ch, tone(c, c.foreground, 0.28))
+    }
+    dot(g, x, y, into(c, 0.45), cw, ch)
+    dot(g, x + 1, y + 1, tone(c, c.foreground, 0.3))
+  }
+  // Signals racing along, each with a fading tail.
+  traces.forEach((path, i) => {
+    const length = lengthOf(path)
+    const pick = seeded(i * 97 + 5)
+    const color = pick() < 0.5 ? c.cyan : c.green
+    const speed = 16 + pick() * 22
+    for (let k = 0; k < 2; k++) {
+      const head = (t * speed + pick() * length) % (length + 40)
+      for (let tail = 0; tail < 8; tail++) {
+        const d = head - tail
+        if (d < 0 || d > length) continue
+        const [x, y] = along(path, d)
+        dot(g, x, y, tone(c, color, 0.85 * (1 - tail / 8)))
+      }
+    }
+  })
+}
+
+const koi: Paint = (g, w, h, t, c, rnd) => {
+  // Koi circling, under everything else on the water: a plump body that
+  // tapers to a forked tail, and the tail swishing.
+  const orange = mix(c.red, c.yellow, 0.4)
+  for (let i = 0; i < 5; i++) {
+    const cx = w * (0.15 + rnd() * 0.7)
+    const cy = h * (0.45 + rnd() * 0.3)
+    const rx = 18 + rnd() * w * 0.18
+    const ry = 6 + rnd() * h * 0.14
+    const dir = rnd() < 0.5 ? -1 : 1
+    const speed = (0.3 + rnd() * 0.25) * dir
+    const body = i % 3 === 0 ? orange : i % 3 === 1 ? c.yellow : c.foreground
+    const at = (k: number): Pt => {
+      const a = t * speed + i * 1.9 - k * dir * (1.4 / rx)
+      const swish = k > 6 ? Math.sin(t * 5 + i) * (k - 6) * 0.25 : 0
+      return [cx + Math.cos(a) * rx + swish, cy + Math.sin(a) * ry + swish]
+    }
+    for (let k = 11; k >= 0; k--) {
+      const [x, y] = at(k)
+      const size = k <= 2 ? 4 : k <= 5 ? 3 : k <= 8 ? 2 : 1
+      dot(g, x - size / 2, y - size / 2, tone(c, body, 0.68 - k * 0.02), size, size)
+      // The white ones have red patches.
+      if (i % 3 === 2 && (k === 1 || k === 5)) dot(g, x - 0.5, y - 0.5, tone(c, c.red, 0.6), 2, 2)
+    }
+    // The tail fin, across the way it swims.
+    const [tx, ty] = at(12)
+    const [px, py] = at(11)
+    const len = Math.hypot(tx - px, ty - py) || 1
+    for (const side of [-1, 1]) dot(g, tx + (side * -(ty - py) / len) * 1.5, ty + (side * (tx - px) / len) * 1.5, tone(c, body, 0.45))
+  }
+  // Lily pads bobbing, each with its notch, and a flower on some.
+  for (let i = 0; i < Math.max(5, Math.floor(w / 35)); i++) {
+    const x = rnd() * w
+    const y = h * (0.3 + rnd() * 0.65) + Math.sin(t * 0.5 + i) * 0.6
+    const r = 5 + Math.floor(rnd() * 5)
+    oval(g, x, y, r, r * 0.7, tone(c, c.green, 0.3))
+    // A narrow notch, pointing whichever way the pad has turned.
+    const facing = rnd() * Math.PI * 2
+    g.globalCompositeOperation = 'destination-out'
+    for (let d = 0; d <= r; d++) {
+      for (let s = -d * 0.07; s <= d * 0.07; s += 0.5) {
+        g.fillRect(Math.round(x + Math.cos(facing) * d - Math.sin(facing) * s), Math.round(y + (Math.sin(facing) * d + Math.cos(facing) * s) * 0.7), 1, 1)
+      }
+    }
+    g.globalCompositeOperation = 'source-over'
+    if (rnd() > 0.6) {
+      dot(g, x - 2, y - 2, tone(c, c.magenta, 0.65), 3, 2)
+      dot(g, x - 1, y - 3, tone(c, c.magenta, 0.8))
+    }
+  }
+  // Ripples spreading where something touched the water.
+  for (let i = 0; i < 4; i++) {
+    const length = 4 + i * 0.9
+    const at = t + i * 1.7
+    const pick = seeded(Math.floor(at / length) * 53 + i * 11)
+    const p = (at % length) / length
+    const r = 2 + p * 16
+    ring(g, pick() * w, h * (0.3 + pick() * 0.6), r, r * 0.45, tone(c, c.foreground, 0.2 * (1 - p)), 0.08)
+  }
+}
+
+const train: Paint = (g, w, h, t, c, rnd) => {
+  starfield(g, w, h, t, c, rnd, 0.5, 0.002)
+  moon(g, w * 0.78, h * 0.2, 5, c)
+  fillBelow(g, w, h, (x) => h * 0.58 - Math.sin(x * 0.015 + 1) * 7 - Math.sin(x * 0.05) * 2, into(c, 0.14))
+  // The viaduct: a deck on stone arches, a river below.
+  const deck = Math.round(h * 0.72)
+  g.fillStyle = into(c, 0.3)
+  g.fillRect(0, deck, w, 2)
+  for (let x = -6; x < w + 16; x += 16) {
+    g.fillRect(x, deck + 2, 3, h - deck - 2)
+    for (let k = 0; k < 13; k++) {
+      const u = (k - 6) / 6.5
+      g.fillRect(x + 3 + k, deck + 2, 1, 1 + Math.round(5 * (1 - Math.sqrt(Math.max(0, 1 - u * u)))))
+    }
+  }
+  fillBelow(g, w, h, (x) => h - 4 + Math.sin(x * 0.1 + t) * 0.8, tone(c, c.blue, 0.14))
+  // The train: lit carriages, then the engine and its headlight.
+  const cars = 5
+  const carW = 14
+  const long = cars * (carW + 1) + 12
+  const tx = ((t * 20) % (w + long + 80)) - long
+  const body = into(c, 0.5)
+  for (let i = 0; i < cars; i++) {
+    const x = Math.round(tx + i * (carW + 1))
+    dot(g, x, deck - 6, body, carW, 5)
+    for (let wx = x + 2; wx < x + carW - 2; wx += 3) dot(g, wx, deck - 5, tone(c, c.yellow, 0.6), 2, 2)
+    dot(g, x + 2, deck - 1, body, 2, 1)
+    dot(g, x + carW - 4, deck - 1, body, 2, 1)
+  }
+  const lx = Math.round(tx + cars * (carW + 1))
+  dot(g, lx, deck - 7, body, 10, 6)
+  dot(g, lx + 10, deck - 5, body, 2, 4)
+  dot(g, lx + 2, deck - 6, tone(c, c.yellow, 0.5), 2, 2)
+  dot(g, lx + 11, deck - 4, tone(c, c.yellow, 0.9))
+  for (let d = 1; d < 30; d++) dot(g, lx + 12 + d, deck - 4 - d * 0.08, tone(c, c.yellow, 0.22 * (1 - d / 30)), 1, 1 + Math.floor(d / 8))
+}
+
+const storm: Paint = (g, w, h, t, c, rnd) => {
+  // One strike every few seconds, and the sky flickering with it.
+  const cycle = 6
+  const pick = seeded(Math.floor(t / cycle) * 131 + 7)
+  const since = (t % cycle) - (1 + pick() * 3.5)
+  const lit = since >= 0 && since < 0.45
+  const flash = lit ? (since < 0.06 || (since > 0.14 && since < 0.2) ? 1 : 0.3) * (1 - since / 0.45) : 0
+  if (flash > 0) {
+    g.fillStyle = tone(c, c.foreground, 0.07 * flash)
+    g.fillRect(0, 0, w, h)
+  }
+  // Heavy clouds with a scalloped underside, lit from below by the flashes.
+  const base = (x: number): number => h * 0.22 + Math.sin(x * 0.045 + t * 0.12) * 3 + Math.sin(x * 0.11 - t * 0.2) * 2 + Math.abs(Math.sin(x * 0.09 + t * 0.1)) * 4
+  g.fillStyle = tone(c, c.foreground, 0.07 + 0.08 * flash)
+  for (let x = 0; x < w; x++) g.fillRect(x, 0, 1, Math.round(base(x)))
+  for (let x = 0; x < w; x++) dot(g, x, base(x), tone(c, c.foreground, 0.12 + 0.3 * flash), 1, 2)
+  const ground = (x: number): number => h * 0.8 - Math.sin(x * 0.02 + 0.5) * 5
+  if (lit && since < 0.3) {
+    let x = w * (0.2 + pick() * 0.6)
+    let y = base(x)
+    while (y < ground(x)) {
+      const nx = x + (pick() - 0.5) * 6
+      const ny = y + 2 + pick() * 4
+      const branch = pick() > 0.85
+      const steps = Math.ceil(Math.max(Math.abs(nx - x), ny - y))
+      for (let s = 0; s <= steps; s++) dot(g, x + ((nx - x) * s) / steps, y + ((ny - y) * s) / steps, tone(c, c.yellow, 0.9))
+      if (branch) for (let s = 1; s < 6; s++) dot(g, nx + s * (pick() > 0.5 ? 1 : -1), ny + s, tone(c, c.yellow, 0.5))
+      x = nx
+      y = ny
+    }
+  }
+  // Rain, slanting a little.
+  for (let i = 0; i < w * h * 0.005; i++) {
+    const speed = 55 + rnd() * 25
+    const y = ((rnd() * h + t * speed) % (h + 6)) - 3
+    const x = (((rnd() * w - y * 0.3) % w) + w) % w
+    dot(g, x, y, tone(c, c.blue, 0.28), 1, 3)
+  }
+  fillBelow(g, w, h, ground, into(c, 0.28))
+  // A bare tree on the hill.
+  const tx = Math.round(w * 0.76)
+  const ty = Math.round(ground(tx))
+  const wood = into(c, 0.4)
+  dot(g, tx, ty - 9, wood, 2, 9)
+  for (let k = 1; k < 5; k++) {
+    dot(g, tx - k, ty - 7 - k, wood)
+    dot(g, tx + 1 + k, ty - 6 - k, wood)
+  }
+}
+
+const ufo: Paint = (g, w, h, t, c, rnd) => {
+  starfield(g, w, h, t, c, rnd, 0.6)
+  const ground = (x: number): number => h * 0.8 + Math.sin(x * 0.03) * 2
+  fillBelow(g, w, h, ground, into(c, 0.22))
+  for (let y = Math.round(h * 0.86); y < h; y += 3) for (let x = y % 2; x < w; x += 2) dot(g, x, y, into(c, 0.3))
+  // A barn, its window lit.
+  const bx = Math.round(w * 0.14)
+  const by = Math.round(ground(bx + 6))
+  const barn = tone(c, c.red, 0.3)
+  dot(g, bx, by - 8, barn, 12, 8)
+  for (let k = 0; k < 5; k++) dot(g, bx - 1 + k, by - 9 - k, barn, 14 - k * 2, 1)
+  dot(g, bx + 4, by - 5, into(c, 0.4), 4, 5)
+  dot(g, bx + 5, by - 11, tone(c, c.yellow, 0.55), 2, 2)
+  // Every so often the saucer finds a cow, beams it up, and drops it.
+  // Offset so the still frame (reduced motion) catches the cow halfway up.
+  const cycle = 10
+  const p = ((t + 3) % cycle) / cycle
+  const cowX = Math.round(w * (0.5 + 0.2 * Math.sin(Math.floor((t + 3) / cycle) * 1.7)))
+  const ux = cowX + Math.sin(t * 0.8) * 2
+  const uy = h * 0.32 + Math.sin(t * 1.3) * 1.5
+  const floor = Math.round(ground(cowX)) - 1
+  const beam = p > 0.15 && p < 0.85 ? Math.min(1, (p - 0.15) * 12, (0.85 - p) * 12) : 0
+  // The beam: a glowing cone with bright edges and sparkles drifting up it.
+  if (beam > 0) {
+    for (let y = Math.round(uy + 3); y <= floor; y++) {
+      const half = 2 + ((y - uy) / (floor - uy)) * 9
+      dot(g, ux - half, y, tone(c, c.green, 0.2 * beam), half * 2, 1)
+      dot(g, ux - half, y, tone(c, c.green, 0.4 * beam))
+      dot(g, ux + half - 1, y, tone(c, c.green, 0.4 * beam))
+    }
+    for (let k = 0; k < 8; k++) {
+      const u = (seeded(k * 17)() + t * 0.5) % 1
+      const y = floor - u * (floor - uy - 3)
+      const half = 2 + ((y - uy) / (floor - uy)) * 9
+      dot(g, ux + (seeded(k * 29)() - 0.5) * half * 1.6, y, tone(c, c.green, 0.7 * beam))
+    }
+  }
+  const ease = (u: number): number => u * u * (3 - 2 * u)
+  const lift = p < 0.25 ? 0 : p < 0.7 ? 0.8 * ease((p - 0.25) / 0.45) : p < 0.78 ? 0.8 * (1 - ((p - 0.7) / 0.08) ** 2) : 0
+  const cy = Math.round(floor - lift * (floor - uy - 8))
+  const hide = tone(c, c.foreground, 0.6)
+  const kick = lift > 0 && Math.sin(t * 14) > 0 ? 1 : 0
+  dot(g, cowX - 3, cy - 4, hide, 6, 3)
+  dot(g, cowX - 1, cy - 4, into(c, 0.5), 2, 2)
+  dot(g, cowX + 3, cy - 5, hide, 2, 2)
+  dot(g, cowX - 3 - kick, cy - 1, hide)
+  dot(g, cowX + 2 + kick, cy - 1, hide)
+  // The saucer, lights running round its rim.
+  disc(g, ux, uy - 1, 3, tone(c, c.cyan, 0.45))
+  dot(g, ux - 8, uy, tone(c, c.foreground, 0.42), 17, 2)
+  dot(g, ux - 5, uy + 2, tone(c, c.foreground, 0.3), 11, 1)
+  for (let k = 0; k < 5; k++) dot(g, ux - 6 + k * 3, uy, tone(c, [c.red, c.yellow, c.green][(k + Math.floor(t * 4)) % 3], 0.85))
+}
+
+const neoncity: Paint = (g, w, h, t, c, rnd) => {
+  for (let x = -2; x < w; ) {
+    const bw = 5 + Math.floor(rnd() * 9)
+    const top = Math.round(h * (0.34 + rnd() * 0.26))
+    dot(g, x, top, into(c, 0.14), bw, h - top)
+    x += bw + Math.floor(rnd() * 2)
+  }
+  // Flying cars in three lanes, between the far towers and the near ones.
+  for (const [lane, ly] of [0.3, 0.4, 0.5].entries()) {
+    const dir = lane % 2 ? -1 : 1
+    const speed = 18 + lane * 7
+    for (let k = 0; k < 4; k++) {
+      const run = ((t * speed + k * (w / 4 + 17)) % (w + 10)) - 5
+      const x = dir > 0 ? run : w - run
+      const y = Math.round(h * ly)
+      dot(g, x - 1, y, tone(c, c.foreground, 0.3), 3, 1)
+      dot(g, x + dir * 2, y, tone(c, c.yellow, 0.75))
+      dot(g, x - dir * 2, y, tone(c, c.red, 0.65))
+    }
+  }
+  let tallest = { x: 0, top: h }
+  for (let x = -2, i = 0; x < w; i++) {
+    const bw = 7 + Math.floor(rnd() * 12)
+    const top = Math.round(h * (0.48 + rnd() * 0.3))
+    dot(g, x, top, into(c, 0.32), bw, h - top)
+    for (let wy = top + 2; wy < h - 1; wy += 3) {
+      for (let wx = x + 1; wx < x + bw - 1; wx += 2) {
+        const v = seeded(wx * 131 + wy * 17)()
+        if (v > 0.82) dot(g, wx, wy, tone(c, v > 0.95 ? c.magenta : c.cyan, 0.26))
+      }
+    }
+    // A neon sign down the front, flickering now and then.
+    if (rnd() > 0.55) {
+      const sx = x + Math.floor(bw / 2) - 1
+      const color = rnd() > 0.5 ? c.magenta : c.cyan
+      const on = seeded(Math.floor(t * 6) * 7 + i)() > 0.07 ? 1 : 0.25
+      dot(g, sx - 1, top + 2, tone(c, color, 0.3 * on), 4, 10)
+      dot(g, sx, top + 3, tone(c, color, 0.75 * on), 2, 8)
+    }
+    if (top < tallest.top) tallest = { x: x + Math.floor(bw / 2), top }
+    x += bw + 1
+  }
+  dot(g, tallest.x, tallest.top - 6, into(c, 0.32), 1, 6)
+  if (Math.sin(t * 3) > 0.3) dot(g, tallest.x, tallest.top - 7, tone(c, c.red, 0.9))
+}
+
+const satellite: Paint = (g, w, h, t, c, rnd) => {
+  starfield(g, w, h, t, c, rnd, 0.75)
+  // The planet: a gentle curve along the bottom, its night side to the right.
+  const dip = h * 0.16
+  const R = Math.max(h, (w * w) / (8 * dip))
+  const cx = w * 0.45
+  const cy = h * 0.74 + R
+  const limb = (x: number): number => cy - Math.sqrt(Math.max(0, R * R - (x - cx) ** 2))
+  const night = w * 0.62
+  for (let x = 0; x < w; x++) {
+    const dusk = Math.min(1, Math.max(0, (x - night) / (w * 0.12)))
+    const y = Math.round(limb(x))
+    if (y < h) dot(g, x, y, tone(c, c.blue, 0.2 - 0.09 * dusk), 1, h - y)
+  }
+  for (let x = 0; x < w; x++) {
+    const y = limb(x)
+    dot(g, x, y - 1, tone(c, c.cyan, 0.42))
+    dot(g, x, y - 2, tone(c, c.cyan, 0.16))
+    dot(g, x, y - 3, tone(c, c.cyan, 0.06))
+  }
+  for (let i = 0; i < Math.floor(w / 6); i++) {
+    const depth = 3 + rnd() * h * 0.22
+    const len = 4 + Math.floor(rnd() * 12)
+    const x = ((rnd() * (w + 40) + t * 2) % (w + 40)) - 20
+    const y = limb(x) + depth
+    if (y < h && x < night) dot(g, x, y, tone(c, c.foreground, 0.2), len, 1)
+  }
+  // City lights on the night side.
+  for (let i = 0; i < w * 0.4; i++) {
+    const x = night + rnd() * (w - night)
+    const y = limb(x) + 3 + rnd() * h * 0.2
+    if (y < h && Math.sin(t * 2 + i) > -0.6) dot(g, x, y, tone(c, c.yellow, 0.4))
+  }
+  // The satellite: a body, two solar panels and a blinking light.
+  const sx = ((t * 7) % (w + 50)) - 25
+  const sy = h * 0.3 + (sx / w) * h * 0.08
+  dot(g, sx - 1, sy - 1, tone(c, c.foreground, 0.55), 3, 3)
+  dot(g, sx - 2, sy, tone(c, c.foreground, 0.35))
+  dot(g, sx + 2, sy, tone(c, c.foreground, 0.35))
+  dot(g, sx - 8, sy - 1, tone(c, c.blue, 0.65), 5, 3)
+  dot(g, sx + 4, sy - 1, tone(c, c.blue, 0.65), 5, 3)
+  if (Math.floor(t * 1.5) % 2 === 0) dot(g, sx, sy - 2, tone(c, c.red, 0.9))
+}
+
+const skywhale: Paint = (g, w, h, t, c, rnd) => {
+  if (!isLight(c)) starfield(g, w, h, t, c, rnd, 0.6, 0.0025)
+  const cloud = (front: boolean): void => {
+    for (let i = 0; i < Math.max(2, Math.floor(w / (front ? 110 : 60))); i++) {
+      const cw = (front ? 22 : 14) + rnd() * 18
+      const x = ((rnd() * (w + 60) + t * (front ? 3 : 1.2)) % (w + 60)) - 40
+      const y = h * ((front ? 0.5 : 0.15) + rnd() * 0.3)
+      g.fillStyle = tone(c, c.foreground, front ? 0.13 : 0.07)
+      g.fillRect(Math.round(x), Math.round(y + 2), Math.round(cw), 3)
+      g.fillRect(Math.round(x + cw * 0.2), Math.round(y), Math.round(cw * 0.45), 3)
+      g.fillRect(Math.round(x + cw * 0.5), Math.round(y - 1), Math.round(cw * 0.3), 3)
+    }
+  }
+  cloud(false)
+  // The whale, swimming right with its tail rising and falling.
+  const long = Math.max(34, Math.round(w * 0.16))
+  const x0 = ((t * 5) % (w + long * 3)) - long * 1.5
+  const y0 = h * 0.45 + Math.sin(t * 0.45) * h * 0.06
+  const thick = Math.max(5, Math.round(long * 0.18))
+  const body = tone(c, c.blue, 0.38)
+  const belly = tone(c, c.foreground, 0.22)
+  const wave = (u: number): number => Math.sin(t * 1.4 - u * 3) * (1 - u) * 2.2
+  for (let k = 0; k <= long; k++) {
+    const u = k / long
+    const half = u < 0.72 ? thick * Math.pow(u / 0.72, 0.7) : thick * Math.sqrt(Math.max(0, 1 - ((u - 0.72) / 0.28) ** 2))
+    const y = y0 + wave(u)
+    dot(g, x0 + k, y - half, body, 1, Math.max(1, Math.round(half * 2)))
+    if (u > 0.35 && u < 0.92 && k % 2 === 0) dot(g, x0 + k, y + half * 0.35, belly, 1, Math.max(1, Math.round(half * 0.6)))
+  }
+  for (let d = 0; d < 5; d++) {
+    dot(g, x0 - d, y0 + wave(0) - 1 - d * 0.8, body, 2, 1)
+    dot(g, x0 - d, y0 + wave(0) + 1 + d * 0.8, body, 2, 1)
+  }
+  for (let d = 0; d < 4; d++) dot(g, x0 + long * 0.62 - d, y0 + wave(0.62) + thick * 0.7 + d * 0.6, body)
+  dot(g, x0 + long * 0.84, y0 + wave(0.84), tone(c, c.foreground, 0.6))
+  cloud(true)
+}
+
+const bamboo: Paint = (g, w, h, t, c, rnd) => {
+  moon(g, w * 0.8, h * 0.2, 6, c, 0.3)
+  // Three depths of stalks, sparse, and fading as they go up so the top of
+  // the pane stays clear for text.
+  const layers = [
+    { amount: 0.08, gap: 13, width: 2 },
+    { amount: 0.13, gap: 24, width: 2 },
+    { amount: 0.22, gap: 42, width: 3 }
+  ]
+  for (const [li, layer] of layers.entries()) {
+    const leaf = tone(c, c.green, layer.amount + 0.04)
+    // Ten steps of fade from the foot of a stalk to its top, worked out once.
+    const fade = Array.from({ length: 11 }, (_, k) => layer.amount * (0.35 + 0.65 * (k / 10)))
+    const stalk = fade.map((amount) => tone(c, c.green, amount))
+    const joint = fade.map((amount) => tone(c, c.green, amount + 0.08))
+    for (let x = rnd() * layer.gap; x < w + 4; x += layer.gap * (0.6 + rnd() * 0.9)) {
+      const phase = rnd() * 6
+      const nodeGap = 7 + Math.floor(rnd() * 5)
+      const lean = (rnd() - 0.5) * 3
+      for (let y = h; y > -2; y--) {
+        const up = 1 - y / h
+        const sx = x + Math.sin(t * 0.7 + phase) * up * up * (1.5 + li) + lean * up
+        const node = (h - y) % nodeGap === 0
+        const step = Math.max(0, Math.min(10, Math.round((1 - up) * 10)))
+        dot(g, sx - (node ? 0.5 : 0), y, node ? joint[step] : stalk[step], layer.width + (node ? 1 : 0), 1)
+        // Leaves from some of the joints, high up.
+        if (node && y < h * 0.7 && seeded(Math.round(x) * 13 + y)() > 0.6) {
+          const side = seeded(Math.round(x) * 7 + y)() > 0.5 ? 1 : -1
+          for (let d = 1; d < 6; d++) dot(g, sx + side * (d + 1), y + d * 0.5, leaf)
+        }
+      }
+    }
+  }
+  // Mist drifting through the grove.
+  g.fillStyle = tone(c, c.foreground, 0.25)
+  for (const band of [0.6, 0.84]) {
+    for (let x = 0; x < w; x++) {
+      g.globalAlpha = (0.18 * (Math.sin(x * 0.03 + t * 0.15 + band * 9) + 1)) / 2
+      g.fillRect(x, Math.round(h * band), 1, 4)
+    }
+  }
+  g.globalAlpha = 1
+  for (let i = 0; i < 6; i++) {
+    const x = (rnd() * w + t * (4 + i) + Math.sin(t * 1.1 + i) * 6) % (w + 4)
+    const y = (rnd() * h + t * (6 + i * 1.5)) % (h + 4)
+    const flat = Math.sin(t * 3 + i) > 0
+    dot(g, x, y, tone(c, i % 2 ? c.green : c.yellow, 0.45), flat ? 3 : 1, flat ? 1 : 2)
+  }
+}
+
+const autumn: Paint = (g, w, h, t, c, rnd) => {
+  disc(g, w * 0.82, h * 0.2, 6, tone(c, c.yellow, isLight(c) ? 0.45 : 0.3))
+  fillBelow(g, w, h, (x) => h * 0.66 - Math.sin(x * 0.014 + 1) * 6, tone(c, c.yellow, 0.12))
+  const hill = (x: number): number => h - 9 - Math.sin(x * 0.025 + 2) * 3
+  const leaves = [c.red, c.yellow, mix(c.red, c.yellow, 0.5)]
+  // Maples: a trunk and a round crown of reds and golds.
+  for (let x = 10 + rnd() * 20; x < w - 6; x += 38 + rnd() * 60) {
+    const base = hill(x) + 2
+    const tall = 13 + Math.floor(rnd() * 9)
+    const trunk = into(c, 0.38)
+    dot(g, x, base - tall, trunk, 2, tall)
+    dot(g, x - 2, base - tall + 3, trunk, 2, 1)
+    dot(g, x + 2, base - tall + 5, trunk, 2, 1)
+    const r = 6 + Math.floor(rnd() * 4)
+    for (let k = 0; k < 7; k++) {
+      const ox = (rnd() - 0.5) * r * 1.6
+      const oy = (rnd() - 0.5) * r
+      disc(g, x + 1 + ox, base - tall - 1 + oy, Math.max(2, r - 2 + Math.floor(rnd() * 2)), tone(c, leaves[k % 3], 0.45 + rnd() * 0.18))
+    }
+  }
+  fillBelow(g, w, h, hill, tone(c, c.red, 0.16))
+  for (let x = 0; x < w; x += 2) if (seeded(x * 53)() > 0.7) dot(g, x, hill(x) + 1 + Math.floor(seeded(x * 7)() * 6), tone(c, leaves[x % 3], 0.35))
+  // Leaves blowing across.
+  for (let i = 0; i < Math.max(8, Math.floor(w / 20)); i++) {
+    const speed = 5 + rnd() * 6
+    const x = ((rnd() * w + t * speed * 1.6 + Math.sin(t * 1.3 + i) * 5) % (w + 6)) - 3
+    const y = ((rnd() * h + t * speed) % (h + 6)) - 3
+    const flip = Math.sin(t * 5 + i * 1.3)
+    dot(g, x, y, tone(c, leaves[i % 3], 0.6), flip > 0.3 ? 2 : 1, flip < -0.3 ? 2 : 1)
+  }
+}
+
+const launch: Paint = (g, w, h, t, c, rnd) => {
+  starfield(g, w, h, t, c, rnd, 0.6, 0.002)
+  const ground = h - 5
+  const px = Math.round(w * 0.32)
+  const tall = Math.max(16, Math.round(h * 0.2))
+  // Searchlights sweeping the sky.
+  for (const [i, sx] of [w * 0.7, w * 0.88].entries()) {
+    const a = -Math.PI / 2 + Math.sin(t * 0.4 + i * 2) * 0.5
+    const reach = h * 0.9
+    for (let d = 2; d < reach; d++) {
+      const spread = 1 + d * 0.05
+      dot(g, sx + Math.cos(a) * d - spread / 2, ground + Math.sin(a) * d, tone(c, c.foreground, 0.07 * (1 - d / reach)), Math.ceil(spread), 1)
+    }
+  }
+  // On the pad for a while; then ignition, liftoff, and up and away.
+  // Offset so the still frame (reduced motion) has the rocket on the pad.
+  const cycle = 16
+  const p = (t + 7) % cycle
+  const height = (at: number): number => (at < 7 ? 0 : (at - 7) ** 2 * 5)
+  const ry = ground - tall - height(p)
+  if (p > 6.2) {
+    for (let k = 0; k < 40; k++) {
+      const age = k * 0.2
+      const at = p - age
+      if (at < 6.2) break
+      const fade = 1 - age / 8
+      if (fade <= 0) break
+      const x = px + 2 + (seeded(k * 31 + Math.floor((t + 7) / cycle))() - 0.5) * age * 3 + age * 1.5
+      disc(g, x, ground - height(at) + 1, Math.min(6, 1 + age * 1.2), tone(c, c.foreground, 0.14 * fade))
+    }
+  }
+  fillBelow(g, w, h, () => ground, into(c, 0.3))
+  // Launch control, its windows lit.
+  const bx = Math.round(w * 0.6)
+  dot(g, bx, ground - 7, into(c, 0.38), 20, 7)
+  for (let wx = bx + 2; wx < bx + 18; wx += 3) dot(g, wx, ground - 5, tone(c, c.yellow, 0.45), 2, 1)
+  const steel = tone(c, c.foreground, 0.2)
+  dot(g, px + 7, ground - tall - 4, steel, 2, tall + 4)
+  for (let y = ground - tall - 3; y < ground; y += 3) dot(g, px + 6, y, steel, 4, 1)
+  if (p < 6.8) dot(g, px + 4, ground - tall + 3, steel, 3, 1)
+  if (p > 4 && p < 6.2 && Math.floor(t * 4) % 2 === 0) dot(g, px + 8, ground - tall - 5, tone(c, c.red, 0.9))
+  dot(g, px - 3, ground - 1, steel, 10, 1)
+  if (ry > -tall - 10) {
+    const hull = tone(c, c.foreground, 0.6)
+    dot(g, px, ry + 3, hull, 4, tall - 3)
+    dot(g, px + 1, ry + 1, hull, 2, 2)
+    dot(g, px + 1, ry, tone(c, c.red, 0.6), 2, 1)
+    dot(g, px + 1, ry + 6, tone(c, c.blue, 0.6), 2, 2)
+    dot(g, px - 1, ry + tall - 4, tone(c, c.red, 0.55), 1, 4)
+    dot(g, px + 4, ry + tall - 4, tone(c, c.red, 0.55), 1, 4)
+    if (p > 6.2) {
+      const flame = 2 + Math.floor(seeded(Math.floor(t * 20))() * 3) + (p > 7 ? 3 : 0)
+      dot(g, px, ry + tall, tone(c, c.red, 0.7), 4, flame)
+      dot(g, px + 1, ry + tall, tone(c, c.yellow, 0.9), 2, flame - 1)
+    }
+  }
+}
+
+const mushrooms: Paint = (g, w, h, t, c, rnd) => {
+  for (let x = rnd() * 30; x < w; x += 60 + rnd() * 90) {
+    const tw = 6 + Math.floor(rnd() * 8)
+    dot(g, x, 0, into(c, 0.18), tw, h)
+    dot(g, x - 2, h - 9, into(c, 0.18), tw + 4, 3)
+  }
+  const floor = (x: number): number => h - 7 - Math.sin(x * 0.04) * 2 - Math.sin(x * 0.13)
+  fillBelow(g, w, h, floor, into(c, 0.3))
+  const glows = [c.cyan, c.green, c.magenta, c.blue]
+  // Mushrooms, each glowing at its own slow pace.
+  let i = 0
+  for (let x = 4 + rnd() * 10; x < w - 2; x += 9 + rnd() * 26, i++) {
+    const s = 2 + Math.floor(rnd() * 4)
+    const color = glows[Math.floor(rnd() * glows.length)]
+    const pulse = 0.5 + 0.5 * Math.sin(t * (0.8 + rnd() * 0.8) + i * 1.7)
+    const base = Math.round(floor(x)) + 1
+    const stem = s + 1 + Math.floor(rnd() * s)
+    disc(g, x, base - stem - 1, s + 3, tone(c, color, 0.05 + 0.06 * pulse))
+    dot(g, x, base - stem, tone(c, c.foreground, 0.28), s > 3 ? 2 : 1, stem)
+    const cap = Math.ceil(s * 0.6)
+    for (let k = 0; k <= cap; k++) {
+      const half = Math.round(s * Math.sqrt(1 - (k / (cap + 1)) ** 2))
+      dot(g, x - half, base - stem - k, tone(c, color, 0.4 + 0.35 * pulse), half * 2 + 1, 1)
+    }
+    if (s > 2) dot(g, x - 1, base - stem - Math.ceil(s * 0.4), tone(c, c.foreground, 0.5 + 0.3 * pulse))
+  }
+  // Spores drifting up and fading.
+  for (let k = 0; k < Math.max(10, Math.floor(w / 12)); k++) {
+    const x0 = rnd() * w
+    const rise = (rnd() * h + t * (3 + rnd() * 4)) % h
+    dot(g, x0 + Math.sin(t * 0.9 + k) * 4, h - 6 - rise, tone(c, glows[k % glows.length], 0.15 + 0.5 * (1 - rise / h)))
+  }
+}
+
+const windmills: Paint = (g, w, h, t, c, rnd) => {
+  if (isLight(c)) disc(g, w * 0.82, h * 0.2, 7, tone(c, c.yellow, 0.4))
+  else moon(g, w * 0.82, h * 0.2, 5, c)
+  for (let i = 0; i < Math.max(2, Math.floor(w / 90)); i++) {
+    const cw = 16 + rnd() * 18
+    const x = ((rnd() * (w + 60) + t * (1.2 + rnd())) % (w + 60)) - 40
+    const y = h * (0.1 + rnd() * 0.2)
+    g.fillStyle = tone(c, c.foreground, isLight(c) ? 0.06 : 0.08)
+    g.fillRect(Math.round(x), Math.round(y + 2), Math.round(cw), 3)
+    g.fillRect(Math.round(x + cw * 0.25), Math.round(y), Math.round(cw * 0.45), 3)
+  }
+  const far = (x: number): number => h * 0.68 - Math.sin(x * 0.016 + 1) * 7
+  const near = (x: number): number => h - 7 - Math.sin(x * 0.03) * 3
+  // A turbine: a mast, and three blades going round.
+  const turbine = (x: number, base: number, tall: number, color: string, speed: number, phase: number): void => {
+    const hub = base - tall
+    dot(g, x, hub, color, 1, tall)
+    dot(g, x - 1, hub - 1, color, 2, 2)
+    for (let k = 0; k < 3; k++) {
+      const a = t * speed + phase + (k * Math.PI * 2) / 3
+      for (let d = 1; d < tall * 0.55; d++) dot(g, x + Math.cos(a) * d, hub + Math.sin(a) * d, color)
+    }
+  }
+  fillBelow(g, w, h, far, tone(c, c.green, 0.14))
+  for (let x = 8 + rnd() * 20; x < w; x += 26 + rnd() * 30) turbine(x, far(x) + 1, 12 + rnd() * 6, tone(c, c.foreground, 0.22), 1.1 + rnd(), rnd() * 6)
+  fillBelow(g, w, h, near, tone(c, c.green, 0.24))
+  for (let x = 30 + rnd() * 30; x < w; x += 70 + rnd() * 70) turbine(x, near(x) + 1, 20 + rnd() * 8, tone(c, c.foreground, 0.4), 0.8 + rnd() * 0.6, rnd() * 6)
+  for (let i = 0; i < 3; i++) bird(g, ((rnd() * w + t * 5) % (w + 20)) - 10, h * (0.25 + rnd() * 0.15), t, i, tone(c, c.foreground, 0.35))
+}
+
+const beach: Paint = (g, w, h, t, c, rnd) => {
+  const horizon = Math.round(h * 0.6)
+  const shore = Math.round(h * 0.82)
+  const sx = Math.round(w * 0.62)
+  const sr = Math.max(8, Math.round(h * 0.14))
+  disc(g, sx, horizon, sr + 3, tone(c, c.yellow, 0.12))
+  disc(g, sx, horizon, sr, tone(c, c.yellow, 0.42))
+  // The sea, over the bottom of the sun, and the sun's road across it.
+  dot(g, 0, horizon, tone(c, c.blue, 0.16), w, shore - horizon)
+  for (let y = horizon + 1; y < shore; y++) {
+    const u = (y - horizon) / (shore - horizon)
+    const half = sr * (0.9 - u * 0.4)
+    for (let x = -half; x < half; x += 3) if (Math.sin(x * 1.7 + y * 2.3 + t * 3) > 0.2) dot(g, sx + x, y, tone(c, c.yellow, 0.3 * (1 - u * 0.5)), 2, 1)
+  }
+  for (let y = horizon + 3; y < shore; y += 4) for (let x = 0; x < w; x++) if (Math.sin(x * 0.2 + y + t * 0.8) > 0.92) dot(g, x, y, tone(c, c.foreground, 0.16))
+  // The sand, and the waves running up it and back.
+  const sand = (x: number): number => shore + Math.sin(x * 0.03) * 1.2
+  fillBelow(g, w, h, sand, tone(c, c.yellow, 0.2))
+  const reach = (Math.sin(t * 0.7) + 1) / 2
+  for (let x = 0; x < w; x++) {
+    const y = sand(x) + reach * 3 + Math.sin(x * 0.15 + t) * 0.8
+    dot(g, x, sand(x), tone(c, c.blue, 0.2), 1, Math.max(0, Math.round(y - sand(x))))
+    dot(g, x, y, tone(c, c.foreground, 0.35))
+  }
+  // A palm, leaning out over the sand.
+  const px = Math.round(w * 0.12)
+  const base = shore + 4
+  const tall = Math.max(16, Math.round(h * 0.36))
+  const sway = Math.sin(t * 0.8) * 1.5
+  // A silhouette against a dark sky; in daylight, a trunk and green fronds.
+  const trunk = isLight(c) ? tone(c, c.yellow, 0.6) : into(c, 0.42)
+  const fronds = isLight(c) ? tone(c, c.green, 0.55) : trunk
+  let top: Pt = [px, base - tall]
+  for (let k = 0; k < tall; k++) {
+    const u = k / tall
+    const x = px + Math.sin(u * 1.3) * 7 + sway * u * u
+    dot(g, x, base - k, trunk, 2, 1)
+    top = [x, base - k]
+  }
+  // Fronds arching out and drooping at the tips.
+  for (const [i, a] of [-3.0, -2.5, -1.95, -1.25, -0.65, -0.15].entries()) {
+    const reach = 9 + ((i * 5) % 5)
+    for (let d = 1; d < reach; d++) dot(g, top[0] + Math.cos(a + sway * 0.05) * d, top[1] + Math.sin(a) * d * 0.8 + d * d * 0.1, fronds, 2, d < reach / 2 ? 2 : 1)
+  }
+  for (let i = 0; i < 2; i++) bird(g, ((rnd() * w + t * 4) % (w + 20)) - 10, h * (0.2 + rnd() * 0.2), t, i, tone(c, c.foreground, 0.35))
+}
+
+const zen: Paint = (g, w, h, t, c, rnd) => {
+  if (!isLight(c)) moon(g, w * 0.85, h * 0.18, 5, c, 0.3)
+  const top = Math.round(h * 0.55)
+  // Raked lines, a cloud's shadow passing slowly over them.
+  const shadow = ((t * 3) % (w + 120)) - 60
+  const lines = tone(c, c.foreground, 0.12)
+  const shaded = tone(c, c.foreground, 0.08)
+  for (let y = top; y < h; y += 3) {
+    dot(g, 0, y, lines, w, 1)
+    dot(g, shadow - 40, y, shaded, 80, 1)
+  }
+  // Stones, the sand raked in rings round each.
+  for (let x = w * 0.15 + rnd() * 20; x < w - 10; x += 60 + rnd() * 90) {
+    const y = top + 6 + rnd() * Math.max(1, h - top - 12)
+    const r = 2 + Math.floor(rnd() * 3)
+    const size = (k: number): number => r + 1 + k * 2.5
+    g.globalCompositeOperation = 'destination-out'
+    oval(g, x, y, size(3) * 1.8 + 1, size(3) * 0.7 + 1, '#000000')
+    g.globalCompositeOperation = 'source-over'
+    for (let k = 1; k <= 3; k++) ring(g, x, y, size(k) * 1.8, size(k) * 0.7, tone(c, c.foreground, 0.12), 0.06)
+    // Darker than the sand on a light theme, lighter on a dark one.
+    oval(g, x, y - 1, r * 1.4, r, isLight(c) ? into(c, 0.4) : tone(c, c.foreground, 0.26))
+    dot(g, x - 1, y - r, tone(c, c.foreground, isLight(c) ? 0.35 : 0.45), 2, 1)
+    if (rnd() > 0.5) for (let k = 0; k < 4; k++) dot(g, x - r - 1 + k * 2, y + r - 1, tone(c, c.green, 0.4))
+  }
+  // A leaf drifting down onto the sand.
+  const cycle = 12
+  const p = (t % cycle) / cycle
+  const lx = w * (0.3 + 0.4 * seeded(Math.floor(t / cycle))()) + Math.sin(p * 12) * 6 + p * 20
+  const turn = Math.sin(p * 30) > 0
+  dot(g, lx, -2 + p * (top + 8), tone(c, c.red, 0.55), turn ? 2 : 1, turn ? 1 : 2)
+}
+
+const moonbase: Paint = (g, w, h, t, c, rnd) => {
+  // The Earth first, while the canvas is empty, so its land and shadow stay on it.
+  const ex = w * 0.76
+  const ey = h * 0.25
+  const er = Math.max(6, Math.round(h * 0.1))
+  disc(g, ex, ey, er, tone(c, c.blue, 0.45))
+  g.globalCompositeOperation = 'source-atop'
+  for (let k = 0; k < 6; k++) {
+    const pick = seeded(k * 71 + 3)
+    const lon = ((pick() * 4 + t * 0.06) % 2.4) - 1.2
+    disc(g, ex + lon * er, ey + (pick() - 0.5) * er * 1.4, 1 + Math.floor(pick() * 3), tone(c, c.green, 0.45))
+  }
+  disc(g, ex + er * 0.6, ey + er * 0.2, er, tone(c, c.blue, 0.18))
+  g.globalCompositeOperation = 'source-over'
+  for (let i = 0; i < w * h * 0.004; i++) {
+    const x = rnd() * w
+    const y = rnd() * h * 0.7
+    if (Math.hypot(x - ex, y - ey) > er + 1) dot(g, x, y, tone(c, c.foreground, 0.08 + 0.22 * ((Math.sin(t * (0.6 + (i % 5) * 0.3) + i) + 1) / 2)))
+  }
+  fillBelow(g, w, h, (x) => h * 0.62 + Math.sin(x * 0.02 + 1) * 4 + Math.abs(Math.sin(x * 0.07)) * 3, tone(c, c.foreground, 0.07))
+  const ground = (x: number): number => h * 0.76 + Math.sin(x * 0.035) * 1.5
+  fillBelow(g, w, h, ground, tone(c, c.foreground, 0.14))
+  for (let x = rnd() * 30; x < w; x += 20 + rnd() * 50) {
+    const r = 2 + Math.floor(rnd() * 5)
+    const y = ground(x) + 3 + rnd() * Math.max(1, h - ground(x) - 6)
+    oval(g, x, y, r * 2, r * 0.6, tone(c, c.foreground, 0.08))
+    for (let a = Math.PI; a <= Math.PI * 2; a += 0.15) dot(g, x + Math.cos(a) * r * 2, y + Math.sin(a) * r * 0.6 - 1, tone(c, c.foreground, 0.2))
+  }
+  // The base: a dome with its windows lit, and a mast.
+  const bx = Math.round(w * 0.22)
+  const by = Math.round(ground(bx)) + 1
+  for (let k = 0; k <= 7; k++) {
+    const half = Math.round(Math.sqrt(49 - k * k) * 1.3)
+    dot(g, bx - half, by - k, tone(c, c.foreground, 0.32), half * 2 + 1, 1)
+  }
+  for (const wx of [-5, -1, 3]) dot(g, bx + wx, by - 3, tone(c, c.yellow, 0.6), 2, 1)
+  dot(g, bx + 11, by - 13, tone(c, c.foreground, 0.3), 1, 13)
+  if (Math.sin(t * 2.5) > 0) dot(g, bx + 11, by - 14, tone(c, c.red, 0.9))
+  // A rover crawling along, its tracks behind it.
+  const rx = ((t * 3) % (w + 30)) - 15
+  for (let x = 0; x < rx - 3; x += 2) dot(g, x, Math.round(ground(x)) + 3, tone(c, c.foreground, 0.2))
+  const ry = Math.round(ground(rx)) + 2
+  dot(g, rx - 3, ry - 3, tone(c, c.foreground, 0.5), 7, 2)
+  for (const wx of [-3, 0, 3]) dot(g, rx + wx, ry - 1, tone(c, c.foreground, 0.3))
+  dot(g, rx + 2, ry - 6, tone(c, c.foreground, 0.4), 1, 3)
+  dot(g, rx + 1, ry - 7, tone(c, c.foreground, 0.4), 3, 1)
+  dot(g, rx + 4, ry - 2, tone(c, c.yellow, 0.8))
+}
+
 export const SCENES: Record<SceneId, { name: string; paint: Paint }> = {
   forest: { name: 'Firefly forest', paint: forest },
   aurora: { name: 'Aurora', paint: aurora },
@@ -721,7 +1539,24 @@ export const SCENES: Record<SceneId, { name: string; paint: Paint }> = {
   jellyfish: { name: 'Jellyfish', paint: jellyfish },
   meadow: { name: 'Meadow', paint: meadow },
   mesa: { name: 'Mesas', paint: mesa },
-  fireworks: { name: 'Fireworks', paint: fireworks }
+  fireworks: { name: 'Fireworks', paint: fireworks },
+  blackhole: { name: 'Event horizon', paint: blackhole },
+  circuit: { name: 'Circuit board', paint: circuit },
+  koi: { name: 'Koi pond', paint: koi },
+  train: { name: 'Night train', paint: train },
+  storm: { name: 'Thunderstorm', paint: storm },
+  ufo: { name: 'Close encounter', paint: ufo },
+  neoncity: { name: 'Neon city', paint: neoncity },
+  satellite: { name: 'Low orbit', paint: satellite },
+  skywhale: { name: 'Sky whale', paint: skywhale },
+  bamboo: { name: 'Bamboo grove', paint: bamboo },
+  autumn: { name: 'Autumn', paint: autumn },
+  launch: { name: 'Launch day', paint: launch },
+  mushrooms: { name: 'Glowshrooms', paint: mushrooms },
+  windmills: { name: 'Wind farm', paint: windmills },
+  beach: { name: 'Sunset beach', paint: beach },
+  zen: { name: 'Zen garden', paint: zen },
+  moonbase: { name: 'Moon base', paint: moonbase }
 }
 
 /* ------------------------------------------------------------------ runner */

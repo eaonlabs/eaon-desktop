@@ -21,6 +21,9 @@ CLAUDE.md
 
 # Cua Driver (computer use engine): fetched by scripts/fetch-cua-driver.mjs
 resources/cua-driver/
+# App control's macOS engine: built by scripts/build-app-control.mjs
+resources/app-control/darwin/
 resources/tokn-cli/
 native/whisper.cpp/
 resources/whisper/
+resources/vm/

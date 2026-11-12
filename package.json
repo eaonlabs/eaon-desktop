@@ -16,8 +16,9 @@
   },
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && node scripts/build-host.mjs",
+    "build": "electron-vite build && node scripts/build-vm-helper.mjs && node scripts/build-host.mjs",
     "build:host": "node scripts/build-host.mjs",
+    "build:vm-helper": "node scripts/build-vm-helper.mjs",
     "start": "electron-vite preview",
     "build:cli": "node scripts/build-cli.mjs",
     "pack:cli": "node scripts/build-cli.mjs --package",
@@ -36,19 +37,23 @@
     "generate:models": "node scripts/generate-models.mjs",
     "build:llama": "./scripts/build-llama.sh all",
     "build:whisper": "./scripts/build-whisper.sh all",
-    "build:eaon-cli": "./scripts/build-eaon-cli.sh"
+    "build:eaon-cli": "./scripts/build-eaon-cli.sh",
+    "build:app-control": "node scripts/build-app-control.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.314",
     "@anthropic-ai/sdk": "^0.120.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@novnc/novnc": "1.7.0",
     "baileys": "7.0.0-rc14",
     "betterwright": "2.8.8",
     "electron-updater": "^6.3.9",
     "node-pty": "^1.1.0",
+    "opus-decoder": "0.7.12",
     "postal-mime": "^4.2.0",
     "qrcode": "^1.5.4",
     "tldts": "7.4.9",
+    "unpdf": "1.9.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
@@ -66,7 +71,9 @@
     "electron": "^43.8.6",
     "electron-builder": "^26.17.0",
     "electron-vite": "^2.3.0",
+    "katex": "0.18.10",
     "lucide-react": "^0.468.0",
+    "mermaid": "12.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.2",

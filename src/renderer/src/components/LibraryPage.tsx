@@ -45,6 +45,8 @@ export function LibraryPage(): JSX.Element {
   const items = useMemo(() => {
     const byPath = new Map<string, LibraryItem>()
     for (const chat of chats) {
+      // A temporary chat is not kept, so its files are not listed.
+      if (chat.temporary) continue
       for (const message of chat.messages) {
         if (message.role !== 'user' || !message.attachments?.length) continue
         for (const path of message.attachments) {

@@ -47,7 +47,9 @@ function ctx(overrides: Partial<{ messageId: string; chatTitle: string; signal: 
 }
 
 /** A stand-in for WorkerBrowsers that records calls and answers as a page would. */
-function fakeBrowser(page: { url?: string; snapshot?: string; run?: (code: string) => string | Promise<string> } = {}) {
+function fakeBrowser(
+  page: { url?: string; snapshot?: string; run?: (code: string) => string | Promise<string>; siteRefusal?: (url: string) => string | null } = {}
+) {
   const calls: string[] = []
   const state = {
     url: page.url ?? 'https://shop.test/cart',
@@ -62,6 +64,7 @@ function fakeBrowser(page: { url?: string; snapshot?: string; run?: (code: strin
   const fake = {
     url: () => state.url,
     describe: (_id: string, ref: unknown) => (typeof ref === 'string' ? state.refs.get(ref) : undefined),
+    siteRefusal: (_id: string, url: string) => page.siteRefusal?.(url) ?? null,
     refsOf: () => state.refs,
     controlled: () => false,
     beginStep: () => calls.push('beginStep'),
@@ -181,6 +184,16 @@ test('keys and credentials are never uploaded without the user; ordinary files a
   assert.equal(tool.risky?.({ action: 'upload', ref: 'e3', path: 'resume.pdf' }, ctx()), true)
   assert.equal(typeof tool.mutating === 'function' && tool.mutating({ action: 'find', text: 'x' }, ctx()), false)
   assert.equal(typeof tool.mutating === 'function' && tool.mutating({ action: 'download', url: 'https://a.test/x' }, ctx()), true)
+})
+
+test('a site the owner blocked is refused in words before the page is opened', async () => {
+  const { browsers, calls } = fakeBrowser({ siteRefusal: (url) => (url.includes('blocked.test') ? 'blocked.test is blocked for this worker.' : null) })
+  const tool = browserTool(browsers, { idOf: () => 'w1', signInHint: '' })
+  const refused = await tool.run({ action: 'open', url: 'blocked.test/page' }, ctx())
+  assert.equal(isError(refused), true)
+  assert.match(textOf(refused), /blocked\.test is blocked/)
+  assert.equal(calls.includes('beginStep'), false)
+  assert.equal(isError(await tool.run({ action: 'open', url: 'https://shop.test/cart' }, ctx())), false)
 })
 
 test('the same element failing on the same page is stopped after three tries, even with the page reopened in between', async () => {

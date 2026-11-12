@@ -26,7 +26,7 @@ export function gatewayProviders(scope: GatewayScope = 'all'): Provider[] {
 }
 
 /** What an app is told when it asks for Claude Agent. */
-export const CLAUDE_AGENT_REFUSED = 'Claude Agent runs only inside Eaon, on your own Claude plan. Other apps can’t use it through the Local API Server.'
+export const CLAUDE_AGENT_REFUSED = 'Claude on your plan runs only inside Eaon. Other apps can’t use it through the Local API Server.'
 
 /**
  * A request naming a Claude Agent model (`claude-agent/haiku`): refused in
@@ -200,6 +200,28 @@ export function claudeCodeToken(create = false): string | null {
 
 export function forgetClaudeCodeToken(): void {
   secrets.clear(CLAUDE_CODE_VAULT_ID)
+}
+
+const APP_CONTROL_VAULT_ID = 'local-api:app-control'
+let ephemeralAppControlToken: string | null = null
+
+/**
+ * The key ADE terminals get for `eaon-apps` (features/appControl.ts). It
+ * opens the control API's `app_control` tool and nothing else, so a coding
+ * agent that may operate apps may not also drive Eaon or spend through it.
+ * Created on first use; `create: false` only looks.
+ */
+export function appControlToken(create = true): string | null {
+  const saved = secrets.get(APP_CONTROL_VAULT_ID)
+  if (saved) return saved
+  if (ephemeralAppControlToken || !create) return ephemeralAppControlToken
+  const token = `eaonac-${randomBytes(24).toString('base64url')}`
+  try {
+    secrets.set(APP_CONTROL_VAULT_ID, token)
+  } catch {
+    ephemeralAppControlToken = token
+  }
+  return token
 }
 
 /** Constant time, and the same for every length: both sides are hashed first. */

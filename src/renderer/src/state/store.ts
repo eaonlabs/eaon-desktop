@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { playModSound } from '../lib/modSounds'
 import type {
   Chat,
   ChatMessage,
@@ -25,11 +26,12 @@ import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecen
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
 import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
+import { cleanPlanSteps, planApprovalMessage, planChanged } from '@shared/planEdit'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 import { notify } from '../components/Notice'
 import { reportError } from '../components/ErrorBoundary'
 
-export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'linear' | 'models' | 'library' | 'trading'
+export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'issues' | 'models' | 'library' | 'trading' | 'computers'
 
 interface NavEntry {
   view: View
@@ -54,13 +56,15 @@ interface AppState {
 
   view: View
   settingsPage: string
-  pluginsTab: 'plugins' | 'skills'
+  pluginsTab: 'plugins' | 'skills' | 'mods'
   /** Repo id showing in the Models detail view, or null for the list. Lives here
    * (rather than local component state) so re-clicking "Models" in the sidebar
    * while already viewing a model's variants returns to the list. */
   modelsRepo: string | null
   activeChatId: string | null
   pendingProjectId: string | null
+  /** The start page's Temporary chat switch: the chat it starts is never saved. */
+  pendingTemporary: boolean
   navPast: NavEntry[]
   navFuture: NavEntry[]
   sidebarOpen: boolean
@@ -121,7 +125,7 @@ interface AppState {
   openProviderSettings: (providerId: string | null) => void
   setProviderFocus: (providerId: string | null) => void
   openModelMenu: () => void
-  setPluginsTab: (tab: 'plugins' | 'skills') => void
+  setPluginsTab: (tab: 'plugins' | 'skills' | 'mods') => void
   setModelsRepo: (repoId: string | null) => void
   goBack: () => void
   goForward: () => void
@@ -131,9 +135,16 @@ interface AppState {
   toggleBrowser: (open?: boolean) => void
 
   newChat: (projectId?: string | null) => void
+  /** The start page, with the next chat it starts temporary (or not): kept in this window only, gone when it is left. */
+  startTemporaryChat: () => void
+  setPendingTemporary: (on: boolean) => void
   openChat: (id: string) => void
   deleteChat: (id: string) => void
   archiveChat: (id: string) => void
+  /** Archives these chats at once, leaving any whose reply is still being written; returns how many moved. */
+  archiveChats: (ids: string[]) => number
+  /** Deletes these chats at once (as `deleteChat` does each); returns how many went. */
+  deleteChats: (ids: string[]) => number
   restoreChat: (id: string) => void
   renameChat: (id: string, title: string) => void
   togglePin: (id: string) => void
@@ -144,6 +155,8 @@ interface AppState {
   stop: (chatId?: string) => void
   /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
   approvePlan: (messageId: string) => void
+  /** Replaces a pending plan's steps with the person's edits (the plan is then theirs, not the agent's). */
+  editPlanSteps: (messageId: string, steps: string[]) => void
   /** A reply's thumbs and emoji, from its action bar. */
   setMessageFeedback: (messageId: string, feedback: MessageFeedback) => void
   /** Marks a coding reply's file changes undone (or redone) in the chat on screen. */
@@ -170,7 +183,7 @@ interface AppState {
   reindex: (force?: boolean) => Promise<void>
 
   createProject: (name: string, folder?: string | null) => Project
-  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions' | 'folder'>>) => void
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions' | 'folder' | 'extraFolders'>>) => void
   /** Deletes the project; its chats stay, moved back to Chats. */
   deleteProject: (id: string) => void
   /** This tab's project for `folder`: the one that has it, or a new one named after it. */
@@ -309,7 +322,7 @@ function saveChatsNow(checkpoint = false): void {
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
   const previous = synced
-  synced = new Map(chats.map((chat) => [chat.id, chat]))
+  synced = new Map(chats.filter((chat) => !chat.temporary).map((chat) => [chat.id, chat]))
   if (upserts.length === 0 && removed.length === 0) return
   // A checkpoint is not broadcast: other windows watching the reply have it
   // live from the stream, and a copy a few tokens old would put theirs back.
@@ -671,6 +684,8 @@ function applyStreamEvent(event: StreamEvent): void {
   if (!mine) synced.set(target.id, ended[chatIndex])
   else if (finished || nextChat) persistChats()
   else checkpoints.touch()
+  // A mod's sound for a reply this window ran, once it ends (lib/modSounds.ts).
+  if (finished && mine) playModSound(event.type === 'error' ? 'error' : 'reply')
 }
 
 /**
@@ -731,6 +746,7 @@ export const useApp = create<AppState>((set, get) => ({
   modelsRepo: null,
   activeChatId: null,
   pendingProjectId: null,
+  pendingTemporary: false,
   navPast: [],
   navFuture: [],
   sidebarOpen: true,
@@ -917,9 +933,18 @@ export const useApp = create<AppState>((set, get) => ({
       navFuture: [],
       activeChatId: null,
       view: 'chat',
-      pendingProjectId: projectId
+      pendingProjectId: projectId,
+      pendingTemporary: false
     }))
   },
+
+  startTemporaryChat: () => {
+    get().newChat()
+    set({ pendingTemporary: true })
+  },
+
+  // A temporary chat has no project: the folder, its tools and its checkpoints all outlive it.
+  setPendingTemporary: (on) => set(on ? { pendingTemporary: true, pendingProjectId: null } : { pendingTemporary: false }),
 
   openChat: (id) => {
     const current = { view: get().view, activeChatId: get().activeChatId }
@@ -938,17 +963,41 @@ export const useApp = create<AppState>((set, get) => ({
   // its end never found the message, so every composer stayed on "Stop".
   deleteChat: (id) => {
     if (get().runs[id]) get().stop(id)
-    // A coding chat's checkpoints (refs in its project's repository) go with it.
-    const gone = get().chats.find((c) => c.id === id)
-    const folder = gone?.projectId ? get().projects.find((p) => p.id === gone.projectId)?.folder : null
-    const replies = gone?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
-    if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
+    dropCheckpointsOf(get().chats.find((c) => c.id === id), get().projects)
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
   },
 
+  deleteChats: (ids) => {
+    const gone = new Set(ids)
+    const { chats: all, projects, activeChatId } = get()
+    const doomed = all.filter((c) => gone.has(c.id))
+    for (const chat of doomed) {
+      if (get().runs[chat.id]) get().stop(chat.id)
+      dropCheckpointsOf(chat, projects)
+    }
+    if (doomed.length === 0) return 0
+    set({ chats: all.filter((c) => !gone.has(c.id)), activeChatId: activeChatId && gone.has(activeChatId) ? null : activeChatId })
+    persistChats()
+    return doomed.length
+  },
+
+  archiveChats: (ids) => {
+    const wanted = new Set(ids)
+    const { chats, runs, activeChatId } = get()
+    // A reply still being written would be stopped by archiving its chat; those stay as they are.
+    const moving = chats.filter((c) => wanted.has(c.id) && !c.archived && !c.temporary && !runs[c.id])
+    if (moving.length === 0) return 0
+    const moved = new Set(moving.map((c) => c.id))
+    set({ chats: chats.map((c) => (moved.has(c.id) ? { ...c, archived: true } : c)), activeChatId: activeChatId && moved.has(activeChatId) ? null : activeChatId })
+    persistChats()
+    return moving.length
+  },
+
   archiveChat: (id) => {
+    // Nothing to put away: a temporary chat isn't kept.
+    if (get().chats.some((c) => c.id === id && c.temporary)) return get().deleteChat(id)
     if (get().runs[id]) get().stop(id)
     const chats = get().chats.map((c) => (c.id === id ? { ...c, archived: true } : c))
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
@@ -971,7 +1020,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   moveChat: (id, projectId) => {
-    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, projectId } : c)) }))
+    set((s) => ({ chats: s.chats.map((c) => (c.id === id && !c.temporary ? { ...c, projectId } : c)) }))
     persistChats()
   },
 
@@ -1030,7 +1079,7 @@ export const useApp = create<AppState>((set, get) => ({
       chat = {
         id: uid(),
         workspaceId: settings.activeWorkspaceId,
-        projectId: state.pendingProjectId,
+        projectId: state.pendingTemporary ? null : state.pendingProjectId,
         title: (text.trim() || options.attachments?.[0]?.split(/[\\/]/).pop() || 'New chat').split('\n')[0].slice(0, 60),
         messages: [userMessage, assistantMessage],
         createdAt: now,
@@ -1040,6 +1089,7 @@ export const useApp = create<AppState>((set, get) => ({
         unread: false,
         modelId: engine ? engineModel || engine : (model?.id ?? null),
         effort: settings.effort,
+        ...(state.pendingTemporary ? { temporary: true } : {}),
         ...(goal ? { goal } : {})
       }
       chats = [chat, ...state.chats]
@@ -1054,7 +1104,13 @@ export const useApp = create<AppState>((set, get) => ({
 
     ownedRuns.add(assistantMessage.id)
     const runningIn = chat.id
-    set((s) => ({ chats, runs: { ...s.runs, [runningIn]: assistantMessage.id }, ...(background ? {} : { activeChatId: runningIn, view: 'chat' as const }) }))
+    set((s) => ({
+      chats,
+      runs: { ...s.runs, [runningIn]: assistantMessage.id },
+      ...(background ? {} : { activeChatId: runningIn, view: 'chat' as const }),
+      // The switch was for the chat just started; the next one starts as usual.
+      ...(into ? {} : { pendingTemporary: false })
+    }))
     // Saved straight away rather than debounced: other windows need the new
     // messages before the reply's first words reach them.
     saveChatsNow()
@@ -1105,7 +1161,8 @@ export const useApp = create<AppState>((set, get) => ({
 
     const request: StreamRequest = {
       chatId: current.id,
-      chatTitle: current.title,
+      // The notification for a finished task shows this: nothing of a temporary chat's words.
+      chatTitle: current.temporary ? 'Temporary chat' : current.title,
       messageId: assistantMessage.id,
       providerId: engine ?? model!.providerId,
       modelId: engine ? engineModel : model!.id,
@@ -1117,14 +1174,16 @@ export const useApp = create<AppState>((set, get) => ({
       projectInstructions: project?.instructions ?? '',
       // A project's chats code in its folder; an ordinary chat's agent keeps to ~/Eaon.
       cwd: mode === 'work' ? (project?.folder ?? null) : null,
+      ...(mode === 'work' && project?.extraFolders?.length ? { extraRoots: project.extraFolders } : {}),
       work: {
         swarm: settings.work.swarm,
-        plan: options.plan ?? settings.planMode
+        plan: options.plan ?? settings.planMode,
+        ask: Boolean(settings.askMode) && !(options.plan ?? settings.planMode)
       },
       goal: current.goal?.status === 'active' ? current.goal : null
     }
     // A chat's first turn on Eaon's own loop: its model names it once the reply is in.
-    if (!engine && current.messages.length === 2 && text.trim())
+    if (!engine && !current.temporary && current.messages.length === 2 && text.trim())
       toName.set(assistantMessage.id, { chatId: current.id, title: current.title, providerId: model!.providerId, modelId: model!.id, message: text })
     try {
       await window.api.chat.stream(request)
@@ -1203,7 +1262,29 @@ export const useApp = create<AppState>((set, get) => ({
     set({ chats })
     persistChats()
     // Plan mode stays on for the next task; this one runs with it off.
-    void get().send('Approved — carry out the plan. Keep the checklist updated as you go.', { plan: false })
+    const plan = chat.messages.find((m) => m.id === messageId)?.plan
+    void get().send(plan ? planApprovalMessage(plan) : planApprovalMessage({ title: '', steps: [] }), { plan: false })
+  },
+
+  editPlanSteps(messageId, steps) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const cleaned = cleanPlanSteps(steps)
+    if (cleaned.length === 0) return
+    const chats = get().chats.map((c) =>
+      c.id === chat.id
+        ? {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId && m.plan && m.plan.status === 'pending'
+                ? { ...m, plan: { ...m.plan, steps: cleaned, edited: m.plan.edited || planChanged(m.plan.steps, cleaned) } }
+                : m
+            )
+          }
+        : c
+    )
+    set({ chats })
+    persistChats()
   },
 
   setGoalStatus(status) {
@@ -1313,7 +1394,7 @@ export const useApp = create<AppState>((set, get) => ({
     const projectId = folder ? get().projectForFolder(folder).id : null
     const chatId = get().activeChatId
     if (chatId) get().moveChat(chatId, projectId)
-    else set({ pendingProjectId: projectId })
+    else set({ pendingProjectId: projectId, ...(projectId ? { pendingTemporary: false } : {}) })
     set({ indexStatus: null })
     // A folder new to the agent has no index yet, and its search tools are
     // useless until it does — so start building it now.
@@ -1415,7 +1496,7 @@ export const useApp = create<AppState>((set, get) => ({
     const workspaceId = settings?.activeWorkspaceId
     if (chatsCache && chatsCache.chats === chats && chatsCache.workspaceId === workspaceId) return chatsCache.visible
     const visible = chats
-      .filter((c) => !c.archived && c.workspaceId === workspaceId)
+      .filter((c) => !c.archived && !c.temporary && c.workspaceId === workspaceId)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt)
     chatsCache = { chats, workspaceId, visible }
     return visible
@@ -1469,6 +1550,25 @@ export function revealChat(chatId: string): void {
     void state.patchSettings({ activeWorkspaceId: chat.workspaceId })
   }
   state.openChat(chatId)
+}
+
+/**
+ * A temporary chat lasts while it is the open chat. Once the window moves on
+ * (another chat, the start page, another tab), it is dropped, and its reply
+ * stopped if one is still being written. It was never sent to main, so there
+ * is nothing else to remove.
+ */
+useApp.subscribe((state, prev) => {
+  if (state.activeChatId === prev.activeChatId || !prev.activeChatId) return
+  const left = state.chats.find((c) => c.id === prev.activeChatId)
+  if (left?.temporary) state.deleteChat(left.id)
+})
+
+/** A coding chat's checkpoints (refs in its project's repository) go with it when it is deleted. */
+function dropCheckpointsOf(chat: Chat | undefined, projects: Project[]): void {
+  const folder = chat?.projectId ? projects.find((p) => p.id === chat.projectId)?.folder : null
+  const replies = chat?.messages.filter((m) => m.role === 'assistant').map((m) => m.id) ?? []
+  if (folder && replies.length) void window.api.chatCode.dropCheckpoints(folder, replies).catch(() => {})
 }
 
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {

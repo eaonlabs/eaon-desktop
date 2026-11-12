@@ -293,3 +293,34 @@
     transition: none;
   }
 }
+
+/* The plan card while its steps are being edited. */
+.plan-card__edited {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.plan-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.plan-edit__steps {
+  list-style: decimal;
+  margin: 0;
+  padding-left: 20px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-edit__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.plan-edit__input {
+  flex: 1;
+  min-width: 0;
+}

@@ -725,7 +725,8 @@ test('Telegram: long-polls updates, spots mentions and commands, and falls back 
       ['find a trail', true, true, 'Weekend plans', 'Bea (@bea)']
     )
     assert.equal(received[1].mentioned, false, 'a command for another bot is not ours')
-    assert.equal(received[2].unsupported, 'a voice message')
+    assert.ok(received[2].voice, 'a voice note is handed on to be heard, not turned away')
+    assert.equal(received[2].unsupported, undefined)
     assert.equal(calls.filter((c) => c.method === 'getUpdates')[1]?.body.offset, 10, 'confirms what it read')
 
     await telegram.send('-100', '**Found** one', '1')

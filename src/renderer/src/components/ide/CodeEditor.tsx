@@ -2,6 +2,8 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX, 
 import { ArrowUp, MessageSquarePlus, Sparkles } from 'lucide-react'
 import type { Token } from '../agent/highlight'
 import { lineTokens } from '../chatCode/diff/tokens'
+import { expandSnippet } from '../../lib/snippets'
+import { snippetsOf, useMods } from '../../state/mods'
 import { isMac } from '../../lib/platform'
 import type { GutterMark } from './gitGutter'
 
@@ -133,7 +135,10 @@ export function CodeEditor({
   const lines = useMemo(() => text.split('\n'), [text])
   const coloured = lines.length <= COLOURED_LINES
   const widest = useMemo(() => lines.reduce((max, line) => Math.max(max, line.length), 0), [lines])
-  const tokens = useMemo(() => (coloured ? lineTokens(lines, lang) : null), [coloured, lines, lang])
+  // A mod turned on or off can colour a language differently.
+  const modsVersion = useMods((s) => s.version)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tokens = useMemo(() => (coloured ? lineTokens(lines, lang) : null), [coloured, lines, lang, modsVersion])
   // The caret's line, and the selection as offsets; `focused` keeps the selection's buttons to the editor in use.
   const [sel, setSel] = useState({ start: 0, end: 0, line: 1 })
   const [focused, setFocused] = useState(false)
@@ -258,7 +263,12 @@ export function CodeEditor({
           el.setSelectionRange(Math.max(lineStart, start - INDENT.length), Math.max(lineStart, end - INDENT.length))
         }
       } else {
-        el.setRangeText(INDENT, start, end, 'end')
+        // A mod's snippet whose prefix is right before the caret expands; otherwise Tab indents.
+        const expanded = start === end ? expandSnippet(value, start, lang, snippetsOf(useMods.getState().enabled)) : null
+        if (expanded) {
+          el.setRangeText(expanded.text, expanded.from, expanded.to, 'end')
+          el.setSelectionRange(expanded.caret, expanded.caret)
+        } else el.setRangeText(INDENT, start, end, 'end')
       }
       onChange(el.value)
       report()

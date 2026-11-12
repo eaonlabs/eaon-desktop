@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "publisher": "Eaon",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "id": "eaon.theme-high-contrast",
+  "name": "High Contrast",
+  "category": "themes",
+  "description": "Black on white and white on black with strong borders, for reading in bright light or with low vision.",
+  "contributes": {
+    "appThemes": [
+      {
+        "name": "High Contrast",
+        "light": {
+          "accent": "#0039A6",
+          "background": "#FFFFFF",
+          "foreground": "#000000",
+          "contrast": 70
+        },
+        "dark": {
+          "accent": "#7CC4FF",
+          "background": "#000000",
+          "foreground": "#FFFFFF",
+          "contrast": 70
+        }
+      }
+    ],
+    "terminalThemes": [
+      {
+        "id": "high-contrast",
+        "name": "High Contrast",
+        "mode": "dark",
+        "blurb": "Every colour at full strength on black",
+        "scene": null,
+        "app": "High Contrast",
+        "colors": {
+          "background": "#000000",
+          "foreground": "#FFFFFF",
+          "cursor": "#FFFFFF",
+          "selection": "#FFFFFF40",
+          "black": "#000000",
+          "red": "#FF5C5C",
+          "green": "#5CFF7A",
+          "yellow": "#FFE14D",
+          "blue": "#6CB6FF",
+          "magenta": "#FF7CFF",
+          "cyan": "#4DF0FF",
+          "white": "#E6E6E6",
+          "brightBlack": "#8C8C8C",
+          "brightRed": "#FF8A8A",
+          "brightGreen": "#9CFFAE",
+          "brightYellow": "#FFF08A",
+          "brightBlue": "#A3D2FF",
+          "brightMagenta": "#FFA8FF",
+          "brightCyan": "#99F7FF",
+          "brightWhite": "#FFFFFF"
+        }
+      }
+    ]
+  }
+}

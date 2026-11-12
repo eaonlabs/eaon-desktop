@@ -438,7 +438,7 @@ test('Claude Agent is never served to other apps: named, it is refused in each A
   const before = upstream.requests.length
   const chat = await post('/v1/chat/completions', { model: 'claude-agent/haiku', messages: [{ role: 'user', content: 'hi' }] })
   assert.equal(chat.status, 403)
-  assert.match(String((chat.json().error as { message: string }).message), /Claude Agent runs only inside Eaon/)
+  assert.match(String((chat.json().error as { message: string }).message), /Claude on your plan runs only inside Eaon/)
   const messages = await post('/v1/messages', { model: 'claude-agent/sonnet', max_tokens: 10, messages: [{ role: 'user', content: 'hi' }] })
   assert.equal(messages.status, 403)
   assert.equal((messages.json().error as { type: string }).type, 'permission_error')

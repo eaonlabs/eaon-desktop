@@ -14,6 +14,7 @@ import type {
   WorkerStreamEvent,
   WorkerThread,
   PurchaseRoutineDraft,
+  WorkerAccess,
   WorkerRoutine
 } from '@shared/workers'
 import type { WorkerAppLink } from '@shared/workerApps'
@@ -41,6 +42,16 @@ export const workersApi = {
   save: (draft: WorkerDraft): Promise<Worker> => ipcRenderer.invoke('workers:save', draft),
   /** Stops any running turn and forgets the worker; its folder stays on disk. */
   remove: (id: string): Promise<void> => ipcRenderer.invoke('workers:remove', id),
+  /** A copy under a new name: its settings, routines and playbooks, and none of its sign-ins, notes or messages. */
+  duplicate: (id: string): Promise<Worker> => ipcRenderer.invoke('workers:duplicate', id),
+  /** The text of a worker's setup file (settings, routines, playbooks; never a secret or a message), ready to save. */
+  exportSetup: (id: string): Promise<{ fileName: string; text: string; routines: number; playbooks: number }> => ipcRenderer.invoke('workers:export-setup', id),
+  /** Makes a worker from a setup file's text. Read again in main through a whitelist; sign-ins never come with it. */
+  importSetup: (text: string, options: { name?: string; access?: WorkerAccess; model?: null } = {}): Promise<Worker> => ipcRenderer.invoke('workers:import-setup', text, options),
+  /** Saves an export where the user picks, on this computer; the path, or null when cancelled. */
+  saveSetupFile: (fileName: string, text: string): Promise<string | null> => ipcRenderer.invoke('workers:save-setup-file', fileName, text),
+  /** Picks a setup file on this computer; its text for the preview, or null when cancelled. */
+  openSetupFile: (): Promise<{ file: string; text: string } | null> => ipcRenderer.invoke('workers:open-setup-file'),
   /**
    * Mail from the user. Files are absolute paths, referenced as they are.
    * Colleagues the text @mentions by name get their own copy.
@@ -66,6 +77,10 @@ export const workersApi = {
   /** Stops one of the worker's routines, by name. */
   removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
   removeRoutineById: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:remove-routine-id', id, routineId),
+  /** Pauses or resumes one routine (a paused one doesn't run; resumed, it carries on from its next slot). */
+  setRoutinePaused: (id: string, routineId: string, paused: boolean): Promise<WorkerRoutine> => ipcRenderer.invoke('workers:set-routine-paused', id, routineId, paused),
+  /** Cancels a wake-up the worker set for itself, in its main thread or a side thread. */
+  stopWakeup: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:stop-wakeup', id, threadId),
   /** A routine's next run, now: a purchase schedule's "Buy now". */
   runRoutine: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:run-routine', id, routineId),
   /** Saves a purchase schedule as one of the worker's routines (new, or replacing `draft.id`). */

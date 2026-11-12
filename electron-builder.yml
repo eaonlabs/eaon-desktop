@@ -67,6 +67,10 @@ extraResources:
   # plain JavaScript run by Eaon's own Node, one copy for every platform.
   - from: resources/tokn-cli
     to: tokn-cli
+  # Eaon's own mods (main/features/mods): bundled so the marketplace works
+  # offline. Installing one copies it out to the user's mods folder.
+  - from: resources/mods
+    to: mods
   # What the background sync runs (main/features/toknJob.ts), next to it.
   - from: resources/tokn-job.cjs
     to: tokn-job.cjs
@@ -129,8 +133,8 @@ mac:
   # builds, and each loads only on its own arch, so they are kept as they are.
   # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64) and
   # the Eaon CLI (eaon-cli/darwin-<arch>; only the arch that was built ships).
-  # Cua Driver is already universal, the same file in both builds.
-  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/whisper/darwin-*/**,**/eaon-cli/darwin-*/**,**/cua-driver/darwin/**}'
+  # Cua Driver and the app-control engine are already universal, the same file in both builds.
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/whisper/darwin-*/**,**/eaon-cli/darwin-*/**,**/cua-driver/darwin/**,**/app-control/darwin/**}'
   # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
   # main/llama/runtime.ts picks the one matching the running process.
   extraResources:
@@ -152,6 +156,16 @@ mac:
     # Outside the asar with its executable bit, and signed with the app.
     - from: resources/cua-driver/darwin
       to: cua-driver/darwin
+    # VMs on a Mac (scripts/build-vm-helper.mjs).
+    - from: resources/vm/darwin
+      to: vm/darwin
+    # App control's engine (scripts/build-app-control.mjs) and eaon-apps (main/features/appControl.ts).
+    # Outside the asar with its executable bit, and signed with the app.
+    - from: resources/app-control
+      to: app-control
+      filter:
+        - 'darwin/**'
+        - 'cli/**'
     # The Liquid Glass icon, compiled by scripts/make-icon.py (CFBundleIconName above).
     - from: resources/Assets.car
       to: Assets.car
@@ -198,6 +212,12 @@ win:
       to: eaon-cli/win32-${arch}
     - from: resources/cua-driver/win32-${arch}
       to: cua-driver/win32-${arch}
+    # App control on UI Automation, and eaon-apps (main/features/appControl.ts).
+    - from: resources/app-control
+      to: app-control
+      filter:
+        - 'win32/**'
+        - 'cli/**'
     # Window and taskbar icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.ico
       to: icons/default.ico
@@ -257,6 +277,12 @@ linux:
       to: eaon-cli/linux-${arch}
     - from: resources/cua-driver/linux-${arch}
       to: cua-driver/linux-${arch}
+    # App control on AT-SPI, and eaon-apps (main/features/appControl.ts).
+    - from: resources/app-control
+      to: app-control
+      filter:
+        - 'linux/**'
+        - 'cli/**'
     # Window icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.png
       to: icons/default.png

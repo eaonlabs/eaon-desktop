@@ -97,6 +97,33 @@
   line-height: 1.45;
 }
 
+/* What the chat has used, under the context numbers (chat/ChatUsage.tsx). */
+.context-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+.context-usage p {
+  margin: 0;
+}
+.context-usage__tokens {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.context-usage__cost {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.context-usage__cost span {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
 /* ---- Queued follow-ups -------------------------------------------- */
 
 .queued {

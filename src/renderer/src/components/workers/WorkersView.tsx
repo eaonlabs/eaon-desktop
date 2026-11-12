@@ -5,8 +5,11 @@ import {
   AlarmClock,
   ArrowLeft,
   Clock,
+  Copy,
   Eraser,
+  FileDown,
   FileText,
+  FileUp,
   FolderOpen,
   HeartPulse,
   History,
@@ -24,6 +27,7 @@ import {
 } from 'lucide-react'
 import { resolveSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
+import { useTradingOn } from '../trading/useTradingOn'
 import { TopBar } from '../TopBar'
 import { MessageRow } from '../ChatView'
 import { RowBoundary } from '../ErrorBoundary'
@@ -46,6 +50,8 @@ import { useChannels } from '../channels/channelsStore'
 import { WorkerCreate } from './WorkerCreate'
 import { VaultPage } from './WorkerVault'
 import { SignInSheet, WorkerThreadContext } from './WorkerCards'
+import { WorkerHoldBanner } from './WorkerLimits'
+import { duplicateWorker, exportWorker, WorkerImport } from './WorkerTransfer'
 import { AppFacts, WorkerAppsSheet } from './WorkerApps'
 import { MentionContext, mentionValue } from '../agent/Markdown'
 import { workerAppsEnabled } from '@shared/workerApps'
@@ -79,6 +85,7 @@ export function WorkersView(): JSX.Element {
       <WorkerAppsSheet />
       {roomEditor && <RoomEditor roomId={roomEditor.roomId} />}
       {teamDialog && <TeamDialog />}
+      <WorkerImport />
     </>
   )
 }
@@ -86,7 +93,7 @@ export function WorkersView(): JSX.Element {
 /* ------------------------------------------------------------------ Team */
 
 function Team(): JSX.Element {
-  const { workers, ready, error, init, openEditor, select, now, openTeamDialog } = useWorkers(
+  const { workers, ready, error, init, openEditor, select, now, openTeamDialog, setImportOpen } = useWorkers(
     useShallow((s) => ({
       workers: s.workers,
       ready: s.ready,
@@ -95,7 +102,8 @@ function Team(): JSX.Element {
       openEditor: s.openEditor,
       select: s.select,
       now: s.now,
-      openTeamDialog: s.openTeamDialog
+      openTeamDialog: s.openTeamDialog,
+      setImportOpen: s.setImportOpen
     }))
   )
   const working = workers.filter((w) => w.status === 'working').length
@@ -107,6 +115,10 @@ function Team(): JSX.Element {
         right={
           workers.length > 0 && workers.length < MAX_WORKERS ? (
             <div className="chat-header__actions">
+              <button className="header-btn" onClick={() => setImportOpen(true)} title="Make a worker from a setup file you exported from Eaon">
+                <FileUp size={14} strokeWidth={2} />
+                <span>Import</span>
+              </button>
               <button className="header-btn" onClick={() => openTeamDialog(true)} title="Several specialists and a group chat, in one go">
                 <Users size={14} strokeWidth={2} />
                 <span>New team</span>
@@ -132,7 +144,7 @@ function Team(): JSX.Element {
               </div>
             )
           ) : workers.length === 0 ? (
-            <TeamEmpty onCreate={() => openEditor(null)} onTeam={() => openTeamDialog(true)} />
+            <TeamEmpty onCreate={() => openEditor(null)} onTeam={() => openTeamDialog(true)} onImport={() => setImportOpen(true)} />
           ) : (
             <>
               <h1 className="page__title">Your team</h1>
@@ -165,7 +177,7 @@ function Team(): JSX.Element {
   )
 }
 
-function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => void }): JSX.Element {
+function TeamEmpty({ onCreate, onTeam, onImport }: { onCreate: () => void; onTeam: () => void; onImport: () => void }): JSX.Element {
   return (
     <div className="team-empty">
       <div className="team-empty__faces" aria-hidden="true">
@@ -187,6 +199,10 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
         <button className="btn btn--lg" onClick={onTeam}>
           <Users size={16} strokeWidth={2} />
           Start a team
+        </button>
+        <button className="btn btn--lg" onClick={onImport}>
+          <FileUp size={16} strokeWidth={2} />
+          Import a worker
         </button>
       </div>
     </div>
@@ -559,6 +575,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
   const pinned = worker.model ? resolveSelection(worker.model, providers) : null
   const creator = useWorkers((s) => (worker.createdBy ? s.workers.find((w) => w.id === worker.createdBy) : null))
   const servers = useApp((s) => s.mcpServers)
+  const { on: tradingOn } = useTradingOn()
   return (
     <div className="worker-profile">
       <WorkerFace
@@ -573,6 +590,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
       />
       <h1 className="worker-profile__name">{worker.name}</h1>
       <p className="worker-profile__purpose">{worker.purpose}</p>
+      <WorkerHoldBanner worker={worker} />
       <div className="worker-profile__facts">
         <span className="worker-fact" data-status={worker.paused ? 'paused' : worker.status} title={statusLine(worker)}>
           <span className="status-dot" />
@@ -595,7 +613,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
             {!pinned ? 'Uses your selected model' : pinned.model ? pinned.model.label : `${pinned.wanted?.label ?? worker.model!.modelId} · unavailable`}
           </span>
         </span>
-        {worker.trading && (
+        {worker.trading && tradingOn && (
           <span className="worker-fact" title={worker.trading.strategy || undefined}>
             <CandlestickChart size={13} strokeWidth={2} />
             <span className="worker-fact__text">
@@ -674,7 +692,7 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
  * beside it, so unlike `describeWorker` this never falls back to the schedule.
  */
 function statusLine(worker: Worker): string {
-  if (worker.paused) return 'Paused'
+  if (worker.paused) return worker.budgetHold ? 'Paused: spend cap reached' : 'Paused'
   if (worker.status === 'working') return runningThreads(worker) > 1 ? `${worker.activity || 'Working…'} · ${runningThreads(worker)} tasks running` : worker.activity || 'Working…'
   if (worker.queued) return `Queued — ${worker.queued}`
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
@@ -749,8 +767,8 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
       <button
         className="header-btn"
         aria-label={worker.paused ? 'Resume' : 'Pause'}
-        onClick={() => void setPaused(worker.id, !worker.paused)}
-        title={worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
+        onClick={() => (worker.budgetHold ? openEditor(worker.id) : void setPaused(worker.id, !worker.paused))}
+        title={worker.budgetHold ? `${worker.name} reached its spend cap: raise it to let it work again` : worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
       >
         {worker.paused ? <Play size={14} strokeWidth={1.9} /> : <Pause size={14} strokeWidth={1.9} />}
         <span>{worker.paused ? 'Resume' : 'Pause'}</span>
@@ -778,6 +796,8 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           onClose={() => setMenu(null)}
           items={[
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
+            { icon: <Copy size={15} strokeWidth={1.9} />, label: 'Duplicate worker', action: () => void duplicateWorker(worker) },
+            { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export setup…', action: () => void exportWorker(worker) },
             // Its folder is on the worker computer; its chat apps went there with it.
             ...(elsewhere ? [] : [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) }]),
             { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },

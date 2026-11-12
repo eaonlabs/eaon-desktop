@@ -1,7 +1,8 @@
 import { app, BrowserWindow, clipboard, Menu, shell, webContents, type WebContents } from 'electron'
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ANNOTATE_SHORTCUT, browserKey, matchesBinding, type BrowserKeyAction } from '@shared/browser'
+import { browserKey, matchesBinding, type BrowserKeyAction } from '@shared/browser'
+import { effectiveBinding } from '@shared/keybindings'
 import { openExternalLink } from '../security/hardening'
 import { store } from '../store'
 import type { Feature } from './types'
@@ -123,11 +124,12 @@ function wirePage(contents: WebContents): void {
 
   contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
-    const key = { key: input.key, meta: input.meta, ctrl: input.control, alt: input.alt, shift: input.shift }
+    const key = { key: input.key, meta: input.meta, ctrl: input.control, alt: input.alt, shift: input.shift, code: input.code }
+    // These two keys can be changed in Settings → Keyboard shortcuts.
     const shortcuts = store.getSettings().shortcuts
     let action: BrowserKeyAction | null = null
-    if (matchesBinding(shortcuts['annotate-page-element'] === undefined ? ANNOTATE_SHORTCUT : shortcuts['annotate-page-element'], key, isMac)) action = 'annotate'
-    else if (matchesBinding(shortcuts['focus-browser-address-bar'], key, isMac)) action = 'focus-address'
+    if (matchesBinding(effectiveBinding('annotate-page-element', shortcuts, isMac), key, isMac)) action = 'annotate'
+    else if (matchesBinding(effectiveBinding('focus-browser-address-bar', shortcuts, isMac), key, isMac)) action = 'focus-address'
     else action = browserKey(key, isMac)
     if (!action) return
     // Kept from the page and from the app's menu (⌘R would reload Eaon itself).

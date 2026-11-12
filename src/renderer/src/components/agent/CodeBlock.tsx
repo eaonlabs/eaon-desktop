@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react'
+import { useMemo, useState, type JSX, type ReactNode } from 'react'
 import { Check, ChevronDown, Copy, Eye, WrapText } from 'lucide-react'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { notify } from '../Notice'
@@ -21,11 +21,14 @@ const FOLDED_LINES = 18
 export function CodeBlock({
   lang,
   code,
-  streaming
+  streaming,
+  tools
 }: {
   lang: string
   code: string
   streaming?: boolean
+  /** Extra controls (a diagram's Show diagram) ahead of the block's own. */
+  tools?: ReactNode
 }): JSX.Element {
   const [copied, setCopied] = useState(false)
   const [wrapped, setWrapped] = useState(false)
@@ -41,6 +44,7 @@ export function CodeBlock({
       <div className="code-block__head" data-find-skip>
         <span className="code-block__lang">{lang || 'text'}</span>
         <span className="code-block__tools">
+          {tools}
           {!streaming && isPreviewable(lang) && (
             <button className="code-block__tool code-block__tool--label" aria-label="Preview" title="See it as a page" onClick={() => setPreviewing(true)}>
               <Eye size={13} strokeWidth={1.9} />

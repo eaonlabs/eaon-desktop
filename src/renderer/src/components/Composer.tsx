@@ -7,6 +7,7 @@ import {
   FileText,
   Folder,
   Globe,
+  Camera,
   Hand,
   Laptop,
   Lightbulb,
@@ -21,6 +22,7 @@ import {
   Target,
   AtSign,
   Clock3,
+  MessageCircleQuestion,
   MessageSquarePlus,
   Sparkles,
   X,
@@ -35,8 +37,13 @@ import { useSkills } from './plugins/usePlugins'
 import { droppedFilePaths, editorDrag, fileName, fileUrl, isImagePath } from '../lib/files'
 import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
-import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
+import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, modCommandItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
+import { useChatContext } from './composer/useChatContext'
+import { SideQuestion } from './chat/SideQuestion'
+import { useSideQuestion } from '../state/sideQuestion'
+import { parseSideQuestion } from '@shared/sideQuestion'
+import { ScreenshotPicker } from './composer/ScreenshotPicker'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
@@ -55,12 +62,16 @@ import { errorText } from '../lib/errors'
 import { sentPrompts } from '../state/chatEdits'
 import { rewindFiles } from './chatCode/turnUndo'
 import { dropStashed, stashPrompt, stashTitle, takeStashed, useStash } from '../state/stash'
+import { Bookmark } from 'lucide-react'
+import { PromptLibrary } from './composer/PromptLibrary'
+import { savedPromptItems } from './composer/promptItems'
 import { ago } from '@shared/modelSelection'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
 import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
 import { SpeechSetup } from './composer/SpeechSetup'
+import { useFitInput } from './composer/useFitInput'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../lib/platform'
 
@@ -165,6 +176,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
+  // In a conversation, text that wraps takes the whole box, with + and send under it.
+  const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
   // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
   const hold = useHoldToTalk(dictation, {
     ready: () => {
@@ -176,6 +189,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const stashAnchor = useRef<HTMLDivElement>(null)
   const stashMenu = useDisclosure()
   const stashed = useStash((s) => s.list)
+  // The prompt library (composer/PromptLibrary.tsx), from the + menu or "/".
+  const [library, setLibrary] = useState(false)
   // ⇧⌘V: the next paste stays in the box however long it is.
   const pasteInline = useRef(false)
 
@@ -194,12 +209,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // What the request will actually use: the chosen effort, clamped to the model.
   const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
 
-  useEffect(() => {
-    const node = textarea.current
-    if (!node) return
-    node.style.height = 'auto'
-    node.style.height = `${Math.min(node.scrollHeight, 320)}px`
-  }, [text])
 
   useEffect(() => {
     if (!draftId) return
@@ -285,6 +294,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerAppend, appendToComposer])
 
+  // A side question belongs to the chat it was asked in: leaving the chat puts it away.
+  useEffect(() => () => useSideQuestion.getState().close(), [])
+
   const submit = (): void => {
     if (streaming) {
       // Stopping is a moment to look again: whatever is queued waits.
@@ -292,6 +304,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
+    if (askSide()) return
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
@@ -303,20 +316,38 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           setRewindError(result.error ?? 'The files couldn’t be put back.')
           return
         }
-        resendFrom(messageId, text, options)
+        resendFrom(messageId, context.expand(text), options)
         clearBox()
       })
       return
     }
-    if (editing) resendFrom(editing, text, options)
-    else void send(text, options)
+    // "/name args" for a prompt file goes as the file's prompt, filled in.
+    const sent = context.expand(text)
+    if (editing) resendFrom(editing, sent, options)
+    else void send(sent, options)
     clearBox()
+  }
+
+  /**
+   * "/btw …" is a side question: answered in a card, never sent into the chat
+   * or queued behind a reply. True when the text was one (nothing else then runs).
+   */
+  const askSide = (): boolean => {
+    const question = parseSideQuestion(text)
+    if (question === null) return false
+    if (!question) notify('Type your question after /btw, for example: /btw what does that flag do?')
+    else {
+      useSideQuestion.getState().ask(question)
+      setText('')
+    }
+    return true
   }
 
   /** While a reply is being written: the message waits, under the conversation, to go after it. */
   const queueMessage = (): void => {
+    if (askSide()) return
     if (!activeChatId || noModel || editing || (!text.trim() && attachments.length === 0)) return
-    enqueue(activeChatId, text, attachments)
+    enqueue(activeChatId, context.expand(text), attachments)
     clearBox()
   }
 
@@ -376,6 +407,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         .catch((error: unknown) => notify(`Couldn't attach the pasted image: ${errorText(error)}`, 'error'))
     }
   }
+
+  const [shotOpen, setShotOpen] = useState(false)
 
   const pickFiles = (): void =>
     void window.api.app
@@ -461,10 +494,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
    */
   // The project's files for "@": read when the menu first asks (loadFiles only reads, then sets later).
   const projectFiles = useChatCode((s) => (isAgent ? s.files : null))
+  // Git changes, terminal output and earlier chats, attached to the message when picked.
+  const context = useChatContext({ cwd, addAttachments })
   const sources: SuggestSources = {
-    '/': () => {
+    '/': (query: string) => {
       const items: SuggestItem[] = [
-        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles }
+        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
+        { id: 'screenshot', title: 'Take a screenshot', keywords: 'screenshot screen capture window image attach', section: 'Add', icon: <Camera size={16} strokeWidth={1.8} />, run: () => setShotOpen(true) }
       ]
       if (isAgent) {
         items.push(
@@ -478,7 +514,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && workIn(paths[0]))
           },
           { id: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
-          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode }) },
+          { id: 'ask-mode', title: 'Ask only', keywords: 'ask question read-only answer explain', description: 'Answer questions about the project; change nothing', section: 'Modes', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, checked: Boolean(settings?.askMode), run: () => void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) }) },
+          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) }) },
           { id: 'swarm', title: 'Swarm', keywords: 'swarm parallel helpers sub-agents', description: 'Split work across parallel helpers', section: 'Modes', icon: <Network size={16} strokeWidth={1.8} />, checked: Boolean(settings?.work.swarm), run: () => void patchSettings({ work: { swarm: !settings?.work.swarm } }) },
           ...permissionItems(
             [
@@ -498,11 +535,16 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
         )
       }
+      // The prompt library, and with something typed, each saved prompt by name.
+      items.push(...savedPromptItems(() => setLibrary(true), query))
       items.push(
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
-        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
+        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
+        { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
-      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? [])] : items
+      return isAgent
+        ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query), ...modCommandItems('chat')]
+        : [...items, ...context.commandItems(query), ...modCommandItems('chat')]
     },
     ...(isAgent
       ? {
@@ -519,18 +561,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
                 onBrowser: () => toggleBrowser(true),
                 onComputerSettings: () => setSettingsPage('computer-use')
               }),
+              ...context.mentionItems(query),
               ...fileMentionItems(projectFiles ?? [], query)
             ]
           }
         }
       : {})
   }
-  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, plugins and tools' } })
+  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, git, terminals, chats, plugins and tools' } })
   const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)
+  const askOn = isAgent && Boolean(settings?.askMode) && !planOn
   const swarmOn = isAgent && Boolean(settings?.work.swarm)
-  const hasChips = planOn || swarmOn || goalArmed || shownMentions.length > 0
+  const hasChips = planOn || askOn || swarmOn || goalArmed || shownMentions.length > 0
 
   // The box's parts, laid out per variant below: on the home screen the text
   // sits over a toolbar; in a conversation it is one line between + and send,
@@ -546,7 +590,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           ? 'Edit your message'
           : goalArmed
           ? 'Describe the goal — Eaon keeps working until it is done'
-          : planOn
+          : askOn
+            ? 'Ask about this project — Eaon reads it and answers, and changes nothing'
+            : planOn
             ? 'Describe the task — Eaon researches and proposes a plan first'
             : variant === 'chat'
               ? coding && isAgent
@@ -613,6 +659,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     <div className="composer__chips">
       {goalArmed && <ActiveChip icon={<Target size={13} strokeWidth={2} />} label="Goal" title="The next message is a goal Eaon keeps working on until it is done" onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />}
       {goalArmed && <GoalEndChip value={goalUntil} onChange={setGoalUntil} />}
+      {askOn && <ActiveChip icon={<MessageCircleQuestion size={13} strokeWidth={2} />} label="Ask" title="Eaon answers questions about the project and changes nothing" onClear={() => void patchSettings({ askMode: false })} clearLabel="Turn off Ask mode" />}
       {planOn && <ActiveChip icon={<Lightbulb size={13} strokeWidth={2} />} label="Plan" title="Eaon researches and proposes a plan before changing anything" onClear={() => void patchSettings({ planMode: false })} clearLabel="Turn off Plan mode" />}
       {swarmOn && <ActiveChip icon={<Network size={13} strokeWidth={2} />} label="Swarm" title="Eaon can split work across parallel sub-agents" onClear={() => void patchSettings({ work: { swarm: false } })} clearLabel="Turn off Swarm" />}
       {shownMentions.map((mention) => (
@@ -648,7 +695,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             : `Unavailable — ${engineChoice.reason ?? ''}`
           : selection.status === 'unavailable'
             ? `Unavailable — ${selection.reason ?? ''}`
-            : undefined
+            : model?.label
       }
     >
       {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
@@ -738,6 +785,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
+      <SideQuestion />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">
@@ -769,7 +817,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -802,7 +850,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )}
 
         {variant === 'chat' ? (
-          // In a conversation: one pill, + at one end and send at the other; its settings sit under it.
+          // In a conversation: one pill, + at one end and send at the other (under the text once
+          // it wraps); its settings sit under it.
           <div className="composer__row">
             {plusButton}
             {input}
@@ -842,12 +891,30 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         open={plusMenu.open}
         onClose={plusMenu.close}
         onAttach={addAttachments}
+        onScreenshot={() => setShotOpen(true)}
         goalArmed={goalArmed}
         onGoal={() => {
           setGoalArmed(!goalArmed)
           textarea.current?.focus()
         }}
+        onPrompts={() => setLibrary(true)}
       />
+      <PromptLibrary
+        open={library}
+        onClose={() => setLibrary(false)}
+        typed={text}
+        onUse={(prompt) => {
+          setLibrary(false)
+          // As a stashed prompt comes back: after what is already in the box.
+          setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${prompt}` : prompt))
+          requestAnimationFrame(() => {
+            const node = textarea.current
+            node?.focus()
+            node?.setSelectionRange(node.value.length, node.value.length)
+          })
+        }}
+      />
+      <ScreenshotPicker open={shotOpen} onClose={() => setShotOpen(false)} onAttach={addAttachments} />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
       <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
         <div className="menu__label">Saved for later</div>
@@ -1016,15 +1083,19 @@ function AddMenu({
   open,
   onClose,
   onAttach,
+  onScreenshot,
   goalArmed,
-  onGoal
+  onGoal,
+  onPrompts
 }: {
   anchor: React.RefObject<HTMLElement>
   open: boolean
   onClose: () => void
   onAttach: (paths: string[]) => void
+  onScreenshot: () => void
   goalArmed: boolean
   onGoal: () => void
+  onPrompts: () => void
 }): JSX.Element {
   const { settings, patchSettings, workIn, setSettingsPage, toggleBrowser } = useApp(
     useShallow((s) => ({
@@ -1059,6 +1130,26 @@ function AddMenu({
             .then(onAttach)
         }}
       />
+      <MenuItem
+        icon={<Bookmark size={16} strokeWidth={1.8} />}
+        title="Saved prompts"
+        hint="Your prompt library"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          close()
+          onPrompts()
+        }}
+      />
+      <MenuItem
+        icon={<Camera size={16} strokeWidth={1.8} />}
+        title="Take a screenshot"
+        hint="A screen or window"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          close()
+          onScreenshot()
+        }}
+      />
       {isAgent && (
         <>
           <MenuItem
@@ -1085,13 +1176,24 @@ function AddMenu({
             }}
           />
           <MenuItem
+            icon={<MessageCircleQuestion size={16} strokeWidth={1.8} />}
+            title="Ask only"
+            hint={settings?.askMode ? undefined : 'Read, answer, change nothing'}
+            checked={settings?.askMode}
+            onMouseEnter={() => setSub(null)}
+            onClick={() => {
+              void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) })
+              close()
+            }}
+          />
+          <MenuItem
             icon={<Lightbulb size={16} strokeWidth={1.8} />}
             title="Plan first"
             hint={settings?.planMode ? undefined : 'Approve a plan'}
             checked={settings?.planMode}
             onMouseEnter={() => setSub(null)}
             onClick={() => {
-              void patchSettings({ planMode: !settings?.planMode })
+              void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) })
               close()
             }}
           />

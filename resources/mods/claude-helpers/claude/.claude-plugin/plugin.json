@@ -1,0 +1,7 @@
+{
+  "name": "eaon-review-helpers",
+  "version": "1.0.0",
+  "description": "A code reviewer and a test writer subagent, and a skill for release notes.",
+  "author": { "name": "Eaon" },
+  "license": "Apache-2.0"
+}

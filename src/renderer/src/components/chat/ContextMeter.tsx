@@ -2,6 +2,7 @@ import { useMemo, useRef, type JSX } from 'react'
 import { useApp } from '../../state/store'
 import { estimateContext } from '../../state/contextUse'
 import { Popover, useDisclosure } from '../ui'
+import { ChatUsage } from './ChatUsage'
 
 /**
  * A small ring by the model in a conversation's message box: about how much
@@ -78,6 +79,7 @@ export function ContextMeter({ contextWindow }: { contextWindow: number | undefi
                 ? 'Next turn, Eaon summarizes the older messages to make room. Nothing in the chat is removed.'
                 : `At ${Math.round(compactAt * 100)}%, Eaon summarizes the older messages to make room. The count is an estimate.`}
           </p>
+          <ChatUsage messages={chat.messages} />
         </div>
       </Popover>
     </>

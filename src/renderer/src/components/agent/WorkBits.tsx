@@ -1,18 +1,24 @@
 import { memo, useMemo, useState, type JSX } from 'react'
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronDown,
   CircleDashed,
   Lightbulb,
   Loader2,
   Pause,
+  Pencil,
   Play,
+  Plus,
   Target,
+  Trash2,
   TriangleAlert,
   X
 } from 'lucide-react'
 import type { Chat, ChatMessage, GoalState, PlanProposal, SubagentRun, TodoItem, TokenUsage } from '@shared/types'
 import { useApp } from '../../state/store'
+import { MAX_PLAN_STEPS, MAX_STEP_CHARS, cleanPlanSteps, moveStep } from '@shared/planEdit'
 import { fileUrl } from '../../lib/files'
 import { revealLabel } from '../../lib/platform'
 import '../../styles/tasklist.css'
@@ -27,6 +33,9 @@ import '../../styles/tasklist.css'
 
 export function PlanCard({ message, plan }: { message: ChatMessage; plan: PlanProposal }): JSX.Element {
   const approvePlan = useApp((s) => s.approvePlan)
+  const editPlanSteps = useApp((s) => s.editPlanSteps)
+  // The steps while they are being edited; null when they are not.
+  const [draft, setDraft] = useState<string[] | null>(null)
   // Approving waits until this chat's reply is done.
   const streaming = useApp((s) => s.chats.some((c) => c.id in s.runs && c.messages.some((m) => m.id === message.id)))
   const setComposerDraft = useApp((s) => s.setComposerDraft)
@@ -45,15 +54,41 @@ export function PlanCard({ message, plan }: { message: ChatMessage; plan: PlanPr
         )}
       </div>
       {plan.summary && <p className="plan-card__summary">{plan.summary}</p>}
-      <ol className="plan-card__steps">
-        {plan.steps.map((step, index) => (
-          <li key={index}>{step}</li>
-        ))}
-      </ol>
-      {pending && (
+      {draft ? (
+        <PlanStepsEditor steps={draft} onChange={setDraft} />
+      ) : (
+        <ol className="plan-card__steps">
+          {plan.steps.map((step, index) => (
+            <li key={index}>{step}</li>
+          ))}
+        </ol>
+      )}
+      {plan.edited && !draft && <p className="plan-card__edited">You changed this plan. The agent is told to follow your version.</p>}
+      {pending && draft && (
         <div className="plan-card__actions">
+          <button className="btn btn--ghost btn--sm" onClick={() => setDraft(null)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={cleanPlanSteps(draft).length === 0}
+            onClick={() => {
+              editPlanSteps(message.id, draft)
+              setDraft(null)
+            }}
+          >
+            Save plan
+          </button>
+        </div>
+      )}
+      {pending && !draft && (
+        <div className="plan-card__actions">
+          <button className="btn btn--ghost btn--sm" disabled={streaming} onClick={() => setDraft([...plan.steps])}>
+            <Pencil size={13} strokeWidth={2} />
+            Edit steps
+          </button>
           <button className="btn btn--ghost btn--sm" disabled={streaming} onClick={() => setComposerDraft('Change the plan: ')}>
-            Revise
+            Ask for changes
           </button>
           <button className="btn btn--primary btn--sm" disabled={streaming} onClick={() => approvePlan(message.id)}>
             <Play size={13} strokeWidth={2} />
@@ -61,6 +96,42 @@ export function PlanCard({ message, plan }: { message: ChatMessage; plan: PlanPr
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** The plan's steps as text boxes: reworded, moved, removed or added. */
+function PlanStepsEditor({ steps, onChange }: { steps: string[]; onChange: (steps: string[]) => void }): JSX.Element {
+  const set = (index: number, text: string): void => onChange(steps.map((s, i) => (i === index ? text : s)))
+  return (
+    <div className="plan-edit">
+      <ol className="plan-edit__steps">
+        {steps.map((step, index) => (
+          <li key={index} className="plan-edit__row">
+            <input
+              className="input plan-edit__input"
+              aria-label={`Step ${index + 1}`}
+              value={step}
+              maxLength={MAX_STEP_CHARS}
+              autoFocus={index === steps.length - 1 && step === ''}
+              onChange={(e) => set(index, e.target.value)}
+            />
+            <button className="icon-btn" aria-label={`Move step ${index + 1} up`} disabled={index === 0} onClick={() => onChange(moveStep(steps, index, -1))}>
+              <ArrowUp size={13} strokeWidth={2} />
+            </button>
+            <button className="icon-btn" aria-label={`Move step ${index + 1} down`} disabled={index === steps.length - 1} onClick={() => onChange(moveStep(steps, index, 1))}>
+              <ArrowDown size={13} strokeWidth={2} />
+            </button>
+            <button className="icon-btn" aria-label={`Remove step ${index + 1}`} disabled={steps.length === 1} onClick={() => onChange(steps.filter((_, i) => i !== index))}>
+              <Trash2 size={13} strokeWidth={2} />
+            </button>
+          </li>
+        ))}
+      </ol>
+      <button className="btn btn--ghost btn--sm" disabled={steps.length >= MAX_PLAN_STEPS} onClick={() => onChange([...steps, ''])}>
+        <Plus size={13} strokeWidth={2} />
+        Add a step
+      </button>
     </div>
   )
 }

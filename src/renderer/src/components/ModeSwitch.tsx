@@ -4,7 +4,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../state/store'
 import { useWorkers } from './workers/workersStore'
 import type { Workspace } from '@shared/types'
-import { formatShortcut, isMacPlatform } from '../lib/keys'
+import { effectiveBinding, formatBinding } from '@shared/keybindings'
+import { isMac } from '../lib/platform'
 
 /**
  * Chat ⇄ Workers ⇄ ADE, centred in the top bar of every screen.
@@ -19,12 +20,11 @@ import { formatShortcut, isMacPlatform } from '../lib/keys'
  * - ADE is the agentic development environment — an Eaon Code session in a
  *   project folder.
  */
-// ⌘1–⌘3 on a Mac, Ctrl+1–3 elsewhere (lib/keys.ts).
-const key = (n: string): string => formatShortcut({ modifiers: ['mod'], key: n }, isMacPlatform())
-const TABS: { kind: Workspace['kind']; label: string; icon: JSX.Element; hint: string }[] = [
-  { kind: 'chat', label: 'Chat', icon: <MessagesSquare size={15} strokeWidth={2} />, hint: `Chat — ask anything, or hand Eaon a task (${key('1')})` },
-  { kind: 'workers', label: 'Workers', icon: <WorkersGlyph size={15} strokeWidth={2} />, hint: `Workers — agents that keep working in the background (${key('2')})` },
-  { kind: 'code', label: 'ADE', icon: <SquareTerminal size={15} strokeWidth={2} />, hint: `ADE — agentic development environment (${key('3')})` }
+// ⌘1–⌘3 on a Mac, Ctrl+1–3 elsewhere, unless changed in Settings → Keyboard shortcuts (lib/bindings.ts).
+const TABS: { kind: Workspace['kind']; label: string; icon: JSX.Element; hint: (key: string) => string; shortcut: string }[] = [
+  { kind: 'chat', label: 'Chat', icon: <MessagesSquare size={15} strokeWidth={2} />, hint: (key) => `Chat — ask anything, or hand Eaon a task${key}`, shortcut: 'tab-chat' },
+  { kind: 'workers', label: 'Workers', icon: <WorkersGlyph size={15} strokeWidth={2} />, hint: (key) => `Workers — agents that keep working in the background${key}`, shortcut: 'tab-workers' },
+  { kind: 'code', label: 'ADE', icon: <SquareTerminal size={15} strokeWidth={2} />, hint: (key) => `ADE — agentic development environment${key}`, shortcut: 'tab-ade' }
 ]
 
 export function ModeSwitch(): JSX.Element | null {
@@ -37,6 +37,7 @@ export function ModeSwitch(): JSX.Element | null {
       view: s.view
     }))
   )
+  const shortcuts = useApp((s) => s.settings?.shortcuts)
   // A worker waiting on the user is worth a dot on its tab from anywhere in the app.
   const workersAttention = useWorkers((s) => s.workers.some((w) => w.unread > 0 || w.status === 'failed'))
 
@@ -49,8 +50,9 @@ export function ModeSwitch(): JSX.Element | null {
 
   return (
     <div className="mode-switch" role="tablist" aria-label="Mode">
-      {tabs.map(({ workspace, label, icon, hint, kind }) => {
+      {tabs.map(({ workspace, label, icon, hint, kind, shortcut }) => {
         const active = workspace.id === activeId
+        const keys = formatBinding(effectiveBinding(shortcut, shortcuts, isMac), isMac)
         return (
           <button
             key={workspace.id}
@@ -58,7 +60,7 @@ export function ModeSwitch(): JSX.Element | null {
             className="mode-switch__option"
             aria-selected={active}
             data-active={active || undefined}
-            title={hint}
+            title={hint(keys ? ` (${keys})` : '')}
             onClick={() => {
               if (!active) setWorkspace(workspace.id)
               // Switching mode from a full-page view (Plugins, Models) lands on

@@ -14,6 +14,7 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
+import { appControlPaneEnv } from './appControl'
 import { cliAccountDirs, cliAccountEnv, cliToolEnv } from './cliAccounts'
 import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccounts/usageReport'
 import { defaultDir, hasRollout } from './cliAccounts/folders'
@@ -30,6 +31,9 @@ import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
 import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
 import type { GuestLaunch } from './terminals/guestSandbox'
+import { enabledMods } from './mods/service'
+import { modDir } from './mods/files'
+import { withMods } from './mods/launch'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -205,10 +209,12 @@ function agents(): TerminalAgent[] {
  * Eaon Code shares them; a key already exported in the shell still wins. An
  * Eaon CLI pane gets where Eaon serves the downloaded models, starting the
  * server if it is off; without it, Eaon CLI says what is wrong itself.
+ * While Settings → App control lets coding agents use it, every pane gets
+ * `eaon-apps` on its PATH and the key it needs.
  */
 async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
   // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
-  return { ...cliAccountEnv(), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
+  return { ...cliAccountEnv(), ...(await appControlPaneEnv()), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
 }
 
 async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
@@ -455,14 +461,25 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   let send: (channel: string, payload: unknown) => void = () => undefined
 
-  /** A local shell started (not reattached) with `env`: its Codex account is noted. */
-  const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null): TerminalSpawnResult => {
+  /**
+   * A local shell started (not reattached) with `env`: its Codex account is
+   * noted. A grid pane's Claude Code or Codex gets the enabled mods' parts
+   * for it (mods/launch.ts); a pane outside the grid starts as its owner set it up.
+   */
+  const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null, useMods = true): TerminalSpawnResult => {
     // Claude Code's plan limits reach the usage meter after each reply (withUsageReport).
     if (runsClaude(req.command) || runsClaude(plan?.command)) {
       const settings = usageReportSettings()
       const kind = paneShellKind()
       if (req.command) req = { ...req, command: withUsageReport(req.command, settings, kind) }
       if (plan) plan = { ...plan, command: withUsageReport(plan.command, settings, kind) }
+    }
+    const mods = useMods ? enabledMods() : []
+    if (mods.length) {
+      const kind = paneShellKind()
+      const options = { codexHome: env.CODEX_HOME }
+      if (req.command) req = { ...req, command: withMods(req.command, mods, modDir, kind, options) }
+      if (plan?.command) plan = { ...plan, command: withMods(plan.command, mods, modDir, kind, options) }
     }
     const result = manager.spawn(req, env, plan)
     if (result.ok && !result.reattached) codexHomes.set(req.paneId, env.CODEX_HOME ?? null)
@@ -508,7 +525,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       }
       // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
       const outside = outsidePaneEnv(req.paneId)
-      if (outside) return startLocal(req, { ...(await agentEnv(req.agent)), ...outside })
+      if (outside) return startLocal(req, { ...(await agentEnv(req.agent)), ...outside }, null, false)
       // A pane with a live shell reattaches to it; only a pane's first
       // start in a run is its restore.
       if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
