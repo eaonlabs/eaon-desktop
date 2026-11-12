@@ -109,6 +109,7 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "appearance", title: "Scenes", description: "Draw each terminal theme’s scene behind the text. Pick a theme from the ADE’s theme button", section: "ADE background" },
   { page: "appearance", title: "Blur", description: "Soften the scene so it reads as a backdrop and the text stands out", section: "ADE background" },
   { page: "appearance", title: "Blur strength", description: "How soft the scene gets", section: "ADE background" },
+  { page: "appearance", title: "Scene", description: "A slow scene drawn in characters behind the chat and the home screen. It stays out of the way of the text", section: "Chat background" },
   { page: "configuration", title: "Web search", description: "Let the model search the web when an answer needs current information. Snippets returns search-result text only; Full pages also scrapes the pages it finds, which is slower but more thorough.", section: "Web" },
   { page: "usage", title: "Couldn’t load your usage", description: "", section: "" },
   { page: "usage", title: "Daily totals per model", description: "Requests, tokens and the estimated cost, one line per model per day. Never your prompts, Eaon’s replies, code or file names.", section: "What Tokn gets" },

@@ -1,5 +1,6 @@
 /** Types shared between the main and renderer processes. */
 
+import type { ChatScene } from './chatScenes'
 import type { AskQuestion } from './askQuestions'
 import type { AppControlSettings } from './appControl'
 import type { WorkerMail } from './workers'
@@ -445,6 +446,8 @@ export interface Settings {
     fontSize: number
     fontSmoothing: boolean
     appIcon: AppIcon
+    /** A live scene drawn in characters behind the chat. */
+    chatScene: ChatScene
     /**
      * See-through: the desktop's wallpaper drawn behind the app, lined up
      * with the screen, so the window reads as glass over the desktop.
