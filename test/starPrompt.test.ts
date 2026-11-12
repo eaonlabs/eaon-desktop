@@ -72,3 +72,11 @@ test('in a session it asks after 10 to 20 minutes of use, from the first launch'
   }
   assert.equal(shouldAsk(base({ launches: 1 }), NOW), true, 'the first session can be the one')
 })
+
+test('starStatus: starred, not yet, or unknown without a signed-in CLI', async () => {
+  const { starStatus } = await import('../src/main/starPrompt')
+  assert.equal(await starStatus(async () => ({ ok: true })), 'starred')
+  assert.equal(await starStatus(async () => ({ ok: false, reason: 'failed' })), 'not-starred')
+  assert.equal(await starStatus(async () => ({ ok: false, reason: 'no-gh' })), 'unknown')
+  assert.equal(await starStatus(async () => ({ ok: false, reason: 'not-signed-in' })), 'unknown')
+})

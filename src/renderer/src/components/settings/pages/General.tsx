@@ -5,6 +5,7 @@ import { Card, ErrorDetails, Modal, Row, Section, Select, Switch } from '../../u
 import { LinkAccounts } from '../../LinkAccounts'
 import { Compass, ExternalLink, Github, Sparkles, Star } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
+import type { StarStatus } from '@shared/star'
 import { DOCS_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '@shared/links'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useOnboarding } from '../../onboarding/onboardingStore'
@@ -276,12 +277,7 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="Community">
         <Card>
-          <Row title="Star Eaon" description="Opens the repository, and stars it for you if the GitHub CLI is signed in on this computer.">
-            <button className="btn btn--ghost btn--sm" onClick={() => void window.api.star.answer('star')}>
-              <Star size={13} strokeWidth={1.9} />
-              Star on GitHub
-            </button>
-          </Row>
+          <StarRow />
           <Row title="GitHub" description="Eaon's source code. Contributions are welcome.">
             <button
               type="button"
@@ -424,6 +420,47 @@ function TradingRow(): JSX.Element {
       }
     >
       <Switch label="Trading" checked={wanted} onChange={(on) => void patchSettings({ general: { trading: on } })} />
+    </Row>
+  )
+}
+
+
+/** Star Eaon: says so once the GitHub CLI's account has starred it, also when that was done on github.com. */
+function StarRow(): JSX.Element {
+  const [status, setStatus] = useState<StarStatus>('unknown')
+  useEffect(() => {
+    let live = true
+    const check = (): void => void window.api.star.status().then((next) => live && setStatus(next)).catch(() => undefined)
+    check()
+    // Back from github.com after pressing the star there.
+    window.addEventListener('focus', check)
+    return () => {
+      live = false
+      window.removeEventListener('focus', check)
+    }
+  }, [])
+  const starred = status === 'starred'
+  return (
+    <Row
+      title={starred ? 'You starred Eaon' : 'Star Eaon'}
+      description={starred ? 'Thank you. Your star helps other developers find it.' : 'Opens the repository, and stars it for you if the GitHub CLI is signed in on this computer.'}
+    >
+      {starred ? (
+        <span className="btn btn--ghost btn--sm" aria-live="polite" style={{ pointerEvents: 'none' }}>
+          <Star size={13} strokeWidth={1.9} fill="currentColor" />
+          Starred
+        </span>
+      ) : (
+        <button
+          className="btn btn--ghost btn--sm"
+          onClick={() =>
+            void window.api.star.answer('star').then((result) => result?.starred && setStatus('starred')).catch(() => undefined)
+          }
+        >
+          <Star size={13} strokeWidth={1.9} />
+          Star on GitHub
+        </button>
+      )}
     </Row>
   )
 }

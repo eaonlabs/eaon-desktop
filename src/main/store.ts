@@ -153,6 +153,7 @@ export const defaultSettings: Settings = {
     },
     pointerCursors: false,
     reduceMotion: 'system',
+    chatScene: 'off',
     fontSize: 14,
     fontSmoothing: true,
     appIcon: 'default',

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
+import { CHAT_SCENES, CHAT_SCENE_LABELS, type ChatScene } from '@shared/chatScenes'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
 import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
@@ -120,6 +121,7 @@ export function AppearancePage(): JSX.Element {
 
       <GlassSection />
 
+      <ChatSceneSection />
       <AdeBackgroundSection />
 
       <Section label="Preferences">
@@ -573,6 +575,25 @@ function AdeBackgroundSection(): JSX.Element | null {
             <Slider label="Blur strength" value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
           </Row>
         )}
+      </Card>
+    </Section>
+  )
+}
+
+function ChatSceneSection(): JSX.Element | null {
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const a = settings?.appearance
+  if (!a) return null
+  return (
+    <Section label="Chat background">
+      <Card>
+        <Row title="Scene" description="A slow scene drawn in characters behind the chat and the home screen. It stays out of the way of the text">
+          <Select<ChatScene>
+            value={a.chatScene}
+            onChange={(chatScene) => void patchSettings({ appearance: { chatScene } })}
+            options={CHAT_SCENES.map((id) => ({ value: id, label: CHAT_SCENE_LABELS[id] }))}
+          />
+        </Row>
       </Card>
     </Section>
   )

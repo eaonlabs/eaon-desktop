@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Settings } from '@shared/types'
-import { STAR_REPO, STAR_REPO_URL, type StarResult } from '@shared/star'
+import { STAR_REPO, STAR_REPO_URL, type StarResult, type StarStatus } from '@shared/star'
 import { onPath } from './shellEnv'
 
 /**
@@ -56,6 +56,13 @@ export const runGh: Gh = async (args) => {
 /** Whether this person's account has already starred it (a 404 means not yet). */
 export async function alreadyStarred(gh: Gh = runGh): Promise<boolean> {
   return (await gh(['api', `/user/starred/${STAR_REPO}`])).ok
+}
+
+/** Starred, not yet (the API answers 404), or unknowable without a signed-in GitHub CLI. */
+export async function starStatus(gh: Gh = runGh): Promise<StarStatus> {
+  const outcome = await gh(['api', `/user/starred/${STAR_REPO}`])
+  if (outcome.ok) return 'starred'
+  return outcome.reason === 'failed' ? 'not-starred' : 'unknown'
 }
 
 /** Stars the repository for the signed-in GitHub CLI, and opens its page either way. */

@@ -8,6 +8,8 @@ import { onboardingShowing, useOnboardingShowing } from './onboarding/onboarding
 const TICK_MS = 15_000
 /** How long the thank-you stays before the card goes. */
 const THANKS_MS = 5_000
+/** How long the card waits for a star pressed on github.com. */
+const WAIT_FOR_STAR_MS = 90_000
 
 /**
  * "Enjoying Eaon?" — a small card in the corner after 10 to 20 minutes of
@@ -124,6 +126,25 @@ export function StarCard({ intro = false, onClosed }: { intro?: boolean; onClose
     []
   )
 
+  // Opened GitHub without a CLI to star it: when they come back having pressed the star, the card says so.
+  const waiting = result !== null && !result.starred
+  useEffect(() => {
+    if (!waiting) return
+    const check = (): void => {
+      void window.api.star
+        .status()
+        .then((status) => {
+          if (status !== 'starred') return
+          if (closing.current) window.clearTimeout(closing.current)
+          setResult({ starred: true })
+          closing.current = window.setTimeout(onClosed, THANKS_MS)
+        })
+        .catch(() => undefined)
+    }
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
+  }, [waiting, onClosed])
+
   const later = (): void => {
     if (closing.current) window.clearTimeout(closing.current)
     if (!result) void window.api.star.answer('later')
@@ -134,11 +155,13 @@ export function StarCard({ intro = false, onClosed }: { intro?: boolean; onClose
     setBusy(true)
     void window.api.star
       .answer('star')
-      .then((outcome) => setResult(outcome ?? { starred: false, reason: 'failed' }))
-      .catch(() => setResult({ starred: false, reason: 'failed' }))
-      .finally(() => {
+      .then((outcome) => outcome ?? { starred: false, reason: 'failed' as const })
+      .catch(() => ({ starred: false, reason: 'failed' as const }))
+      .then((outcome) => {
+        setResult(outcome)
         setBusy(false)
-        closing.current = window.setTimeout(onClosed, THANKS_MS)
+        // Not starred from here: it waits longer, for them to press the star on GitHub and come back.
+        closing.current = window.setTimeout(onClosed, outcome.starred ? THANKS_MS : WAIT_FOR_STAR_MS)
       })
   }
 
