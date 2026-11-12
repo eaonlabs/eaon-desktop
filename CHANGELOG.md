@@ -6,7 +6,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
-- **The agent can ask you questions in a pop-up.** In Chat and the IDE, when a request is ambiguous or a decision is yours, the agent can stop with a few multiple-choice questions (pick an option, or type something else) instead of guessing. Skip sends it on to use its own judgment. When the question comes from a chat you're not looking at, the pop-up says which one and can open it. Not used by workers or scheduled tasks, which have nobody to answer.
+- **The agent can ask you questions above the message box.** In Chat and the IDE, when a request is ambiguous or a decision is yours, the agent can stop with a few multiple-choice questions (pick an option, or type something else) instead of guessing. Skip sends it on to use its own judgment. With several questions it shows one at a time. When the question comes from a chat you're not looking at, the card says which one and can open it. Not used by workers or scheduled tasks, which have nobody to answer.
 - **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
 
 ### Changed

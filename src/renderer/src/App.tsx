@@ -50,7 +50,6 @@ import { usePresence } from './lib/presence'
 import { SeeThrough } from './components/SeeThrough'
 import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
-import { QuestionPopup } from './components/agent/QuestionPopup'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
 import { onboardingShowing, useOnboarding } from './components/onboarding/onboardingStore'
@@ -292,7 +291,6 @@ export default function App(): JSX.Element {
       <GuestWatchPill />
       <Notice />
       <StarPrompt />
-      <QuestionPopup />
       <ErrorBoundary area="purchase schedule" fallback={() => null}>
         <PurchaseDialog />
       </ErrorBoundary>
