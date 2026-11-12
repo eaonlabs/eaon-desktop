@@ -21,6 +21,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Always allow, from the question itself.** A command the agent asks about has a Rules button (also on the strip that asks for a chat you're not looking at): it shows the pattern that would be saved (the tool and its subcommand, such as `npm run build`, not the whole line) and saves it as Always allow or Never allow, for this project or for every project.
 - **Projects on another machine, over SSH.** In Edit project, "On another machine…" picks a host from `~/.ssh/config` (or adds one) and a folder on it. The project's chats then read, search, edit and run commands there: every file and shell tool runs on the host, inside that folder, and the editor beside the chat, the file tree's git marks, the Git panel, search and the @ menu's files read it too. Eaon connects with your own SSH keys and agent and never asks for a password; a key with a passphrase has to be in the agent (`ssh-add`). Calls to one host share a connection. The folder is a boundary: paths elsewhere on the host, `..` and links that lead out are refused, delete moves into `~/.eaon-trash` on the host, and your command rules still decide every command. Not on a project over SSH: Claude, Codex and the other CLI engines, the code index, replace in files, per-reply undo, and opening it in an app on this computer.
 
+- **How a worker has done lately.** Its Activity panel shows runs, how many completed, the average time and tokens over 7 or 30 days.
+- **Earlier versions of a worker.** More → Earlier versions lists the setups a worker had before each change, shows what changed, and restores one (the setup it replaces is kept, so a restore can be undone).
+- **Tables a worker keeps.** Workers can read and write their own tables (leads, orders, results) with `table_read`, `table_write` and `table_delete_rows`; a table shows in the Activity panel, can be viewed as a grid, copied as CSV and removed.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added

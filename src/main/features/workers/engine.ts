@@ -99,6 +99,8 @@ import {
   type WorkerSettings,
   type WorkerSetup
 } from '@shared/workerSetup'
+import { normalizeVersions, withVersion, type WorkerVersion } from '@shared/workerVersions'
+import { deleteRows, findTable, matchRows, normalizeTables, tableText, writeRows, type WorkerTable } from '@shared/workerTables'
 import {
   addSpend,
   budgetHit,
@@ -165,6 +167,10 @@ export interface WorkersDeps {
   loadRuns?: (workerId: string) => unknown
   saveRuns?: (workerId: string, runs: WorkerExecution[]) => void
   deleteRuns?: (workerId: string) => void | Promise<void>
+  /** The tables a worker keeps (shared/workerTables.ts), one file per worker. */
+  loadTables?: (workerId: string) => unknown
+  saveTables?: (workerId: string, tables: WorkerTable[]) => void
+  deleteTables?: (workerId: string) => void | Promise<void>
   onExecution?: (execution: WorkerExecution) => void
   /** Delegations between workers, all in one file. */
   loadDelegations?: () => unknown
@@ -570,6 +576,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     access: raw.access === 'read-only' || raw.access === 'autonomous' ? raw.access : 'safe',
     trading: normalizeTrading(raw.trading),
     ...limitsOf(raw, raw.paused === true),
+    versions: normalizeVersions(raw.versions),
     heartbeat,
     routines: Array.isArray(raw.routines)
       ? raw.routines
@@ -1074,7 +1081,9 @@ export class WorkersEngine {
       }
       const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
       const budgetBefore = existing.budget
+      const settingsBefore = settingsOf(existing)
       Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading, budget, retry, sites, toolRules })
+      existing.versions = withVersion(existing.versions, settingsBefore, existing, randomUUID(), this.now())
       // A cap just set counts what the worker already used in the period; one removed forgets the count.
       if (!budget) existing.spend = null
       else if (!budgetBefore || budgetBefore.period !== budget.period) existing.spend = this.seedSpend(existing, budget)
@@ -1189,6 +1198,62 @@ export class WorkersEngine {
     return clone(this.require(worker.id))
   }
 
+  /* ----------------------------------------------------------------- tables */
+
+  /** The tables a worker keeps. */
+  tables(id: string): WorkerTable[] {
+    this.require(id)
+    return normalizeTables(this.deps.loadTables?.(id) ?? [])
+  }
+
+  /** What `table_read` tells the worker. */
+  readTable(id: string, name: string, options: { where?: Record<string, unknown>; limit?: number } = {}): string {
+    const tables = this.tables(id)
+    if (!name.trim()) return tables.length === 0 ? 'You have no tables yet. table_write makes one.' : tables.map((t) => `- ${t.name}: ${t.rows.length} rows; columns ${t.columns.join(', ')}`).join('\n')
+    const table = findTable(tables, name)
+    if (!table) throw new Error(`You have no table called ${name}. Your tables: ${tables.map((t) => t.name).join(', ') || 'none yet'}.`)
+    const matched = matchRows(table, options.where)
+    const limit = Math.max(1, Math.min(200, Math.floor(options.limit ?? 50)))
+    return tableText(table, matched.slice(0, limit), matched.length)
+  }
+
+  /** Adds rows to a table, making it, or updates the rows a key column matches. */
+  writeTable(id: string, name: string, rows: Record<string, unknown>[], key?: string): string {
+    const result = writeRows(this.tables(id), name, rows, { key, now: this.now() })
+    this.deps.saveTables?.(id, result.tables)
+    const parts = [result.added ? `added ${result.added}` : '', result.updated ? `updated ${result.updated}` : ''].filter(Boolean).join(' and ')
+    return `${name}: ${parts || 'nothing changed'}.${result.newColumns.length ? ` New columns: ${result.newColumns.join(', ')}.` : ''}`
+  }
+
+  deleteTableRows(id: string, name: string, where: Record<string, unknown>): string {
+    const result = deleteRows(this.tables(id), name, where, this.now())
+    this.deps.saveTables?.(id, result.tables)
+    return `${name}: removed ${result.removed} ${result.removed === 1 ? 'row' : 'rows'}.`
+  }
+
+  /** Removes a whole table (the user, from the page). */
+  removeTable(id: string, name: string): WorkerTable[] {
+    const tables = this.tables(id).filter((t) => t.name.toLowerCase() !== name.trim().toLowerCase())
+    this.deps.saveTables?.(id, tables)
+    return tables
+  }
+
+  /** A worker's earlier setups, newest last. */
+  versions(id: string): WorkerVersion[] {
+    return clone(this.require(id).versions ?? [])
+  }
+
+  /**
+   * Puts a worker's setup back to one it had. It goes through `save`, so the
+   * setup being replaced is kept as a version too and the restore can be undone.
+   */
+  restoreVersion(id: string, versionId: string): Worker {
+    const worker = this.require(id)
+    const version = (worker.versions ?? []).find((v) => v.id === versionId)
+    if (!version) throw new Error('That version is no longer kept.')
+    return this.save(settingsDraft(version.settings, id))
+  }
+
   /** A copy of a worker under a new name and its own colour: its settings, routines and playbooks, and nothing it was signed in to. */
   duplicate(id: string): Worker {
     const source = this.require(id)
@@ -1257,7 +1322,7 @@ export class WorkersEngine {
     }
     this.commit()
     this.commitDelegations()
-    await Promise.all([...keys.map((threadId) => this.deps.deleteThread(threadKey(id, threadId))), this.runs.forget(id)])
+    await Promise.all([...keys.map((threadId) => this.deps.deleteThread(threadKey(id, threadId))), this.runs.forget(id), this.deps.deleteTables?.(id)])
   }
 
   /**

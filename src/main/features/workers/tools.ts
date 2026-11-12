@@ -361,6 +361,75 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     }
   }
 
+  const tableRead: AgentTool = {
+    name: 'table_read',
+    description:
+      'Read one of your tables (rows you keep over time: leads, orders, results). With no table name, lists your tables and their columns. where filters rows by exact column values; limit caps the rows (default 50).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'Table name; leave out to list your tables' },
+        where: { type: 'object', description: 'Column values a row must have, e.g. {"Stage": "new"}', additionalProperties: true },
+        limit: { type: 'number' }
+      }
+    },
+    mutating: false,
+    describe: (input) => (str(input.table) ? `Read ${str(input.table)}` : 'List tables'),
+    run: async (input, ctx) => {
+      try {
+        const where = input.where && typeof input.where === 'object' && !Array.isArray(input.where) ? (input.where as Record<string, unknown>) : undefined
+        return engine.readTable(self(ctx), str(input.table), { where, limit: typeof input.limit === 'number' ? input.limit : undefined })
+      } catch (error) {
+        return { text: error instanceof Error ? error.message : String(error), isError: true }
+      }
+    }
+  }
+
+  const tableWrite: AgentTool = {
+    name: 'table_write',
+    description:
+      'Add rows to one of your tables, making it if it does not exist; a column a row names that the table lacks is added. With key (a column), a row whose key value already exists updates that row instead of adding another.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string' },
+        rows: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'Each row as {column: value}' },
+        key: { type: 'string', description: 'Column that identifies a row, to update rather than add' }
+      },
+      required: ['table', 'rows']
+    },
+    mutating: false,
+    describe: (input) => `Write to ${str(input.table)}`,
+    run: async (input, ctx) => {
+      const rows = Array.isArray(input.rows) ? input.rows.filter((r): r is Record<string, unknown> => !!r && typeof r === 'object' && !Array.isArray(r)) : []
+      try {
+        return engine.writeTable(self(ctx), str(input.table), rows, str(input.key) || undefined)
+      } catch (error) {
+        return { text: error instanceof Error ? error.message : String(error), isError: true }
+      }
+    }
+  }
+
+  const tableDeleteRows: AgentTool = {
+    name: 'table_delete_rows',
+    description: 'Remove the rows of one of your tables that have exactly the given column values. Say which rows with where; it never empties a table without one.',
+    inputSchema: {
+      type: 'object',
+      properties: { table: { type: 'string' }, where: { type: 'object', additionalProperties: true } },
+      required: ['table', 'where']
+    },
+    mutating: false,
+    describe: (input) => `Remove rows from ${str(input.table)}`,
+    run: async (input, ctx) => {
+      const where = input.where && typeof input.where === 'object' && !Array.isArray(input.where) ? (input.where as Record<string, unknown>) : {}
+      try {
+        return engine.deleteTableRows(self(ctx), str(input.table), where)
+      } catch (error) {
+        return { text: error instanceof Error ? error.message : String(error), isError: true }
+      }
+    }
+  }
+
   const askUser: AgentTool = {
     name: 'ask_user',
     description:
@@ -578,6 +647,9 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     react,
     setGoal,
     updateNotes,
+    tableRead,
+    tableWrite,
+    tableDeleteRows,
     askUser,
     notifyUser,
     createWorker
