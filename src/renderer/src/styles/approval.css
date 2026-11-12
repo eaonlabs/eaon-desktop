@@ -779,127 +779,207 @@
   }
 }
 
-/* ---- The agent's questions (ask_user_question) ---------------------- */
-.ask {
+/* ---- The agent's questions (ask_user_question), docked above the box --
+   Tucked under the message box's top edge so the two read as one piece. */
+.qdock {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  max-height: 60vh;
-  overflow-y: auto;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: -14px;
+  padding: 14px 14px 26px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--r-composer) var(--r-composer) 0 0;
+  background: var(--surface-1);
+  animation: ask-row-in 220ms var(--ease) both;
 }
-.ask__question {
-  margin: 0;
-  padding: 0;
-  border: 0;
+.qdock__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+}
+.qdock__tag {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.qdock__from {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
 }
-.ask__legend {
-  padding: 0;
-  margin-bottom: 8px;
+.qdock__from strong {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--text-2);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qdock__from button {
+  color: var(--accent);
+  font-weight: 500;
+}
+.qdock__steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.qdock__steps button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--text-2);
+}
+.qdock__steps button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.qdock__steps button:disabled {
+  opacity: 0.35;
+}
+.qdock__question {
+  color: var(--text);
   font-size: var(--fs-base);
   font-weight: 600;
-  color: var(--text);
+  line-height: 1.4;
 }
-.ask__header {
-  display: inline-block;
-  margin-right: 8px;
-  padding: 1px 7px;
-  border-radius: var(--r-pill);
-  background: var(--surface-2);
-  font-size: var(--fs-xs);
-  font-weight: 600;
+.qdock__hint {
+  margin-top: -4px;
   color: var(--text-3);
-  vertical-align: 1px;
-}
-.ask__hint {
-  margin: -4px 0 6px;
   font-size: var(--fs-xs);
-  color: var(--text-3);
 }
-.ask__options {
+.qdock__options {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  max-height: min(300px, 38vh);
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow-y: auto;
 }
-.ask__option {
+.qdock__option {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 9px 12px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--border);
+  gap: 11px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-md, 10px);
   text-align: left;
-  color: var(--text);
+  transition: background-color var(--dur) var(--ease);
 }
-.ask__option:hover {
-  background: var(--surface-2);
+.qdock__option:hover {
+  background: var(--hover);
 }
-.ask__option[data-on] {
-  border-color: var(--accent, var(--text-3));
-  background: var(--surface-2);
+.qdock__option[data-on] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
 }
-.ask__mark {
+.qdock__num {
   flex: none;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
-  border-radius: 50%;
-  border: 1.5px solid var(--text-3);
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 6px;
+  background: var(--hover-strong);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-.ask__mark[data-multi] {
-  border-radius: 4px;
+.qdock__option[data-on] .qdock__num {
+  background: var(--accent-fill, var(--accent));
+  color: var(--on-accent, #fff);
 }
-.ask__option[data-on] .ask__mark {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--bg, #000);
-}
-.ask__text {
+.qdock__text {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.ask__label {
-  font-size: var(--fs-sm);
+.qdock__label {
+  color: var(--text);
+  font-size: var(--fs-base);
   font-weight: 500;
 }
-.ask__desc {
-  font-size: var(--fs-xs);
+.qdock__desc {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.qdock__option--other {
+  align-items: center;
+  cursor: text;
+}
+.qdock__option--other .qdock__num {
+  margin-top: 0;
+}
+.qdock__option--other input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-base);
+}
+.qdock__option--other input::placeholder {
   color: var(--text-3);
 }
-.ask__other {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* Which chat is asking, when it isn't the one on screen. */
-.ask__from {
+.qdock__foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  background: var(--hover);
-  color: var(--text-2);
-  font-size: var(--fs-sm);
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
 }
-.ask__from strong {
-  color: var(--text);
-  font-weight: 500;
-}
-.ask__from-open {
-  flex: none;
-  height: 24px;
-  padding: 0 10px;
+.qdock__skip,
+.qdock__go {
+  height: 28px;
+  padding: 0 14px;
   border-radius: var(--r-pill);
-  color: var(--accent);
   font-size: var(--fs-sm);
   font-weight: 500;
 }
-.ask__from-open:hover {
-  background: var(--hover-strong);
+.qdock__skip {
+  color: var(--text-2);
+}
+.qdock__skip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.qdock__go {
+  background: var(--text);
+  color: var(--bg, #000);
+}
+.qdock__go:disabled {
+  opacity: 0.35;
+}
+.qdock button:focus-visible,
+.qdock__option--other:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qdock {
+    animation: none;
+  }
 }
