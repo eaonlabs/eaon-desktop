@@ -754,26 +754,20 @@ const ChatRow = memo(function ChatRow({
   // Finished while another chat was on screen: a dot until it's opened.
   const unread = chat.unread && !active && !streaming
   // Its reply stopped to ask something (an approval): it waits on the user, not working.
+  // Waiting out a rate limit or a retry: the only change of pace while a reply runs.
+  const retrying = useApp((st) => {
+    const run = st.runs[chat.id]
+    if (!inProject || !run) return false
+    return Boolean(st.chats.find((c) => c.id === chat.id)?.messages.find((m) => m.id === run)?.notice)
+  })
   const asking = useApp((st) => {
     const run = st.runs[chat.id]
     return Boolean(
       run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run) || st.pendingQuestions.some((q) => q.messageId === run))
     )
   })
-  // What a reply in a project is doing right now, for its dots: thinking, running a tool, writing, or waiting to retry.
-  const phase = useApp((st): DotState => {
-    const run = st.runs[chat.id]
-    if (!inProject || !run) return 'thinking'
-    const message = st.chats.find((c) => c.id === chat.id)?.messages.find((m) => m.id === run)
-    if (!message) return 'thinking'
-    if (message.notice) return 'retrying'
-    const last = message.parts[message.parts.length - 1]
-    if (!last || last.type === 'reasoning') return 'thinking'
-    return last.type === 'text' ? 'writing' : 'working'
-  })
-
   // A project's chat shows its state as dots, one element that changes state in place so the change is a fade.
-  const dotState: DotState | null = !inProject ? null : streaming ? (asking ? 'asking' : phase) : unread && !failed ? 'done' : failed ? 'failed' : null
+  const dotState: DotState | null = !inProject ? null : streaming ? (asking ? 'asking' : retrying ? 'retrying' : 'thinking') : unread && !failed ? 'done' : failed ? 'failed' : null
 
   const commitRename = (): void => {
     setRenaming(false)
