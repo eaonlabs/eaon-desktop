@@ -50,7 +50,7 @@ const LABEL: Record<DotState, string> = {
 }
 
 /** One loop for every state, so changing state never changes the tempo. */
-const LOOP_MS = 1200
+const LOOP_MS = 1600
 
 /** Which dots are lit for a state, and the number each animates by (its place in the motion). */
 function plan(state: DotState, cell: number): { on: boolean; step: number; of: number } {
@@ -90,15 +90,22 @@ function Layer({ state, leaving }: { state: DotState; leaving?: boolean }): JSX.
 /**
  * The dots keep one size, one footprint (a faint grid under every state) and
  * one tempo; a new state fades in over the one it replaces rather than
- * snapping to it.
+ * snapping to it, and only after it has held for a moment.
  */
-export function DotMatrix({ state, size = 16 }: { state: DotState; size?: number }): JSX.Element {
+export function DotMatrix({ state: asked, size = 16 }: { state: DotState; size?: number }): JSX.Element {
+  // A new state has to hold for a moment before it shows: a blip of one never flickers the icon.
+  const [state, setState] = useState<DotState>(asked)
+  useEffect(() => {
+    if (asked === state) return
+    const timer = setTimeout(() => setState(asked), 700)
+    return () => clearTimeout(timer)
+  }, [asked, state])
   const [shown, setShown] = useState<DotState[]>([state])
   const latest = shown[shown.length - 1]
   useEffect(() => {
     if (state === latest) return
     setShown((list) => [...list.slice(-1), state])
-    const timer = setTimeout(() => setShown((list) => list.slice(-1)), 340)
+    const timer = setTimeout(() => setShown((list) => list.slice(-1)), 560)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])

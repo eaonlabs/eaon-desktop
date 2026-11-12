@@ -10,7 +10,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
 
 ### Changed
-- **New status indicators in the sidebar.** A chat that is replying shows a dash tracing a rounded square. Chats in a project show a small dot grid that says what the reply is doing: two lights orbiting while it thinks, a bar sweeping while a tool runs, a wave while it writes, a slow glow while it waits to retry, three dots when it needs you, a green tick when it finishes and a red cross when it fails.
+- **New status indicators in the sidebar.** A chat that is replying shows a dash tracing a rounded square. Chats in a project show a small dot grid instead: two lights orbiting steadily while it works (it doesn't change as it moves between thinking, tools and writing), a slow glow while it waits to retry, three dots when it needs you, a green tick when it finishes and a red cross when it fails. A change of state fades in only after it has held for a moment.
 
 ### Fixed
 - **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.

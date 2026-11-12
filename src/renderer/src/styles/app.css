@@ -1000,10 +1000,10 @@ body[data-reduce-motion='on'] .ld-trace__dash {
 }
 .dotm__layer {
   color: var(--accent);
-  animation: dotm-in 280ms var(--ease) both;
+  animation: dotm-in 500ms ease-in-out both;
 }
 .dotm__layer[data-leaving] {
-  animation: dotm-out 280ms var(--ease) both;
+  animation: dotm-out 500ms ease-in-out both;
 }
 .dotm__layer[data-state='retrying'] {
   color: #e9b949;
