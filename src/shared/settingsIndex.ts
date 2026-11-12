@@ -75,7 +75,6 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "general", title: "Tour", description: "A one-minute look at where everything is", section: "Resources" },
   { page: "general", title: "Documentation", description: "How to install Eaon, pick models, and use Chat, Workers and the ADE", section: "Resources" },
   { page: "general", title: "Release notes", description: "What changed in Eaon What's new in Eaon", section: "Resources" },
-  { page: "general", title: "Star Eaon", description: "Opens the repository, and stars it for you if the GitHub CLI is signed in on this computer.", section: "Community" },
   { page: "general", title: "GitHub", description: "Eaon's source code. Contributions are welcome.", section: "Community" },
   { page: "general", title: "Report an issue", description: "Found a bug? File an issue on GitHub. Include your Eaon version and what you were doing.", section: "Support" },
   { page: "general", title: "You're on a beta build", description: "Its updates follow betas and stable releases, so a newer beta arrives with the usual update above.", section: "Beta updates" },

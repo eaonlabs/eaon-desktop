@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { StarAnswer, StarResult } from '@shared/star'
+import type { StarAnswer, StarResult, StarStatus } from '@shared/star'
 
 /**
  * Renderer bridge for the star-repo feature. Exposed as `window.api.star`.
@@ -9,6 +9,8 @@ export const starApi = {
   shouldAsk: (): Promise<boolean> => ipcRenderer.invoke('star:should-ask'),
   /** The first time ever: whether to show it early, half a minute in (and it counts as shown). */
   shouldAskFirst: (): Promise<boolean> => ipcRenderer.invoke('star:should-ask-first'),
+  /** Whether the person's GitHub account (through the GitHub CLI) has starred Eaon. */
+  status: (): Promise<StarStatus> => ipcRenderer.invoke('star:status'),
   /** `star` opens the repository and stars it if the GitHub CLI is signed in. */
   answer: (answer: StarAnswer): Promise<StarResult | null> => ipcRenderer.invoke('star:answer', answer)
 }

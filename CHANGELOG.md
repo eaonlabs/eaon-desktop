@@ -6,6 +6,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Eaon shows when you've starred it.** Settings → General says "You starred Eaon" once your GitHub account has (read through the GitHub CLI, also when you pressed the star on github.com), and the star card thanks you when you come back from GitHub having starred it.
 - **The agent can ask you questions above the message box.** In Chat and the IDE, when a request is ambiguous or a decision is yours, the agent can stop with a few multiple-choice questions (pick an option, or type something else) instead of guessing. Skip sends it on to use its own judgment. With several questions it shows one at a time. When the question comes from a chat you're not looking at, the card says which one and can open it. Not used by workers or scheduled tasks, which have nobody to answer.
 - **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
 
