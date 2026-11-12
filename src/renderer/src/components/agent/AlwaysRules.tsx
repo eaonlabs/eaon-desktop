@@ -31,28 +31,33 @@ export function AlwaysRules({ ask, answer }: { ask: PendingApproval; answer: (ap
 
   return (
     <div className="ask-row__rules" role="group" aria-label="Save a rule for this command">
-      <span className="ask-row__rules-what">
+      <div className="ask-row__rules-what">
+        <span className="ask-row__rules-cap">Remember</span>
         {patterns.map((p) => (
           <code key={p}>{p}</code>
         ))}
-      </span>
-      {folder && (
-        <span className="ask-row__rules-scope" role="radiogroup" aria-label="Where the rule applies">
-          {(['project', 'all'] as const).map((value) => (
-            <button key={value} type="button" role="radio" aria-checked={scope === value} data-on={scope === value || undefined} onClick={() => setScope(value)}>
-              {value === 'project' ? 'This project' : 'Every project'}
+      </div>
+      <div className="ask-row__rules-act">
+        {folder && (
+          <span className="ask-row__rules-scope" role="radiogroup" aria-label="Where the rule applies">
+            {(['project', 'all'] as const).map((value) => (
+              <button key={value} type="button" role="radio" aria-checked={scope === value} data-on={scope === value || undefined} onClick={() => setScope(value)}>
+                {value === 'project' ? 'This project' : 'Every project'}
+              </button>
+            ))}
+          </span>
+        )}
+        <span className="ask-row__rules-go-group">
+          <button type="button" className="ask-row__rules-go ask-row__rules-go--deny" onClick={() => save('deny')}>
+            Never allow
+          </button>
+          {canAllow && (
+            <button type="button" className="ask-row__rules-go ask-row__rules-go--allow" onClick={() => save('allow')}>
+              Always allow
             </button>
-          ))}
+          )}
         </span>
-      )}
-      {canAllow && (
-        <button type="button" className="ask-row__rules-go" onClick={() => save('allow')}>
-          Always allow
-        </button>
-      )}
-      <button type="button" className="ask-row__rules-go ask-row__rules-go--deny" onClick={() => save('deny')}>
-        Never allow
-      </button>
+      </div>
     </div>
   )
 }
