@@ -862,12 +862,12 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         catastrophic: (input) => isCatastrophicCommand(str(input.command)),
         // The person's own lists (Settings → General → Command rules, and the project's own).
         denied: (input, ctx) => {
-          const pattern = deniedBy(rulesFor(settings.general, ctx.cwd), str(input.command))
+          const pattern = deniedBy(rulesFor((ctx.liveSettings?.() ?? settings).general, ctx.cwd), str(input.command))
           return pattern ? `Your command denylist blocks this (“${pattern}”). Do not try to get around it: use another way, or ask the user to change the rule in Settings → General → Command rules.` : null
         },
-        asks: (input, ctx) => askedBy(rulesFor(settings.general, ctx.cwd), str(input.command)),
+        asks: (input, ctx) => askedBy(rulesFor((ctx.liveSettings?.() ?? settings).general, ctx.cwd), str(input.command)),
         allowed: (input, ctx) =>
-          allowedBy(rulesFor(settings.general, ctx.cwd), str(input.command), isReadOnlyCommand) &&
+          allowedBy(rulesFor((ctx.liveSettings?.() ?? settings).general, ctx.cwd), str(input.command), isReadOnlyCommand) &&
           // An allowed pattern doesn't lift the check on writing outside the work folder.
           (settings.general.fullAccess || !writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         describe: (input) => str(input.command)

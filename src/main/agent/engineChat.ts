@@ -1,6 +1,8 @@
 import type { ChatMessage, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { ENGINE_LABEL, type EngineId } from '@shared/engines'
 import { isCatastrophicCommand } from '@shared/commandRisk'
+import { allowedBy, askedBy, deniedBy, rulesFor } from '@shared/commandRules'
+import { isReadOnlyCommand } from './approvals'
 import type { EngineAccess, EngineAdapter, EngineApprovalRequest, EngineTurnResult } from '../engines/types'
 
 /**
@@ -70,12 +72,17 @@ export function catchUp(history: ChatMessage[], summary: string | null): string 
  * nothing changes; with Full access the rest runs; otherwise anything that
  * changes something asks (null = ask the user).
  */
-export function chatEngineApproval(settings: Settings, plan: boolean, request: EngineApprovalRequest): boolean | null {
-  if (!request.mutating) return true
+export function chatEngineApproval(settings: Settings, plan: boolean, request: EngineApprovalRequest, folder?: string | null): boolean | null {
   const command = typeof request.input.command === 'string' ? request.input.command : Array.isArray(request.input.command) ? request.input.command.join(' ') : ''
+  // The person's own command lists (Settings → General → Command rules) reach the engines' commands too.
+  const rules = command ? rulesFor(settings.general, folder) : null
+  if (rules && deniedBy(rules, command)) return false
+  if (!request.mutating) return true
   if (command && isCatastrophicCommand(command)) return false
   if (plan) return false
+  if (rules && askedBy(rules, command)) return null
   if (settings.approvalMode === 'full') return true
+  if (rules && allowedBy(rules, command, isReadOnlyCommand)) return true
   return null
 }
 
@@ -148,7 +155,7 @@ export async function runEngineChat(input: EngineChatInput, deps: EngineChatDeps
     emit,
     approve: async (call) => {
       if (signal.aborted) return false
-      const allowed = chatEngineApproval(input.settings, plan, call)
+      const allowed = chatEngineApproval(input.settings, plan, call, input.cwd)
       return allowed ?? deps.ask(call.tool, call.input, call.summary)
     }
   })

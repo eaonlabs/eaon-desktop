@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { agentWorkspace, useApp, type PendingApproval } from '../../state/store'
 import { approvalDoes, approvalRisk } from './ApprovalCard'
+import { AlwaysRules } from './AlwaysRules'
 import { ApprovalPreview } from './ApprovalRow'
 import { approvalRow, askerName } from './approvalText'
 
@@ -73,6 +74,7 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
   // What can't be taken back shows exactly what it would do without a click.
   const [open, setOpen] = useState(risk === 'high')
   const [answered, setAnswered] = useState(false)
+  const [rules, setRules] = useState(false)
   const titleId = useId()
   const previewId = useId()
 
@@ -126,8 +128,22 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
           <button type="button" className="elsewhere-ask__allow" disabled={answered} onClick={() => respond(true)}>
             Allow
           </button>
+          {ask.tool === 'run_command' && (
+            <button
+              type="button"
+              className="ask-row__more-rules"
+              disabled={answered}
+              aria-expanded={rules}
+              aria-label="Always allow or never allow commands like this"
+              title="Always allow or never allow commands like this"
+              onClick={() => setRules(!rules)}
+            >
+              Rules
+            </button>
+          )}
         </div>
       </div>
+      {rules && !answered && <AlwaysRules ask={ask} answer={respond} />}
       {open && (
         <div id={previewId} className="elsewhere-ask__preview">
           <ApprovalPreview ask={ask} />
