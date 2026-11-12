@@ -416,8 +416,10 @@ export interface Settings {
   general: {
     defaultPermissions: boolean
     fullAccess: boolean
-    /** Shell commands the person has allowed to run without asking, and ones that may never run (shared/commandRules.ts). */
-    commandRules?: { allow: string[]; deny: string[] }
+    /** Shell commands the person has allowed to run without asking, ones that always ask and ones that may never run (shared/commandRules.ts). */
+    commandRules?: { allow: string[]; ask?: string[]; deny: string[] }
+    /** The same lists for one project's folder, added to the ones above while the agent works there. */
+    projectCommandRules?: Record<string, { allow: string[]; ask?: string[]; deny: string[] }>
     /** After the agent edits files, run the project's typecheck or lint and show the agent what failed (shared/projectChecks.ts). */
     checks?: { enabled: boolean; command: string }
     /** Run the agent's shell commands in a macOS sandbox: write only in the work folder, no keys, no internet unless allowed (shared/sandbox.ts). */

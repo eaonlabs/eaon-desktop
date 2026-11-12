@@ -39,6 +39,7 @@ import type { EngineId } from '@shared/engines'
 import { audit, auditIncludesToolInputs } from '../enterprise/audit'
 import { clampUnattended } from '../enterprise/policy'
 import { forgetGoalPause, markGoalPaused } from './goalPause'
+import { isRemote } from '@shared/adeRemote'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -117,6 +118,8 @@ export function isRunning(messageId: string): boolean {
 /** Where Work mode acts when no project folder has been chosen. */
 export async function ensureWorkFolder(requested: string | null, settings: Settings): Promise<string> {
   const folder = requested || settings.work.defaultFolder || join(homedir(), 'Eaon')
+  // A project on another machine has no folder here to make.
+  if (isRemote(folder)) return folder
   await mkdir(folder, { recursive: true })
   return folder
 }
@@ -709,7 +712,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       roundsSincePlan = 0
     }
     // Files were edited this round: the project's own check runs, and what it says when it fails goes back with the results.
-    if (params.depth === 0 && params.cwd && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
+    if (params.depth === 0 && params.cwd && !isRemote(params.cwd) && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
       const checked = await checkAfterEdits(params.cwd, params.liveSettings?.() ?? params.settings, (turn.checks ??= { runs: 0, failing: false }), signal)
       if (checked) {
         const last = results[results.length - 1]
@@ -887,6 +890,9 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
   holdAwake()
   try {
     const settings = store.getSettings()
+    if (request.cwd && isRemote(request.cwd)) {
+      throw new Error('This model runs its own agent on this computer, so it can’t work in a project on another machine over SSH. Pick one of Eaon’s providers for this chat, or open the project in the ADE.')
+    }
     const cwd = await ensureWorkFolder(request.cwd, settings)
     const outcome = await runEngineChat(
       { request, engine: engineId, cwd, settings, signal: controller.signal, emit },

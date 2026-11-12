@@ -2,6 +2,14 @@ import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import type { Feature } from './types'
 import { allowed } from './workspaceFiles'
+import { isRemote } from '@shared/adeRemote'
+
+/** Replace in files reads and writes this computer's disk; a project on another machine has the agent for that. */
+const here = async (cwd: unknown): Promise<string> => {
+  const folder = await allowed(cwd)
+  if (isRemote(folder)) throw new Error('Replace in files works on this computer’s folders. For a project over SSH, ask the agent to make the change.')
+  return folder
+}
 import { sshHosts } from './ade'
 import { makeRunner, type Runner } from './ade/runner'
 import { EDITABLE_LIMIT } from '@shared/workspaceFiles'
@@ -159,8 +167,8 @@ export const searchReplaceFeature: Feature = {
   id: 'search-replace',
   register: ({ ipcMain }) => {
     ipcMain.handle('search-replace:replace', async (_e, cwd: unknown, query: unknown, options: unknown, replacement: unknown, targets: unknown) =>
-      replaceInFolder(await allowed(cwd), requestOf(query, options, replacement, targets))
+      replaceInFolder(await here(cwd), requestOf(query, options, replacement, targets))
     )
-    ipcMain.handle('search-replace:undo', async (_e, cwd: unknown) => undoReplaceIn(await allowed(cwd)))
+    ipcMain.handle('search-replace:undo', async (_e, cwd: unknown) => undoReplaceIn(await here(cwd)))
   }
 }

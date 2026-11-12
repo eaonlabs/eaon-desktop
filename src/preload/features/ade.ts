@@ -9,7 +9,7 @@ import type {
   RemoveSessionOptions
 } from '@shared/adeSessions'
 import type { PrFeedbackResult } from '@shared/prFeedback'
-import type { ManualHostInput, NewRemoteSessionRequest, NewRemoteSessionResult, SshHost } from '@shared/adeRemote'
+import type { ManualHostInput, NewRemoteSessionRequest, NewRemoteSessionResult, RemoteFolderResult, SshHost } from '@shared/adeRemote'
 import type { ReviewAction, ReviewCheck, ReviewFileText, ReviewLog, ReviewResult } from '@shared/adeReview'
 
 /** Renderer bridge for the ADE's sessions. Exposed as `window.api.ade`. */
@@ -38,6 +38,8 @@ export const adeApi = {
   removeHost: (id: string): Promise<void> => ipcRenderer.invoke('ade:remove-host', id),
   /** A session in a folder on an SSH host. */
   createRemote: (req: NewRemoteSessionRequest): Promise<NewRemoteSessionResult> => ipcRenderer.invoke('ade:create-remote', req),
+  /** Connects to a host and checks the folder is there: the `ssh://` folder a Chat project can use. */
+  resolveRemote: (req: NewRemoteSessionRequest): Promise<RemoteFolderResult> => ipcRenderer.invoke('ade:resolve-remote', req),
   /** What a session changed since its branch left the default branch, its pull request, and where it stands. */
   review: (cwd: string): Promise<ReviewResult> => ipcRenderer.invoke('ade:review', cwd),
   commit: (cwd: string, message: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:commit', cwd, message),

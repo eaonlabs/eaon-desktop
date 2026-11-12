@@ -550,14 +550,19 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             // The save dialog is main's; see main/features/chatExport.ts.
             { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as Markdown', action: () => void exportChatToFile(chat, 'markdown') },
             { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export as JSON', action: () => void exportChatToFile(chat, 'json') },
-            {
-              icon: <FolderOpen size={15} strokeWidth={1.9} />,
-              label: coding ? 'Open project folder' : 'Open Eaon’s folder',
-              action: () =>
-                void window.api.app.showItem(workFolder).then((shown) => {
-                  if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
-                })
-            },
+            // A project on another machine has no folder here to show.
+            ...(workFolder.startsWith('ssh://')
+              ? []
+              : [
+                  {
+                    icon: <FolderOpen size={15} strokeWidth={1.9} />,
+                    label: coding ? 'Open project folder' : 'Open Eaon’s folder',
+                    action: () =>
+                      void window.api.app.showItem(workFolder).then((shown) => {
+                        if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
+                      })
+                  }
+                ]),
             ...(chat.temporary
               ? []
               : [

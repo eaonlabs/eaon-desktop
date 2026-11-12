@@ -831,7 +831,7 @@ function FileActions({ file }: { file: DiffFileModel }): JSX.Element {
         <MenuItem
           icon={<FolderOpen size={15} strokeWidth={1.8} />}
           title="Show in folder"
-          disabled={deleted}
+          disabled={deleted || abs.startsWith('ssh://')}
           onClick={() => {
             menu.close()
             void window.api.app.showItem(abs)

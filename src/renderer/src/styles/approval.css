@@ -902,4 +902,71 @@
 }
 .ask__from-open:hover {
   background: var(--hover-strong);
+
+/* Save a rule for the command being asked about. */
+.ask-row__more-rules {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.ask-row__more-rules:hover:not(:disabled),
+.ask-row__more-rules[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.ask-row__rules {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0 23px;
+  font-size: var(--fs-sm);
+  animation: approval-reveal 200ms ease both;
+}
+.ask-row__rules-what {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.ask-row__rules-what code {
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  font-family: var(--font-mono);
+}
+.ask-row__rules-scope {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+}
+.ask-row__rules-scope button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+}
+.ask-row__rules-scope button[data-on] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.ask-row__rules-go {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text);
+  font-weight: 500;
+}
+.ask-row__rules-go--deny {
+  color: var(--danger, var(--text));
+}
+.ask-row__rules-go:hover,
+.ask-row__more-rules:focus-visible,
+.ask-row__rules button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }

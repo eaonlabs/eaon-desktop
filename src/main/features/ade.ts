@@ -31,7 +31,7 @@ import {
   writeConflictFile
 } from './ade/review'
 import { parseChanges, type AdeChanges, type AdeConversation, type AdeImportCandidate, type AdeSession, type NewSessionRequest } from '@shared/adeSessions'
-import { hostLabel, isRemote, remoteCwd, type ManualHostInput, type NewRemoteSessionRequest, type NewRemoteSessionResult } from '@shared/adeRemote'
+import { hostLabel, isRemote, remoteCwd, type ManualHostInput, type NewRemoteSessionRequest, type NewRemoteSessionResult, type RemoteFolderResult } from '@shared/adeRemote'
 import type { TerminalLayout } from '@shared/terminals'
 
 /**
@@ -78,7 +78,7 @@ async function remoteRepo(cwd: string): Promise<{ branch: string | null; repo: b
 }
 
 /** Uncommitted changes in a session's folder, here or on its host. */
-async function changesIn(cwd: string): Promise<AdeChanges | null> {
+export async function changesIn(cwd: string): Promise<AdeChanges | null> {
   if (!isRemote(cwd)) return changes(cwd)
   const [numstat, untracked] = await Promise.all([
     run(cwd, 'git', ['diff', 'HEAD', '--numstat', '--no-renames'], 15_000),
@@ -156,7 +156,7 @@ export const adeFeature: Feature = {
     const recents = RecentFolders.at(app.getPath('userData'))
 
     // The ADE's dock shows a session's files, diff and pull request: its folder and its project, on this computer.
-    allowFolders(() => [...sessions().list().map((s) => s.cwd), ...knownProjects()].filter((cwd) => !isRemote(cwd)))
+    allowFolders(() => [...sessions().list().map((s) => s.cwd), ...knownProjects()])
 
     ipcMain.handle('ade:sessions', async () => {
       const book = sessions()
@@ -224,6 +224,14 @@ export const adeFeature: Feature = {
       const repo = await remoteRepo(cwd)
       const title = typeof req.title === 'string' && req.title.trim() ? req.title.trim().slice(0, 200) : null
       return { ok: true, session: sessions().addRemote({ cwd, host: hostLabel(host), title, branch: repo?.branch ?? null, repo: repo?.repo ?? false }) }
+    })
+
+    // A folder on a host for a Chat project: checked and made absolute, with no session made for it.
+    ipcMain.handle('ade:resolve-remote', async (_e, req: NewRemoteSessionRequest): Promise<RemoteFolderResult> => {
+      const host = await sshHosts.find(text(req?.hostId, 'a host'))
+      if (!host) return { ok: false, error: 'Pick a host first.' }
+      const folder = await resolveRemoteFolder(host, typeof req.path === 'string' ? req.path : '~')
+      return folder.ok ? { ok: true, cwd: remoteCwd(host.id, folder.path), label: hostLabel(host) } : folder
     })
 
     // Review: only ever in a session's own folder, or the folder Chat's agent works in (its Git panel).

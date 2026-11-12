@@ -15,8 +15,10 @@ import { FolderMenu } from './composer/ComposerBits'
 import { notify } from './Notice'
 import { CHAT_SORTS, PROJECT_SORTS, SIDEBAR_IS_NEW, sortChats, sortProjects, useChatSidebar, type ChatSort, type ProjectSort } from './chatSidebar'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
+import { RemoteFolderDialog } from './RemoteFolderDialog'
 import type { Project } from '@shared/types'
 import { sessionSubtitle, sessionTitle, type AdeSession } from '@shared/adeSessions'
+import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
 
 export function Sidebar(): JSX.Element {
   const { sidebarOpen, toggleSidebar, goForward } = useApp(
@@ -553,7 +555,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
           items={[
             { icon: <SquarePen size={15} strokeWidth={1.9} />, label: 'New chat', action: () => newChat(project.id) },
             { icon: <ScrollText size={15} strokeWidth={1.9} />, label: 'Edit project', action: onEdit },
-            ...(project.folder
+            ...(project.folder && !project.folder.startsWith('ssh://')
               ? [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Show folder', action: () => void showFolder(project.folder!) }]
               : []),
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete project', danger: true, action: () => setConfirmDelete(true) }
@@ -581,6 +583,13 @@ function ProjectDialog({ project, onClose }: { project: Project; onClose: () => 
   // More folders the project's chats work in beside the first.
   const [extras, setExtras] = useState<string[]>(project.extraFolders ?? [])
   const [instructions, setInstructions] = useState(project.instructions)
+  // A folder on another machine: picked in its own dialog, and shown as host:/folder.
+  const [picking, setPicking] = useState(false)
+  const [hosts, setHosts] = useState<SshHost[]>([])
+  useEffect(() => {
+    if (folder && isRemote(folder)) void window.api.ade.hosts().then(setHosts, () => undefined)
+  }, [folder])
+  const shown = folder && isRemote(folder) ? remoteDisplay(folder, (id) => hosts.find((h) => h.id === id)?.label ?? null) : folder
   const clash = folder !== null && projects.some((p) => p.id !== project.id && p.workspaceId === project.workspaceId && p.folder === folder)
   const submit = (): void => {
     if (!name.trim() || clash) return
@@ -624,16 +633,33 @@ function ProjectDialog({ project, onClose }: { project: Project; onClose: () => 
         <span className="field-label">Folder</span>
         <div className="project-folder">
           <FolderOpen size={15} strokeWidth={1.9} />
-          <span className="project-folder__path" title={folder ?? undefined}>
-            {folder ? `\u200e${folder}\u200e` : 'None yet. Its chats code once it has one'}
+          <span className="project-folder__path" title={shown ?? undefined}>
+            {shown ? `\u200e${shown}\u200e` : 'None yet. Its chats code once it has one'}
           </span>
           <button type="button" className="btn btn--sm" onClick={choose}>
             {folder ? 'Change…' : 'Choose…'}
           </button>
+          <button type="button" className="btn btn--sm" onClick={() => setPicking(true)}>
+            On another machine…
+          </button>
         </div>
         {clash && <span className="field-error">Another project already works in this folder.</span>}
       </div>
-      {folder && (
+      {picking && (
+        <RemoteFolderDialog
+          onClose={() => setPicking(false)}
+          onPicked={(cwd, label) => {
+            // Named after its folder until now: it follows the new one.
+            if (!project.folder || name.trim() === folderName(project.folder)) setName(folderName(cwd))
+            setFolder(cwd)
+            // Other folders are on this computer; a project on a host has none.
+            setExtras([])
+            setPicking(false)
+            notify(`Connected to ${label}.`)
+          }}
+        />
+      )}
+      {folder && !isRemote(folder) && (
         <div className="field">
           <span className="field-label">Other folders</span>
           {extras.map((extra) => (

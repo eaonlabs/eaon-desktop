@@ -114,7 +114,8 @@ export const defaultSettings: Settings = {
   general: {
     defaultPermissions: true,
     fullAccess: false,
-    commandRules: { allow: [], deny: [] },
+    commandRules: { allow: [], ask: [], deny: [] },
+    projectCommandRules: {},
     checks: { enabled: false, command: '' },
     sandbox: { enabled: false, network: false },
     fileOpenDestination: 'VS Code',

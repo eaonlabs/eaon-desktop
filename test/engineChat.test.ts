@@ -108,6 +108,19 @@ test('Chat’s own approval rules decide what Codex may do without asking', () =
   assert.equal(chatEngineApproval(settings('full'), true, write), false, 'Plan mode changes nothing')
 })
 
+test('the person’s command lists decide an engine’s commands too', () => {
+  const run = (command: string, mutating = true): EngineApprovalRequest => ({ tool: 'run_command', input: { command }, summary: command, mutating })
+  const withRules = (mode: 'ask' | 'full', rules: { allow?: string[]; ask?: string[]; deny?: string[] }) => {
+    const base = settings(mode)
+    return { ...base, general: { ...base.general, commandRules: { allow: [], ask: [], deny: [], ...rules } } } as Settings
+  }
+  assert.equal(chatEngineApproval(withRules('ask', { allow: ['npm test'] }), false, run('npm test')), true, 'an allowed command runs without asking')
+  assert.equal(chatEngineApproval(withRules('ask', { allow: ['npm test'] }), false, run('npm run deploy')), null, 'others still ask')
+  assert.equal(chatEngineApproval(withRules('full', { deny: ['git push'] }), false, run('git push origin main')), false, 'a denied command never runs')
+  assert.equal(chatEngineApproval(withRules('full', { deny: ['cat'] }), false, run('cat secrets.txt', false)), false, 'even one that only reads')
+  assert.equal(chatEngineApproval(withRules('full', { ask: ['git reset'] }), false, run('git reset --hard')), null, 'an ask command stops even with Full access')
+})
+
 test('a call Codex wants approved reaches the approval dialog, and the answer goes back', async () => {
   const asked: EngineApprovalRequest[] = []
   let allowed: boolean | null = null
