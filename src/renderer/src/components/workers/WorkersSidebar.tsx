@@ -62,14 +62,6 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
           openEditor(null)
         }}
       />
-      <NavItem
-        icon={<UsersRound {...ICON} />}
-        label="New team"
-        onClick={() => {
-          if (view !== 'chat') setView('chat')
-          openTeamDialog(true)
-        }}
-      />
       <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen && !creating} onClick={() => show(null)} />
       <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
       <NavItem
@@ -144,11 +136,24 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
 
       <div className="sidebar__section sidebar__section--action">
         <span>Workers</span>
-        {!full && (
-          <button className="sidebar__section-btn" aria-label="New worker" title="New worker" onClick={() => openEditor(null)}>
-            <Plus size={14} strokeWidth={2} />
+        <span className="sidebar__section-btns">
+          <button
+            className="sidebar__section-btn"
+            aria-label="New team"
+            title="New team"
+            onClick={() => {
+              if (view !== 'chat') setView('chat')
+              openTeamDialog(true)
+            }}
+          >
+            <UsersRound size={14} strokeWidth={2} />
           </button>
-        )}
+          {!full && (
+            <button className="sidebar__section-btn" aria-label="New worker" title="New worker" onClick={() => openEditor(null)}>
+              <Plus size={14} strokeWidth={2} />
+            </button>
+          )}
+        </span>
       </div>
       {workers.length === 0 ? (
         <div className="sidebar__empty">No workers yet</div>

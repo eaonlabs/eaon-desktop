@@ -639,6 +639,11 @@ a:hover {
   justify-content: space-between;
   padding-right: 3px;
 }
+.sidebar__section-btns {
+  display: inline-flex;
+  gap: 2px;
+}
+
 .sidebar__section-btn {
   display: grid;
   place-items: center;
