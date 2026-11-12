@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { agentWorkspace, useApp, type PendingApproval } from '../../state/store'
@@ -125,6 +126,19 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
           {risk === 'high' && <div className="elsewhere-ask__warn">{approvalDoes(ask.tool, ask.input)}</div>}
         </div>
         <div className="elsewhere-ask__answers">
+          {ask.tool === 'run_command' && (
+            <button
+              type="button"
+              className="elsewhere-ask__rules"
+              disabled={answered}
+              aria-expanded={rules}
+              title="Always allow or never allow commands like this"
+              onClick={() => setRules(!rules)}
+            >
+              Rules
+              <ChevronDown size={13} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+          )}
           {chat && (
             <button type="button" className="elsewhere-ask__open" onClick={() => openAsking(chat.id)}>
               Open
@@ -136,19 +150,6 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
           <button type="button" className="elsewhere-ask__allow" disabled={answered} onClick={() => respond(true)}>
             Allow
           </button>
-          {ask.tool === 'run_command' && (
-            <button
-              type="button"
-              className="ask-row__more-rules"
-              disabled={answered}
-              aria-expanded={rules}
-              aria-label="Always allow or never allow commands like this"
-              title="Always allow or never allow commands like this"
-              onClick={() => setRules(!rules)}
-            >
-              Rules
-            </button>
-          )}
         </div>
       </div>
       {rules && !answered && <AlwaysRules ask={ask} answer={respond} />}

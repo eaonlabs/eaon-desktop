@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react'
 import { useApp, type PendingApproval } from '../../state/store'
 import { approvalDoes, approvalRisk, CallPreview, CommandPreview, enterApproves } from './ApprovalCard'
@@ -166,6 +167,7 @@ export function ApprovalRow({ ask, waiting }: { ask: PendingApproval; waiting: n
               onClick={() => setRules(!rules)}
             >
               Rules
+              <ChevronDown size={13} strokeWidth={2.2} aria-hidden="true" />
             </button>
           )}
         </div>
