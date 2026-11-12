@@ -874,3 +874,32 @@
   margin-top: 8px;
   width: 100%;
 }
+
+/* Which chat is asking, when it isn't the one on screen. */
+.ask__from {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.ask__from strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.ask__from-open {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.ask__from-open:hover {
+  background: var(--hover-strong);
+}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { AskQuestion } from '@shared/askQuestions'
-import { useApp } from '../../state/store'
+import { agentWorkspace, useApp } from '../../state/store'
 import { Modal } from '../ui'
 
 /**
@@ -24,10 +24,24 @@ const answerOf = (q: AskQuestion, draft: Draft): string[] => {
   return other ? [other] : draft.picked.slice(0, 1)
 }
 
+/** Opens the chat that asked, from wherever the app is: Chat's tab, then the chat. */
+function openAsking(chatId: string): void {
+  const app = useApp.getState()
+  const chat = agentWorkspace(app.workspaces)
+  if (chat && chat.id !== app.settings?.activeWorkspaceId) app.setWorkspace(chat.id)
+  app.openChat(chatId)
+}
+
 export function QuestionPopup(): JSX.Element | null {
   const question = useApp((s) => s.pendingQuestions[0] ?? null)
   const answerQuestion = useApp((s) => s.answerQuestion)
   const [drafts, setDrafts] = useState<Draft[]>([])
+  // The chat that is asking, when it isn't the one on screen: the pop-up says which.
+  const from = useApp((s) => {
+    if (!question) return null
+    if (s.activeChat()?.messages.some((m) => m.id === question.messageId)) return null
+    return s.chats.find((c) => c.messages.some((m) => m.id === question.messageId)) ?? null
+  })
 
   // A fresh set of drafts for each question set that comes up.
   const requestId = question?.requestId
@@ -65,6 +79,16 @@ export function QuestionPopup(): JSX.Element | null {
       }
     >
       <div className="ask">
+        {from && (
+          <div className="ask__from">
+            <span>
+              From <strong>{from.title}</strong>
+            </span>
+            <button type="button" className="ask__from-open" onClick={() => openAsking(from.id)}>
+              Open chat
+            </button>
+          </div>
+        )}
         {question.questions.map((q, i) => {
           const draft = drafts[i] ?? { picked: [], other: '' }
           return (
