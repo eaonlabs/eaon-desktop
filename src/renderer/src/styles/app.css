@@ -1002,6 +1002,9 @@ body[data-reduce-motion='on'] .ld-trace__dash {
   color: var(--accent);
   animation: dotm-in 500ms ease-in-out both;
 }
+.dotm__layer[data-first] {
+  animation: none;
+}
 .dotm__layer[data-leaving] {
   animation: dotm-out 500ms ease-in-out both;
 }

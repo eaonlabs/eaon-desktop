@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 
 /** A dash tracing the outline of a rounded square: a chat that is replying. */
 export function Spinner({ size = 14, label = 'Working' }: { size?: number; label?: string }): JSX.Element {
@@ -76,9 +76,9 @@ function plan(state: DotState, cell: number): { on: boolean; step: number; of: n
   }
 }
 
-function Layer({ state, leaving }: { state: DotState; leaving?: boolean }): JSX.Element {
+function Layer({ state, leaving, first }: { state: DotState; leaving?: boolean; first?: boolean }): JSX.Element {
   return (
-    <span className="dotm__layer" data-state={state} data-leaving={leaving || undefined} aria-hidden="true">
+    <span className="dotm__layer" data-state={state} data-leaving={leaving || undefined} data-first={first || undefined} aria-hidden="true">
       {Array.from({ length: 25 }, (_, cell) => {
         const { on, step, of } = plan(state, cell)
         return <i key={cell} data-on={on || undefined} style={on ? { ['--dotm-step' as string]: step, ['--dotm-of' as string]: of } : undefined} />
@@ -100,15 +100,17 @@ export function DotMatrix({ state: asked, size = 16 }: { state: DotState; size?:
     const timer = setTimeout(() => setState(asked), 700)
     return () => clearTimeout(timer)
   }, [asked, state])
-  const [shown, setShown] = useState<DotState[]>([state])
-  const latest = shown[shown.length - 1]
+
+  // The layers on show: the one fading out (until it is gone) and the current one. Each keeps its own
+  // id for its whole life, so the current layer is never remounted (which would play its fade-in again).
+  const next = useRef(1)
+  const [layers, setLayers] = useState<{ id: number; state: DotState }[]>([{ id: 0, state }])
   useEffect(() => {
-    if (state === latest) return
-    setShown((list) => [...list.slice(-1), state])
-    const timer = setTimeout(() => setShown((list) => list.slice(-1)), 560)
+    setLayers((list) => (list[list.length - 1].state === state ? list : [...list.slice(-1), { id: next.current++, state }]))
+    const timer = setTimeout(() => setLayers((list) => (list.length > 1 ? list.slice(-1) : list)), 600)
     return () => clearTimeout(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state])
+
   return (
     <span className="dotm" style={{ ['--dotm-size' as string]: `${size}px`, ['--dotm-ms' as string]: `${LOOP_MS}ms` }} role="img" aria-label={LABEL[state]}>
       <span className="dotm__base" aria-hidden="true">
@@ -116,8 +118,8 @@ export function DotMatrix({ state: asked, size = 16 }: { state: DotState; size?:
           <i key={cell} />
         ))}
       </span>
-      {shown.map((s, index) => (
-        <Layer key={`${index}-${s}`} state={s} leaving={shown.length > 1 && index === 0} />
+      {layers.map((layer, index) => (
+        <Layer key={layer.id} state={layer.state} leaving={layers.length > 1 && index === 0} first={layer.id === 0} />
       ))}
     </span>
   )
