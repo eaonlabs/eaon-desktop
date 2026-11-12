@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 
 /** A dash tracing the outline of a rounded square: a chat that is replying. */
 export function Spinner({ size = 14, label = 'Working' }: { size?: number; label?: string }): JSX.Element {
@@ -49,43 +49,69 @@ const LABEL: Record<DotState, string> = {
   failed: 'Failed'
 }
 
+/** One loop for every state, so changing state never changes the tempo. */
+const LOOP_MS = 1200
+
 /** Which dots are lit for a state, and the number each animates by (its place in the motion). */
-function plan(state: DotState, cell: number): { on: boolean; step: number; of: number; ms: number } {
+function plan(state: DotState, cell: number): { on: boolean; step: number; of: number } {
   const row = Math.floor(cell / 5)
   const col = cell % 5
   switch (state) {
     case 'thinking': {
       const outer = OUTER.indexOf(cell)
-      if (outer >= 0) return { on: true, step: outer, of: 16, ms: 1400 }
+      if (outer >= 0) return { on: true, step: outer, of: 16 }
       const inner = INNER.indexOf(cell)
-      return { on: inner >= 0, step: inner, of: 8, ms: 1000 }
+      return { on: inner >= 0, step: inner, of: 8 }
     }
     case 'working':
-      return { on: true, step: col, of: 5, ms: 1100 }
+      return { on: true, step: col, of: 5 }
     case 'writing':
-      return { on: row >= 1 && row <= 3, step: col + row, of: 8, ms: 1000 }
+      return { on: row >= 1 && row <= 3, step: col + row, of: 8 }
     case 'retrying':
-      return { on: OUTER.includes(cell), step: 0, of: 1, ms: 2200 }
+      return { on: OUTER.includes(cell), step: 0, of: 1 }
     case 'asking':
-      return { on: row === 2 && col % 2 === 0, step: col / 2, of: 3, ms: 1200 }
+      return { on: row === 2 && col % 2 === 0, step: col / 2, of: 3 }
     default:
-      return { on: SHAPES[state][row][col] === '1', step: row + col, of: 8, ms: 360 }
+      return { on: SHAPES[state][row][col] === '1', step: row + col, of: 8 }
   }
 }
 
-export function DotMatrix({ state, size = 15 }: { state: DotState; size?: number }): JSX.Element {
+function Layer({ state, leaving }: { state: DotState; leaving?: boolean }): JSX.Element {
   return (
-    <span className="dotm" data-state={state} style={{ ['--dotm-size' as string]: `${size}px` }} role="img" aria-label={LABEL[state]}>
+    <span className="dotm__layer" data-state={state} data-leaving={leaving || undefined} aria-hidden="true">
       {Array.from({ length: 25 }, (_, cell) => {
-        const { on, step, of, ms } = plan(state, cell)
-        return (
-          <i
-            key={cell}
-            data-on={on || undefined}
-            style={on ? { ['--dotm-step' as string]: step, ['--dotm-of' as string]: of, ['--dotm-ms' as string]: `${ms}ms` } : undefined}
-          />
-        )
+        const { on, step, of } = plan(state, cell)
+        return <i key={cell} data-on={on || undefined} style={on ? { ['--dotm-step' as string]: step, ['--dotm-of' as string]: of } : undefined} />
       })}
+    </span>
+  )
+}
+
+/**
+ * The dots keep one size, one footprint (a faint grid under every state) and
+ * one tempo; a new state fades in over the one it replaces rather than
+ * snapping to it.
+ */
+export function DotMatrix({ state, size = 16 }: { state: DotState; size?: number }): JSX.Element {
+  const [shown, setShown] = useState<DotState[]>([state])
+  const latest = shown[shown.length - 1]
+  useEffect(() => {
+    if (state === latest) return
+    setShown((list) => [...list.slice(-1), state])
+    const timer = setTimeout(() => setShown((list) => list.slice(-1)), 340)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
+  return (
+    <span className="dotm" style={{ ['--dotm-size' as string]: `${size}px`, ['--dotm-ms' as string]: `${LOOP_MS}ms` }} role="img" aria-label={LABEL[state]}>
+      <span className="dotm__base" aria-hidden="true">
+        {Array.from({ length: 25 }, (_, cell) => (
+          <i key={cell} />
+        ))}
+      </span>
+      {shown.map((s, index) => (
+        <Layer key={`${index}-${s}`} state={s} leaving={shown.length > 1 && index === 0} />
+      ))}
     </span>
   )
 }
