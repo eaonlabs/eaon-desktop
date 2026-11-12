@@ -736,6 +736,11 @@
   width: min(680px, calc(100vw - 48px));
   transform: translateX(-50%);
 }
+/* Centred on the page beside the sidebar, not on the whole window. */
+body:has(.sidebar[data-open='true']) .elsewhere-float {
+  left: calc(50% + var(--sidebar-w) / 2);
+  width: min(680px, calc(100vw - var(--sidebar-w) - 48px));
+}
 .elsewhere-float .elsewhere-ask {
   margin: 0;
   border-color: transparent;
