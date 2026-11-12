@@ -152,6 +152,9 @@ mac:
     # Outside the asar with its executable bit, and signed with the app.
     - from: resources/cua-driver/darwin
       to: cua-driver/darwin
+    # VMs on a Mac (scripts/build-vm-helper.mjs).
+    - from: resources/vm/darwin
+      to: vm/darwin
     # App control's engine (scripts/build-app-control.mjs) and eaon-apps (main/features/appControl.ts).
     # Outside the asar with its executable bit, and signed with the app.
     - from: resources/app-control

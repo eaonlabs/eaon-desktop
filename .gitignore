@@ -26,3 +26,4 @@ resources/app-control/darwin/
 resources/tokn-cli/
 native/whisper.cpp/
 resources/whisper/
+resources/vm/

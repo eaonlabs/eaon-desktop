@@ -3,6 +3,8 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'reac
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Loader2, Monitor, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { SidebarFoot } from './SidebarFoot'
@@ -380,6 +382,7 @@ function AdeMenu(): JSX.Element {
         onClick={() => setView('pull-requests')}
       />
       <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
+      <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
     </>
   )
