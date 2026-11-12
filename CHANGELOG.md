@@ -15,7 +15,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ### Fixed
 - **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.
 - **The marks beside a chat highlight your newest message when you are at the bottom,** not the one before it.
-- **"Eaon is looking at your screen" has a new look:** a quiet pill with an eye, the stop shortcut as keys, and a softer Stop button.
+- **"Eaon is looking at your screen" has a new look:** a quiet pill with an eye, the stop shortcut as keys, and a softer Stop button. Its arrow opens a card showing the last thing it saw, which display that was, and when.
 
 ## [2026.7.6] — 2026-11-10
 

@@ -25,7 +25,7 @@ import { ComputerLease, ownerLabel, REVOKED_TEXT as REVOKED } from './lease'
 import { iphoneMirroringAvailability } from '../simulator'
 import { formatCombo, parseCombo } from './keys'
 import { permissionOwnerLabel } from './mac'
-import { beginDriving, bringEaonForward, eaonHasFocus, STOP_LABEL, withEaonHidden } from './session'
+import { beginDriving, bringEaonForward, eaonHasFocus, noteLook, STOP_LABEL, withEaonHidden } from './session'
 
 /**
  * The `computer` tool: one tool, an `action` enum, for seeing the screen and
@@ -306,6 +306,13 @@ async function capture(chatId: string, display: Display, region?: Rect, keepFull
   const shot = await captureDisplay(display, quality(), { ...(region ? { region } : {}), keepFull })
   frames.set(chatId, shot.frame)
   shotAt.set(chatId, at)
+  const index = Math.max(0, orderedDisplays().findIndex((d) => d.id === display.id))
+  noteLook({
+    jpeg: shot.jpeg,
+    where: index === 0 ? 'Main display' : `Display ${index + 1}`,
+    view: region ? 'Zoomed in' : 'Whole display',
+    size: `${Math.round(display.bounds.width * display.scaleFactor)} × ${Math.round(display.bounds.height * display.scaleFactor)} px`
+  })
   return shot
 }
 

@@ -1,4 +1,4 @@
-import { BrowserWindow, globalShortcut, screen } from 'electron'
+import { BrowserWindow, globalShortcut, nativeImage, screen } from 'electron'
 import { cancelRun, isRunning } from '../../agent/loop'
 
 /**
@@ -29,6 +29,36 @@ let onStopped: (() => void) | null = null
 let onTakeBack: (() => void) | null = null
 /** Who holds the computer, for the pill; null while runs only look at the screen. */
 let controlling: { name: string; waiting: number } | null = null
+
+/** What the agent last saw, for the pill's drop-down: a small copy of the screenshot and where it came from. */
+export interface Look {
+  /** A small JPEG of the screenshot the agent was shown. */
+  jpeg: Buffer
+  /** "Main display", "Display 2". */
+  where: string
+  /** "Whole display" or "Zoomed in". */
+  view: string
+  /** Pixels of the screen it was taken from. */
+  size: string
+  at: number
+}
+let look: Look | null = null
+/** The pill is open to show what it is looking at. */
+let expanded = false
+
+/** Records what the agent just saw; the drop-down shows it, and updates if it is open. */
+export function noteLook(next: Omit<Look, 'jpeg' | 'at'> & { jpeg: Buffer }): void {
+  let small = next.jpeg
+  try {
+    const image = nativeImage.createFromBuffer(next.jpeg)
+    const { width } = image.getSize()
+    if (width > 560) small = image.resize({ width: 560, quality: 'good' }).toJPEG(72)
+  } catch {
+    /* keep the full image */
+  }
+  look = { ...next, jpeg: small, at: Date.now() }
+  if (expanded && indicator && !indicator.isDestroyed()) void indicator.loadURL(indicatorUrl())
+}
 
 export function configureSession(options: {
   getWindow: () => BrowserWindow | null
@@ -79,6 +109,8 @@ export function endDriving(messageId: string): void {
   shortcutHeld = false
   if (indicator && !indicator.isDestroyed()) indicator.destroy()
   indicator = null
+  look = null
+  expanded = false
 }
 
 /** Emergency stop: cancels every turn that is driving and brings Eaon back into view. */
@@ -100,11 +132,26 @@ export function disposeSession(): void {
 
 const INDICATOR_W = 600
 const INDICATOR_H = 46
+/** The drop-down under the pill: a card holding the screenshot and its details. */
+const CARD_H = 176
 
 const escapeHtml = (text: string): string => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
 
 /** The stop shortcut as separate keys: `⌃⌥⌘.` on a Mac, `Ctrl+Alt+Shift+.` elsewhere. */
 const stopKeys = (): string[] => (isMac ? [...STOP_LABEL] : STOP_LABEL.split('+'))
+
+const CHEVRON =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
+
+function cardHtml(): string {
+  if (!look) {
+    return '<div class="card card--empty"><span class="eye-dim"></span><div><div class="where">Waiting for its first look</div><div class="meta">The screen it sees will show here.</div></div></div>'
+  }
+  const time = new Date(look.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+  return `<div class="card"><div class="shot"><img alt="What Eaon last saw" src="data:image/jpeg;base64,${look.jpeg.toString('base64')}"></div>
+<div class="info"><div class="cap">Last saw</div><div class="where">${escapeHtml(look.where)}</div>
+<div class="meta">${escapeHtml(look.view)}</div><div class="meta">${escapeHtml(look.size)}</div><div class="meta dim">at ${escapeHtml(time)}</div></div></div>`
+}
 
 const EYE =
   '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
@@ -122,7 +169,7 @@ function indicatorHtml(): string {
 :root { color-scheme: dark; --text: #f5f5f7; --muted: rgba(245, 245, 247, 0.55); --accent: #ff6b5f; --accent-soft: rgba(255, 107, 95, 0.16); }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default;
   font: 500 12.5px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-body { display: flex; align-items: center; justify-content: center; }
+body { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; padding-top: 6px; box-sizing: border-box; }
 .pill { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 5px 0 5px; border-radius: 999px; white-space: nowrap; color: var(--text);
   background: linear-gradient(180deg, rgba(44, 44, 48, 0.96), rgba(24, 24, 27, 0.96));
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), inset 0 0.5px 0 rgba(255, 255, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.38); }
@@ -141,8 +188,36 @@ a { display: inline-flex; align-items: center; height: 26px; padding: 0 13px; bo
 a:hover { background: rgba(255, 107, 95, 0.28); }
 a.quiet { background: rgba(255, 255, 255, 0.1); color: var(--text); }
 a.quiet:hover { background: rgba(255, 255, 255, 0.18); }
+a.chev { width: 22px; height: 22px; padding: 0; justify-content: center; background: rgba(255, 255, 255, 0.08); color: var(--muted); margin-left: -4px; }
+a.chev:hover { background: rgba(255, 255, 255, 0.16); color: var(--text); }
+a.chev svg { transition: transform 200ms ease; transform: rotate(${expanded ? 180 : 0}deg); }
+.card { display: flex; gap: 14px; align-items: stretch; width: 560px; box-sizing: border-box; padding: 10px; border-radius: 16px; color: var(--text);
+  background: linear-gradient(180deg, rgba(44, 44, 48, 0.97), rgba(24, 24, 27, 0.97));
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.16), inset 0 0.5px 0 rgba(255, 255, 255, 0.1), 0 12px 32px rgba(0, 0, 0, 0.42);
+  animation: card-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes card-in { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) { .card { animation: none; } a.chev svg { transition: none; } }
+.shot { flex: none; width: 262px; height: 147px; border-radius: 9px; overflow: hidden; background: #000; box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.18); }
+.shot img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.info { display: flex; flex-direction: column; justify-content: center; gap: 5px; min-width: 0; padding-right: 6px; }
+.cap { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.where { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
+.meta { font-weight: 400; color: rgba(245, 245, 247, 0.7); }
+.meta.dim { color: var(--muted); margin-top: 3px; }
+.card--empty { align-items: center; height: 70px; }
+.eye-dim { width: 10px; height: 10px; margin: 0 6px 0 8px; border-radius: 50%; background: var(--accent); opacity: 0.7; }
 </style></head><body><div class="pill" role="status"><span class="live">${EYE}</span><span class="label">${text}</span>
-<span class="keys" title="Stop shortcut">${keys}</span>${takeBack}<a href="https://eaon.invalid/stop">Stop</a></div></body></html>`
+<a class="chev" href="https://eaon.invalid/toggle" title="${expanded ? 'Hide' : 'Show'} what it is looking at" aria-label="${expanded ? 'Hide' : 'Show'} what it is looking at" aria-expanded="${expanded}">${CHEVRON}</a>
+<span class="keys" title="Stop shortcut">${keys}</span>${takeBack}<a href="https://eaon.invalid/stop">Stop</a></div>${expanded ? cardHtml() : ''}</body></html>`
+}
+
+/** Opens or closes the drop-down: the window grows under the pill, which stays where it is. */
+function toggleExpanded(): void {
+  if (!indicator || indicator.isDestroyed()) return
+  expanded = !expanded
+  const [x, y] = indicator.getPosition()
+  indicator.setBounds({ x, y, width: INDICATOR_W, height: INDICATOR_H + (expanded ? CARD_H : 0) })
+  void indicator.loadURL(indicatorUrl())
 }
 
 const indicatorUrl = (): string => `data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml())}`
@@ -180,6 +255,7 @@ function showIndicator(): void {
     event.preventDefault()
     if (url.endsWith('/stop')) stopAll()
     else if (url.endsWith('/take-back')) onTakeBack?.()
+    else if (url.endsWith('/toggle')) toggleExpanded()
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.once('ready-to-show', () => {
