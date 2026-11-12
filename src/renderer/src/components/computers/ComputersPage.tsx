@@ -33,7 +33,12 @@ function deviceLine(state: VmDeviceState): string | null {
 
 export function ComputersPage(): JSX.Element {
   const { devices, refresh } = useVmDevices()
-  const [deviceId, setDeviceId] = useState<VmDevice>('local')
+  // Until picked: the worker computer when it has VMs, or when this computer can't run any.
+  const [picked, setDeviceId] = useState<VmDevice | null>(null)
+  const linked = devices?.find((d) => d.device === 'host')
+  const here = devices?.find((d) => d.device === 'local')
+  const runsVms = (d?: VmDeviceState): boolean => Boolean(d?.info && (d.info.os.linux.available || d.info.os.macos.available))
+  const deviceId: VmDevice = picked ?? (linked && (linked.vms.length > 0 || !runsVms(here)) ? 'host' : 'local')
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -45,8 +50,8 @@ export function ComputersPage(): JSX.Element {
 
   const device = devices?.find((d) => d.device === deviceId) ?? devices?.[0] ?? null
   useEffect(() => {
-    if (devices && !devices.some((d) => d.device === deviceId)) setDeviceId('local')
-  }, [devices, deviceId])
+    if (devices && picked && !devices.some((d) => d.device === picked)) setDeviceId(null)
+  }, [devices, picked])
   const open = device?.vms.find((vm) => vm.id === openId) ?? null
 
   const act = async (vm: VmStatus, action: () => Promise<unknown>): Promise<void> => {
@@ -70,7 +75,13 @@ export function ComputersPage(): JSX.Element {
       if (result.needsPassword) setError(`Installing needs your password on ${device.name}. Run this there, then come back: ${result.command}`)
       else if (!result.ok) setError(`That didn’t work: ${result.output.split('\n').slice(-3).join(' ')}`)
       else {
-        notify(result.restartNeeded ? `Done. Restart Eaon on ${device.name} (or the computer) so it can use KVM.` : 'Installed. You can make VMs now.')
+        notify(
+          result.restarting
+            ? `Installed. Eaon on ${device.name} is restarting so it can use KVM; it’s back in a few seconds.`
+            : result.restartNeeded
+              ? `Done. Restart Eaon on ${device.name} (or the computer) so it can use KVM.`
+              : 'Installed. You can make VMs now.'
+        )
         await refresh()
       }
     } catch (e) {

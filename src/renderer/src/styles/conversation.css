@@ -939,6 +939,10 @@ button.wl-row:not([data-static]):hover,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wl-row__stat {
+  flex: none;
+  margin-left: 2px;
+}
 .wl-row__failed {
   flex: none;
   color: color-mix(in srgb, var(--danger), var(--text-3) 30%);

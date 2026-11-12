@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ChatMessage, ChatToolPart } from '@shared/types'
-import { liveStep, stepSummary, thoughtLine, workLog, type StepCall } from '../src/renderer/src/components/chat/workLog'
+import { liveStep, runLines, stepSummary, thoughtLine, workLog, type StepCall } from '../src/renderer/src/components/chat/workLog'
 
 /** Chat's work log: sentences, thoughts on lines of their own, and each run of calls folded to one line. */
 
@@ -72,4 +72,19 @@ test('an opened thought leaves out the title its line shows', async () => {
 test('a worker going to sleep says so, not "used 1 tool"', () => {
   assert.equal(stepSummary([call('sleep', '')]).text, 'Went to sleep until later')
   assert.equal(stepSummary([call('sleep', ''), call('sleep', '')]).text, 'Went to sleep 2 times')
+})
+
+test("a run's line counts the lines its edits added and removed, each file once", () => {
+  const part = (id: string, name: string, input: Record<string, unknown>, extra: Partial<ChatToolPart> = {}): ChatToolPart => ({ type: 'tool', id, name, input, output: 'ok', status: 'done', ...extra })
+  const lines = runLines([
+    part('a', 'edit_file', { path: 'src/a.ts', old_text: 'one\ntwo\n', new_text: 'one\n2\nthree\n' }),
+    part('b', 'run_command', { command: 'npm test' }),
+    // Written over its old text, then edited: counted from how it was to how it ended.
+    part('c', 'write_file', { path: 'b.md', content: 'x\ny\n' }, { before: 'x\n' }),
+    part('d', 'edit_file', { path: 'b.md', old_text: 'y\n', new_text: 'y\nz\n' }),
+    // Didn't happen: not counted.
+    part('e', 'edit_file', { path: 'c.ts', old_text: 'a', new_text: 'b' }, { status: 'error' })
+  ])
+  assert.deepEqual(lines, { added: 4, removed: 1 })
+  assert.deepEqual(runLines([part('f', 'run_command', { command: 'ls' })]), { added: 0, removed: 0 })
 })

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statfsSync, writeFileSync } from 'node:fs'
-import { open, rm } from 'node:fs/promises'
+import { open, readFile, rm } from 'node:fs/promises'
 import { connect as netConnect, type Socket } from 'node:net'
 import { cpus, tmpdir, totalmem, userInfo } from 'node:os'
 import { basename, join } from 'node:path'
@@ -22,6 +22,7 @@ import {
   type VmPhase,
   type VmRecord,
   type VmScreenshot,
+  type VmSshKey,
   type VmStatus,
   type VmToolsResult
 } from '@shared/vms'
@@ -100,6 +101,8 @@ export interface VmManager {
   restore: (id: string, snapshotId: string) => Promise<VmStatus>
   deleteSnapshot: (id: string, snapshotId: string) => Promise<VmStatus>
   login: (id: string) => VmLogin
+  /** The key and account for a terminal in the VM, from another computer (the desktop, through its tunnel). */
+  sshKey: (id: string) => Promise<VmSshKey>
   exec: (id: string, command: string, timeoutMs?: number) => Promise<VmExecResult>
   screenshot: (id: string) => Promise<VmScreenshot>
   input: (id: string, actions: VmInput[]) => Promise<void>
@@ -107,6 +110,8 @@ export interface VmManager {
   vnc: (id: string) => VncTarget | null
   /** Opens a raw connection to the VM's screen for the live view (the viewer does the VNC). */
   openScreen: (id: string) => Promise<{ socket: Socket; password: string | null }>
+  /** Opens a raw connection to the VM's SSH, for a terminal in it (the desktop's `ssh` does the SSH). */
+  openSsh: (id: string) => Promise<Socket>
   setAgentActive: (id: string, active: boolean) => void
   installTools: () => Promise<VmToolsResult>
   /** Shuts down running VMs (asking first, then forcing) and stops watching. */
@@ -701,7 +706,8 @@ export function createVmManager(options: VmManagerOptions): VmManager {
     screens.delete(id)
   }
 
-  const connectScreen = async (target: VncTarget): Promise<Socket> => {
+  /** A raw connection to a VM's screen or SSH, wherever it listens on this computer. */
+  const connectTo = async (target: { kind: 'tcp'; port: number } | { kind: 'unix'; path: string }): Promise<Socket> => {
     const socket = target.kind === 'tcp' ? netConnect(target.port, '127.0.0.1') : netConnect(target.path)
     await new Promise<void>((resolve, reject) => {
       socket.once('connect', () => resolve())
@@ -718,7 +724,7 @@ export function createVmManager(options: VmManagerOptions): VmManager {
     const cached = screens.get(id)
     if (cached && cached.key === key && cached.client.isOpen) return cached.client
     cached?.client.close()
-    const client = await RfbClient.connect(await connectScreen(target), target.password)
+    const client = await RfbClient.connect(await connectTo(target), target.password)
     screens.set(id, { client, key })
     return client
   }
@@ -799,7 +805,20 @@ export function createVmManager(options: VmManagerOptions): VmManager {
     const vm = need(id)
     const target = driver?.status(vm, paths(id)).vnc
     if (!target) throw new Error(`${vm.name}’s screen isn’t available.`)
-    return { socket: await connectScreen(target), password: target.password }
+    return { socket: await connectTo(target), password: target.password }
+  }
+
+  const openSsh = async (id: string): Promise<Socket> => {
+    const vm = need(id)
+    const route = driver?.ssh(vm, paths(id))
+    if (!route || !driver?.status(vm, paths(id)).running) throw new Error(`${vm.name} is off. Start it to open a terminal.`)
+    return connectTo('socket' in route ? { kind: 'unix', path: route.socket } : { kind: 'tcp', port: route.port })
+  }
+
+  const sshKey = async (id: string): Promise<VmSshKey> => {
+    const vm = need(id)
+    if (vm.os !== 'linux') throw new Error(`${vm.name} has no terminal Eaon can open: it’s a macOS VM.`)
+    return { user: vm.user, privateKey: await readFile(join(root, id, 'ssh-key'), 'utf8') }
   }
 
   /* ------------------------------------------------------------- tools */
@@ -894,6 +913,8 @@ export function createVmManager(options: VmManagerOptions): VmManager {
       return vm && driver ? driver.status(vm, paths(id)).vnc : null
     },
     openScreen,
+    openSsh,
+    sshKey,
     setAgentActive: (id, active) => {
       if (!vms.has(id)) return
       liveOf(id).agentActive = active

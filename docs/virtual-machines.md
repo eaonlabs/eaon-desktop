@@ -20,9 +20,9 @@ Computers page; agents get the `vm` tool for VMs marked "Agents can use it".
 | `src/main/vms/rfb.ts`, `des.ts`, `keys.ts`, `png.ts` | The agent's own VNC connection: screenshots as PNG, mouse and keys. |
 | `src/main/vms/ssh.ts` | Running commands in a VM over SSH, with a key made for that VM. |
 | `src/main/vms/tool.ts` | The `vm` tool. |
-| `src/main/vms/ipc.ts` | The worker host's `vms:*` channels, and the live view's relayed screen. |
-| `src/main/features/vms.ts` | The desktop: its own manager, the worker computer's through the link, the live view, the tool for both. |
-| `src/renderer/src/components/computers/` | The Computers page, New VM, a VM's live screen (noVNC). |
+| `src/main/vms/ipc.ts` | The worker host's `vms:*` channels, and the relayed screen and terminal streams. |
+| `src/main/features/vms.ts` | The desktop: its own manager, the worker computer's through the link, the live view, terminals (ssh in a pty through a local tunnel), the tool for both. |
+| `src/renderer/src/components/computers/` | The Computers page, New VM, a VM's live screen (noVNC) and terminal (xterm). |
 
 ## Making a VM
 
@@ -87,6 +87,27 @@ for again at every start: on a Pi that logs itself in, `/dev/kvm` is often
 granted to the desktop login (an ACL) rather than the `kvm` group, so a host
 that starts at boot can't use it for its first moments; starting VMs waits up
 to two minutes for it rather than running them slowly.
+
+## Connecting
+
+A VM's page has two views for a Linux VM: **Screen** (the live screen,
+noVNC) and **Terminal** (a terminal-only VM opens on this one). The terminal
+is this computer's own `ssh` in a pty (`features/vms.ts`), signed in as the
+VM's account with the VM's key, through a tunnel Eaon keeps on 127.0.0.1 for
+each VM: straight to the VM's SSH here (`openSsh`), or for the worker
+computer's VMs a stream relayed over the encrypted link (`vms:sshOpen` in
+`ipc.ts`, the same relay as the screen). Nothing on the worker computer is
+opened to the network for it. The key is copied into Eaon's own folder on
+this computer (`vms-ssh/<device>-<id>/`, readable only by this user), and
+`HostKeyAlias` keeps the VM's host key checked though the tunnel's port
+changes from run to run. **Copy SSH command** gives the same command for the
+user's own terminal app; it works while Eaon is open. A terminal whose VM
+stops says so and connects again when the VM is back.
+
+Installing QEMU on the worker computer can add its user to the `kvm` group,
+which the running host never picks up: when systemd runs the host
+(`INVOCATION_ID`), it ends itself after answering and systemd starts it again
+with the group (`Restart=always`); run by hand, it says to restart instead.
 
 Snapshots are taken while a VM is off: APFS clones of the disk on a Mac (instant,
 free until the VM writes), qcow2 internal snapshots under QEMU.

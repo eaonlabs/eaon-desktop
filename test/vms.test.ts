@@ -2,7 +2,7 @@ import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { createServer, connect, type Socket } from 'node:net'
+import { createServer, connect, type AddressInfo, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { inflateSync } from 'node:zlib'
@@ -18,6 +18,7 @@ import { checksumFor } from '../src/main/vms/download'
 import { qcow2ToRaw } from '../src/main/vms/qcow2'
 import { vmTool, vmToolSource, type VmDirectory } from '../src/main/vms/tool'
 import { createVmManager, setupStep } from '../src/main/vms/service'
+import { registerVmIpc } from '../src/main/vms/ipc'
 import type { BackendRun, VmBackendDriver, VmPaths } from '../src/main/vms/backend'
 import { freeVmName, LINUX_IMAGES, vmLimits, vmPhaseLabel, vmSpaceNeededMB, type VmRecord, type VmStatus } from '@shared/vms'
 import { hostForwardsEvent, hostServesChannel } from '@shared/workerHost'
@@ -513,4 +514,74 @@ test('the worker computer serves VM calls whether or not workers run there, and 
   assert.ok(hostForwardsEvent('vms:changed'))
   // Screen bytes go only to the desktop that opened the screen, never to every linked one.
   assert.ok(!hostForwardsEvent('vms:vncData'))
+})
+
+test('a terminal reaches the VM’s SSH as raw bytes, here or relayed by the worker computer, and only while it runs', async () => {
+  // An SSH server stand-in: answers each line with it upper-cased.
+  const sshd = createServer((socket) => socket.on('data', (chunk) => socket.write(chunk.toString().toUpperCase())))
+  await new Promise<void>((resolve) => sshd.listen(0, '127.0.0.1', resolve))
+  const port = (sshd.address() as AddressInfo).port
+  const root = join(scratch, 'terminal')
+  mkdirSync(join(root, 'cafe0001'), { recursive: true })
+  writeFileSync(join(root, 'cafe0001', 'vm.json'), JSON.stringify({ ...vmRecord({ id: 'cafe0001', name: 'Pi box' }), password: 'pw', setUp: true, seedToken: 't', hostname: 'pibox' }))
+  writeFileSync(join(root, 'cafe0001', 'ssh-key'), 'PRIVATE KEY\n')
+  const driver = { ...fakeDriver(), ssh: () => ({ port }) }
+  const manager = createVmManager({ root, socketDir: join(scratch, 's'), helper: null, device: 'host', name: () => 'pi', onChange: () => undefined, driver })
+  const read = (socket: Socket): Promise<string> => new Promise((resolve) => socket.once('data', (chunk) => resolve(chunk.toString())))
+  try {
+    await assert.rejects(manager.openSsh('cafe0001'), /Pi box is off/)
+    assert.deepEqual(await manager.sshKey('cafe0001'), { user: 'eaon', privateKey: 'PRIVATE KEY\n' })
+    await manager.start('cafe0001')
+    const direct = await manager.openSsh('cafe0001')
+    direct.write('hello')
+    assert.equal(await read(direct), 'HELLO')
+    direct.destroy()
+
+    // The worker host's side: the desktop's bytes come in base64 and go back the same way.
+    const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>()
+    const sent: [string, unknown[]][] = []
+    const sender = { send: (channel: string, ...args: unknown[]) => sent.push([channel, args]), isDestroyed: () => false, once: () => undefined }
+    const off = registerVmIpc({ handle: (channel, handler) => void handlers.set(channel, handler as never) }, manager)
+    const { session } = (await handlers.get('vms:sshOpen')!({ sender }, 'cafe0001')) as { session: string }
+    await handlers.get('vms:vncSend')!({ sender }, session, Buffer.from('relayed').toString('base64'))
+    for (let i = 0; i < 50 && !sent.some(([channel]) => channel === 'vms:vncData'); i++) await new Promise((r) => setTimeout(r, 10))
+    const [, [from, data]] = sent.find(([channel]) => channel === 'vms:vncData')!
+    assert.equal(from, session)
+    assert.equal(Buffer.from(String(data), 'base64').toString(), 'RELAYED')
+    await handlers.get('vms:vncClose')!({ sender }, session)
+    off()
+  } finally {
+    await manager.shutdown({ stopVms: false, resumeLater: false })
+    sshd.close()
+  }
+})
+
+test('a macOS VM has no terminal to open', async () => {
+  const root = join(scratch, 'terminal-mac')
+  mkdirSync(join(root, 'cafe0002'), { recursive: true })
+  writeFileSync(join(root, 'cafe0002', 'vm.json'), JSON.stringify({ ...vmRecord({ id: 'cafe0002', name: 'Mac box', os: 'macos' }), password: 'pw', setUp: true, seedToken: 't', hostname: 'mac' }))
+  const manager = createVmManager({ root, socketDir: join(scratch, 's'), helper: null, device: 'local', name: () => 'mac', onChange: () => undefined, driver: fakeDriver() })
+  try {
+    await assert.rejects(manager.sshKey('cafe0002'), /it’s a macOS VM/)
+  } finally {
+    await manager.shutdown({ stopVms: false, resumeLater: false })
+  }
+})
+
+test('installing QEMU that adds the kvm group restarts the worker computer’s Eaon, where a service will start it again', async () => {
+  const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>()
+  const ipc = { handle: (channel: string, handler: unknown) => void handlers.set(channel, handler as never) }
+  const manager = { installTools: async () => ({ ok: true, command: 'sudo usermod -aG kvm pi', output: '', restartNeeded: true }) } as unknown as Parameters<typeof registerVmIpc>[1]
+  let restarted = 0
+  registerVmIpc(ipc, manager, { restart: () => restarted++ })
+  const sender = { send: () => undefined, isDestroyed: () => false, once: () => undefined }
+  assert.equal(((await handlers.get('vms:installTools')!({ sender })) as { restarting?: boolean }).restarting, true)
+  await new Promise((r) => setTimeout(r, 1600))
+  assert.equal(restarted, 1)
+  // Without a service to start it again (run by hand), it says to restart instead.
+  handlers.clear()
+  registerVmIpc(ipc, manager)
+  const plain = (await handlers.get('vms:installTools')!({ sender })) as { restarting?: boolean; restartNeeded?: boolean }
+  assert.equal(plain.restarting, undefined)
+  assert.equal(plain.restartNeeded, true)
 })

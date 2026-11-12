@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { CreateVmRequest, VmChange, VmDevice, VmDeviceState, VmExecResult, VmLogin, VmStatus, VmToolsResult } from '@shared/vms'
+import type { CreateVmRequest, VmChange, VmDevice, VmDeviceState, VmExecResult, VmLogin, VmStatus, VmTerminalSession, VmToolsResult } from '@shared/vms'
 
 /**
  * Renderer bridge for virtual machines (the Computers page and its live
@@ -47,5 +47,20 @@ export const vmsApi = {
     const listener = (_e: unknown, session: string): void => handler(session)
     ipcRenderer.on('vms:vnc-closed', listener)
     return () => ipcRenderer.removeListener('vms:vnc-closed', listener)
+  },
+  /** A terminal in a Linux VM (SSH as its account); what it prints arrives through `onTerminalData`. */
+  openTerminal: (device: VmDevice, id: string, cols: number, rows: number): Promise<VmTerminalSession> => ipcRenderer.invoke('vms:term-open', device, id, cols, rows),
+  writeTerminal: (session: string, data: string): void => ipcRenderer.send('vms:term-write', session, data),
+  resizeTerminal: (session: string, cols: number, rows: number): void => ipcRenderer.send('vms:term-resize', session, cols, rows),
+  closeTerminal: (session: string): Promise<void> => ipcRenderer.invoke('vms:term-close', session),
+  onTerminalData: (handler: (session: string, data: string) => void): (() => void) => {
+    const listener = (_e: unknown, session: string, data: string): void => handler(session, data)
+    ipcRenderer.on('vms:term-data', listener)
+    return () => ipcRenderer.removeListener('vms:term-data', listener)
+  },
+  onTerminalExit: (handler: (session: string, code: number) => void): (() => void) => {
+    const listener = (_e: unknown, session: string, code: number): void => handler(session, code)
+    ipcRenderer.on('vms:term-exit', listener)
+    return () => ipcRenderer.removeListener('vms:term-exit', listener)
   }
 }

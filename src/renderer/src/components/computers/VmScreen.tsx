@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import RFB from '@novnc/novnc'
-import { ArrowLeft, Eye, EyeOff, KeyRound, Loader2, Play, Power } from 'lucide-react'
+import { ArrowLeft, Copy, Eye, EyeOff, KeyRound, Loader2, Play, Power } from 'lucide-react'
 import { vmPhaseLabel, type VmLogin, type VmStatus } from '@shared/vms'
 import { cleanVmError } from './useVmDevices'
 import { vmIcon } from './VmCard'
+import { VmTerminal } from './VmTerminal'
+import { Segmented } from '../ui'
+import { notify } from '../Notice'
+import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 
 /**
  * A VM's screen, live, to watch and use: noVNC draws it, over Eaon's own
  * channel to the main process rather than a WebSocket (the main process
  * carries the bytes from the VM here, or over the link from the worker
- * computer). The viewer takes the keyboard while it's focused.
+ * computer). The viewer takes the keyboard while it's focused. A Linux VM
+ * also has a terminal (VmTerminal.tsx): the one a terminal-only VM opens on.
  */
 
 /** A WebSocket-shaped channel over IPC: what noVNC calls a raw channel. */
@@ -59,6 +64,8 @@ export function VmScreen({ vm, onBack, onStart, onStop }: { vm: VmStatus; onBack
   const [login, setLogin] = useState<VmLogin | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  const [view, setView] = useState<'screen' | 'terminal'>(vm.os === 'linux' && !vm.desktop ? 'terminal' : 'screen')
+  const [command, setCommand] = useState<string | null>(null)
 
   useEffect(() => {
     if (!vm.screen || !host.current) {
@@ -166,14 +173,34 @@ export function VmScreen({ vm, onBack, onStart, onStop }: { vm: VmStatus; onBack
           <span className="vm-screen__name">{vm.name}</span>
           <span className="vm-screen__phase">{vmPhaseLabel(vm)}</span>
         </div>
+        {vm.os === 'linux' && (
+          <Segmented
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'screen', label: 'Screen' },
+              { value: 'terminal', label: 'Terminal' }
+            ]}
+          />
+        )}
         <div className="vm-screen__tools">
+          {view === 'terminal' && command && (
+            <button
+              className="btn btn--ghost btn--sm"
+              title="The same connection from your own terminal app, while Eaon is open"
+              onClick={() => void copyText(command).then((ok) => notify(ok ? 'SSH command copied. It works while Eaon is open.' : CLIPBOARD_FAILED, ok ? 'done' : 'error'))}
+            >
+              <Copy size={14} strokeWidth={1.9} />
+              Copy SSH command
+            </button>
+          )}
           {vm.os === 'linux' && (
             <button className="btn btn--ghost btn--sm" onClick={() => void toggleLogin()} aria-expanded={Boolean(login)}>
               <KeyRound size={14} strokeWidth={1.9} />
               Login
             </button>
           )}
-          {state === 'connected' && (
+          {state === 'connected' && view === 'screen' && (
             <button className="btn btn--ghost btn--sm" onClick={() => rfb.current?.sendCtrlAltDel()}>
               Ctrl+Alt+Del
             </button>
@@ -212,8 +239,9 @@ export function VmScreen({ vm, onBack, onStart, onStop }: { vm: VmStatus; onBack
       {vm.os === 'macos' && vm.phase === 'running' && <div className="vm-screen__hint">The first time it starts, finish setting up macOS here: pick a language, make an account, and you’re in.</div>}
 
       <div className="vm-screen__stage">
-        <div ref={host} className="vm-screen__canvas" data-state={state} />
-        {state !== 'connected' && (
+        <div ref={host} className="vm-screen__canvas" data-state={state} hidden={view !== 'screen'} />
+        {vm.os === 'linux' && <VmTerminal vm={vm} shown={view === 'terminal'} onCommand={setCommand} />}
+        {state !== 'connected' && view === 'screen' && (
           <div className="vm-screen__overlay">
             {error ? (
               <p className="vm-screen__error">{error}</p>

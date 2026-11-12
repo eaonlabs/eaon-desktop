@@ -196,6 +196,19 @@ export interface VmLogin {
   password: string
 }
 
+/** What a terminal in a Linux VM signs in with: the account Eaon made and the VM's own key. */
+export interface VmSshKey {
+  user: string
+  privateKey: string
+}
+
+/** A terminal in a VM, open on this computer through Eaon's tunnel to it. */
+export interface VmTerminalSession {
+  session: string
+  /** The same connection for the user's own terminal app, while Eaon is open. */
+  command: string
+}
+
 export interface VmLimits {
   cpus: { min: number; max: number; value: number }
   memoryMB: { min: number; max: number; value: number }
@@ -304,6 +317,8 @@ export interface VmToolsResult {
   output: string
   /** A group was added (kvm): the host app must restart before it counts. */
   restartNeeded?: boolean
+  /** ...and the worker computer's Eaon is restarting itself for it (its service starts it again). */
+  restarting?: boolean
 }
 
 /** A device and its VMs, as the Computers page lists them. */

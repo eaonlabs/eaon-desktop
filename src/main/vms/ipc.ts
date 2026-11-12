@@ -4,9 +4,9 @@ import type { VmManager } from './service'
 
 /**
  * The worker host's VM channels: every manager call as `vms:<method>`, and the
- * live view's screen relayed as a raw byte stream (the desktop's viewer
- * speaks VNC end to end; this only carries the bytes, base64 over the
- * encrypted link). The desktop calls the same methods on its own manager
+ * live view's screen and a terminal's SSH relayed as raw byte streams (the
+ * desktop's viewer speaks VNC and its `ssh` speaks SSH end to end; this only
+ * carries the bytes, base64 over the encrypted link). The desktop calls the same methods on its own manager
  * directly (features/vms.ts).
  */
 
@@ -23,6 +23,7 @@ export const VM_METHODS = [
   'restore',
   'deleteSnapshot',
   'login',
+  'sshKey',
   'exec',
   'screenshot',
   'input',
@@ -41,17 +42,29 @@ interface HandlerHost {
   handle: (channel: string, handler: (event: { sender: Sender }, ...args: unknown[]) => unknown) => void
 }
 
-export function registerVmIpc(ipc: HandlerHost, manager: VmManager): () => void {
+/**
+ * `restart`: the host app ending itself so its service starts it again, given
+ * only where a service will. Installing QEMU can add this user to the `kvm`
+ * group, which a running process never picks up.
+ */
+export function registerVmIpc(ipc: HandlerHost, manager: VmManager, options: { restart?: () => void } = {}): () => void {
   for (const method of VM_METHODS) {
+    if (method === 'installTools') continue
     ipc.handle(`vms:${method}`, (_event, ...args) => (manager[method] as (...a: unknown[]) => unknown)(...args))
   }
+  ipc.handle('vms:installTools', async () => {
+    const result = await manager.installTools()
+    if (!result.restartNeeded || !options.restart) return result
+    // After the answer has gone back over the link.
+    setTimeout(options.restart, 1500)
+    return { ...result, restarting: true }
+  })
 
   const sessions = new Map<string, Socket>()
-  ipc.handle('vms:vncOpen', async (event, id) => {
-    const { socket, password } = await manager.openScreen(String(id))
+  // A screen or a terminal's SSH: either way a stream of bytes, relayed as they come.
+  const relay = (socket: Socket, sender: Sender): string => {
     const session = randomBytes(8).toString('hex')
     sessions.set(session, socket)
-    const sender = event.sender
     socket.on('data', (chunk: Buffer) => {
       if (!sender.isDestroyed()) sender.send('vms:vncData', session, chunk.toString('base64'))
     })
@@ -62,8 +75,13 @@ export function registerVmIpc(ipc: HandlerHost, manager: VmManager): () => void 
     socket.on('error', () => undefined)
     // The desktop went away: its views go with it.
     sender.once('destroyed', () => socket.destroy())
-    return { session, password }
+    return session
+  }
+  ipc.handle('vms:vncOpen', async (event, id) => {
+    const { socket, password } = await manager.openScreen(String(id))
+    return { session: relay(socket, event.sender), password }
   })
+  ipc.handle('vms:sshOpen', async (event, id) => ({ session: relay(await manager.openSsh(String(id)), event.sender) }))
   ipc.handle('vms:vncSend', (_event, session, data) => {
     sessions.get(String(session))?.write(Buffer.from(String(data), 'base64'))
     return true

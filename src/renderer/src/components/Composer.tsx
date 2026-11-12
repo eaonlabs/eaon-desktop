@@ -178,6 +178,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const dictating = dictation.state !== 'idle'
   // In a conversation, text that wraps takes the whole box, with + and send under it.
   const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
+  // A temporary chat, or the start page about to make one: the box is dashed.
+  const temporary = useApp((s) => (variant === 'home' ? s.pendingTemporary : Boolean(s.activeChat()?.temporary)))
   // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
   const hold = useHoldToTalk(dictation, {
     ready: () => {
@@ -817,7 +819,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-temporary={temporary || undefined} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">

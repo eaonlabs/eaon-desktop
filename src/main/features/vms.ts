@@ -1,14 +1,17 @@
 import { randomBytes } from 'node:crypto'
-import { hostname } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import type { Socket } from 'node:net'
+import { createServer, type AddressInfo, type Server, type Socket } from 'node:net'
 import { app, dialog, type WebContents } from 'electron'
-import type { VmDevice, VmDeviceInfo, VmDeviceState, VmStatus } from '@shared/vms'
+import type { IPty } from 'node-pty'
+import type { VmDevice, VmDeviceInfo, VmDeviceState, VmSshKey, VmStatus, VmTerminalSession } from '@shared/vms'
 import { registerToolSource } from '../agent/tools'
 import { createVmManager, defaultSocketDir, type VmManager } from '../vms/service'
 import { VM_METHODS, type VmMethod } from '../vms/ipc'
 import { vmToolSource, type VmDirectory } from '../vms/tool'
 import { workerHostController } from './workerHost'
+import { launcherEnv, loadPty } from './terminals/ptyManager'
 import type { Feature } from './types'
 
 /**
@@ -17,8 +20,15 @@ import type { Feature } from './types'
  * The Computers page calls `vms:call` with a device and a method; the live
  * view opens a screen session, whose VNC bytes go to the window as they come
  * (straight from the VM here, relayed over the link for the worker
- * computer's). Agents get the `vm` tool for both.
+ * computer's). A terminal in a Linux VM is this computer's own `ssh` in a
+ * pty, reaching the VM through a tunnel on 127.0.0.1 (straight to the VM
+ * here, relayed over the link for the worker computer's), so the same
+ * command works in the user's own terminal app while Eaon is open. Agents
+ * get the `vm` tool for both.
  */
+
+let tunnels = new Map<string, Promise<Server>>()
+let terminals = new Map<string, IPty>()
 
 let manager: VmManager | null = null
 
@@ -73,9 +83,19 @@ export const vmsFeature: Feature = {
       if (tell && !view.sender.isDestroyed()) view.sender.send('vms:vnc-closed', id)
     }
 
+    /** Tunnels' connections to the worker computer's VMs, by the host's session. */
+    const piped = new Map<string, Socket>()
+
     host()?.onIpc((channel, args) => {
       if (channel === 'host:connected') return void refreshHost()
-      if (channel === 'vms:changed') {
+      const pipe = channel === 'vms:vncData' || channel === 'vms:vncClosed' ? piped.get(String(args[0])) : undefined
+      if (pipe) {
+        if (channel === 'vms:vncData') pipe.write(Buffer.from(String(args[1]), 'base64'))
+        else {
+          piped.delete(String(args[0]))
+          pipe.destroy()
+        }
+      } else if (channel === 'vms:changed') {
         hostCache.vms = args[0] as VmStatus[]
         ctx.send('vms:changed', 'host', hostCache.vms)
       } else if (channel === 'vms:vncData') {
@@ -117,7 +137,8 @@ export const vmsFeature: Feature = {
         } else {
           error = 'The worker computer can’t be reached right now.'
         }
-        states.push({ device: 'host', name: linked.name, connected: hostConnected(), info: hostCache.info, vms: hostCache.vms, error })
+        // The computer's own name (luminarc), not the address it was linked by.
+        states.push({ device: 'host', name: host()?.state().hello?.name || linked.name, connected: hostConnected(), info: hostCache.info, vms: hostCache.vms, error })
       }
       return states
     }
@@ -159,6 +180,131 @@ export const vmsFeature: Feature = {
     })
     ctx.ipcMain.handle('vms:vnc-close', (_event, id: string) => closeView(id, false))
 
+    /* --------------------------------------------------------- terminals */
+
+    /**
+     * A port on 127.0.0.1 that reaches the VM's SSH, one per VM, open until
+     * Eaon quits. Each connection to it is its own stream to the VM.
+     */
+    const tunnel = (device: VmDevice, vmId: string): Promise<Server> => {
+      const key = `${device}:${vmId}`
+      const existing = tunnels.get(key)
+      if (existing) return existing
+      const server = createServer((client) => {
+        client.pause()
+        client.on('error', () => undefined)
+        if (device === 'local') {
+          local.openSsh(vmId).then(
+            (vm) => {
+              vm.on('error', () => undefined)
+              client.pipe(vm).pipe(client)
+              client.resume()
+            },
+            () => client.destroy()
+          )
+          return
+        }
+        hostCall<{ session: string }>('sshOpen', [vmId], 20_000).then(
+          ({ session }) => {
+            if (client.destroyed) return void hostCall('vncClose', [session]).catch(() => undefined)
+            piped.set(session, client)
+            client.on('data', (chunk: Buffer) => void hostCall('vncSend', [session, chunk.toString('base64')], 15_000).catch(() => client.destroy()))
+            client.on('close', () => {
+              if (piped.delete(session)) void hostCall('vncClose', [session]).catch(() => undefined)
+            })
+            client.resume()
+          },
+          () => client.destroy()
+        )
+      })
+      const listening = new Promise<Server>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(0, '127.0.0.1', () => resolve(server))
+      })
+      tunnels.set(key, listening)
+      listening.catch(() => tunnels.delete(key))
+      return listening
+    }
+
+    /** The VM's key and the files `ssh` reads, kept in Eaon's own folder (readable only by this user). */
+    const sshCommand = async (device: VmDevice, vmId: string): Promise<{ file: string; args: string[] }> => {
+      const [{ user, privateKey }, server] = await Promise.all([call(device, 'sshKey', [vmId]) as Promise<VmSshKey>, tunnel(device, vmId)])
+      const dir = join(app.getPath('userData'), 'vms-ssh', `${device}-${vmId}`)
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      const keyFile = join(dir, 'key')
+      writeFileSync(keyFile, privateKey, { mode: 0o600 })
+      const port = (server.address() as AddressInfo).port
+      return {
+        file: 'ssh',
+        args: [
+          '-i',
+          keyFile,
+          '-o',
+          'IdentitiesOnly=yes',
+          '-o',
+          `UserKnownHostsFile=${join(dir, 'known_hosts')}`,
+          // The tunnel's port changes from run to run; the VM's host key doesn't.
+          '-o',
+          `HostKeyAlias=eaon-vm-${vmId}`,
+          '-o',
+          'StrictHostKeyChecking=accept-new',
+          '-o',
+          'ServerAliveInterval=15',
+          // Not "Permanently added … to the list of known hosts" as a terminal's first line.
+          '-o',
+          'LogLevel=ERROR',
+          '-p',
+          String(port),
+          `${user}@127.0.0.1`
+        ]
+      }
+    }
+
+    const quote = (arg: string): string => (/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`)
+
+    ctx.ipcMain.handle('vms:term-open', async (event, device: VmDevice, vmId: string, cols: number, rows: number): Promise<VmTerminalSession> => {
+      const { file, args } = await sshCommand(device, vmId)
+      const id = randomBytes(8).toString('hex')
+      const sender = event.sender
+      const pty = loadPty().spawn(file, args, {
+        name: 'xterm-256color',
+        cols: Math.max(20, Math.floor(cols) || 80),
+        rows: Math.max(5, Math.floor(rows) || 24),
+        cwd: homedir(),
+        env: { ...launcherEnv(process.env), TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+      })
+      terminals.set(id, pty)
+      // Nothing thrown in node-pty's callbacks may escape (see ptyManager.ts).
+      pty.onData((data) => {
+        try {
+          if (!sender.isDestroyed()) sender.send('vms:term-data', id, data)
+        } catch {
+          /* never let this reach node-pty's thread-safe function */
+        }
+      })
+      pty.onExit(({ exitCode }) => {
+        try {
+          terminals.delete(id)
+          if (!sender.isDestroyed()) sender.send('vms:term-exit', id, exitCode)
+        } catch {
+          /* never let this reach node-pty's thread-safe function */
+        }
+      })
+      sender.once('destroyed', () => {
+        terminals.get(id)?.kill()
+        terminals.delete(id)
+      })
+      return { session: id, command: [file, ...args].map(quote).join(' ') }
+    })
+    ctx.ipcMain.on('vms:term-write', (_event, id: string, data: string) => terminals.get(id)?.write(data))
+    ctx.ipcMain.on('vms:term-resize', (_event, id: string, cols: number, rows: number) => {
+      if (cols > 0 && rows > 0) terminals.get(id)?.resize(Math.floor(cols), Math.floor(rows))
+    })
+    ctx.ipcMain.handle('vms:term-close', (_event, id: string) => {
+      terminals.get(id)?.kill()
+      terminals.delete(id)
+    })
+
     /* ------------------------------------------------------------ agents */
 
     const directory: VmDirectory = {
@@ -175,6 +321,10 @@ export const vmsFeature: Feature = {
 
   // VMs here are asked to shut down; the helper finishes that after Eaon has gone.
   shutdown: async () => {
+    for (const pty of terminals.values()) pty.kill()
+    terminals = new Map()
+    for (const server of tunnels.values()) void server.then((s) => s.close()).catch(() => undefined)
+    tunnels = new Map()
     await manager?.shutdown({ stopVms: true, resumeLater: false, graceMs: 0 })
   }
 }

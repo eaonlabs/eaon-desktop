@@ -55,7 +55,7 @@ import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
-import { TemporaryHint, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
+import { TemporaryHint, TemporaryLabel, TemporaryNote, TemporaryPill, TemporaryToggle } from './chat/Temporary'
 import { exportChatToFile } from './chat/exportChat'
 import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
@@ -121,10 +121,13 @@ function Home(): JSX.Element {
   const isWork = useIsWork()
   // A chat in a project codes; an ordinary one has none of the coding tools.
   const coding = useCoding() && isWork
+  // The next chat isn't kept: the page says so in place of the chips, and the box is dashed.
+  const temporary = useApp((s) => s.pendingTemporary) && isWork
 
   return (
     <>
       <TopBar
+        left={isWork ? <TemporaryLabel /> : null}
         right={
           <div className="chat-header__actions">
             {isWork && <TemporaryToggle />}
@@ -136,9 +139,9 @@ function Home(): JSX.Element {
       <div className="home">
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
-          <h1 className="home__title">{isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
-          {isWork && <TemporaryHint />}
-          {showSuggestions && (
+          <h1 className="home__title">{temporary ? 'You’re in a temporary chat' : isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
+          {temporary && <TemporaryHint />}
+          {showSuggestions && !temporary && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
                 <button

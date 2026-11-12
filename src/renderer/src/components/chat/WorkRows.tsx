@@ -3,7 +3,8 @@ import { Bot, Brain, Check, ChevronRight, Circle, Eye, FolderSearch, Globe, Hamm
 import type { ChatToolPart, TodoItem } from '@shared/types'
 import { Markdown } from '../agent/Markdown'
 import { describeToolPart, ToolCall } from '../agent/ToolCall'
-import { liveStep, stepKind, stepSummary, thoughtLine, thoughtRest, type StepCall, type StepKind } from './workLog'
+import { DiffStat } from '../chatCode/diff/DiffCard'
+import { liveStep, runLines, stepKind, stepSummary, thoughtLine, thoughtRest, type StepCall, type StepKind } from './workLog'
 
 /**
  * A reply's work, line by line: each run of calls as one quiet line of what
@@ -32,11 +33,12 @@ const toCall = (part: ChatToolPart): StepCall => {
   return { name: part.name, status: part.status, target: described.detail, label: described.label }
 }
 
-/** A run of calls: "Read 2 files and ran 1 command", opening into each call's own row. */
+/** A run of calls: "Changed 2 files and ran 1 command +100 −6", opening into each call's own row. */
 export const ToolRun = memo(function ToolRun({ parts }: { parts: ChatToolPart[] }): JSX.Element {
   const [open, setOpen] = useState(false)
   const calls = useMemo(() => parts.map(toCall), [parts])
   const summary = useMemo(() => stepSummary(calls), [calls])
+  const lines = useMemo(() => runLines(parts), [parts])
   let running: StepCall | null = null
   for (let i = calls.length - 1; i >= 0 && !running; i--) if (calls[i].status === 'running' || calls[i].status === 'preparing') running = calls[i]
   const Icon = ICON[running ? stepKind(running.name) : summary.kind]
@@ -48,6 +50,7 @@ export const ToolRun = memo(function ToolRun({ parts }: { parts: ChatToolPart[] 
           <Icon size={16} strokeWidth={1.8} />
         </span>
         <span className={`wl-row__label${running ? ' step-shimmer' : ''}`}>{label}</span>
+        {!running && <DiffStat added={lines.added} removed={lines.removed} className="wl-row__stat" />}
         {!running && summary.failed > 0 && <span className="wl-row__failed">{summary.failed} failed</span>}
         {/* Stopped by you or refused by the run's rules: not a failure, and not red. */}
         {!running && summary.skipped > 0 && <span className="wl-row__failed" data-skipped>{summary.skipped} skipped</span>}

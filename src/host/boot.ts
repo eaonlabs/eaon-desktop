@@ -105,7 +105,10 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
     onChange: (list) => broadcast('vms:changed', list),
     autostart: true
   })
-  const offVmIpc = registerVmIpc(ipc as unknown as Parameters<typeof registerVmIpc>[0], vms)
+  const offVmIpc = registerVmIpc(ipc as unknown as Parameters<typeof registerVmIpc>[0], vms, {
+    // systemd (INVOCATION_ID) restarts the host whenever it ends (Restart=always): a quit is a restart.
+    restart: process.platform === 'linux' && process.env.INVOCATION_ID ? () => process.kill(process.pid, 'SIGTERM') : undefined
+  })
   registerToolSource(
     vmToolSource({
       cached: () => vms.list(),
