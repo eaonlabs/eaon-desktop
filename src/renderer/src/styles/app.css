@@ -972,57 +972,74 @@ body[data-reduce-motion='on'] .ld-trace__dash {
 }
 
 .dotm {
-  display: inline-grid;
-  grid-template-columns: repeat(5, 1fr);
-  grid-template-rows: repeat(5, 1fr);
-  gap: calc(var(--dotm-size) * 0.07);
+  position: relative;
+  display: inline-block;
   width: var(--dotm-size);
   height: var(--dotm-size);
   flex: none;
 }
+.dotm__base,
+.dotm__layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: calc(var(--dotm-size) * 0.08);
+}
 .dotm i {
   border-radius: 50%;
 }
-.dotm i[data-on] {
+/* The footprint every state shares: the whole grid, faintly. */
+.dotm__base i {
+  background: currentColor;
+  opacity: 0.12;
+}
+.dotm__layer i[data-on] {
   background: currentColor;
 }
-.dotm[data-state='thinking'],
-.dotm[data-state='working'],
-.dotm[data-state='writing'],
-.dotm[data-state='asking'],
-.dotm[data-state='done'] {
+.dotm__layer {
   color: var(--accent);
+  animation: dotm-in 280ms var(--ease) both;
 }
-.dotm[data-state='retrying'] {
+.dotm__layer[data-leaving] {
+  animation: dotm-out 280ms var(--ease) both;
+}
+.dotm__layer[data-state='retrying'] {
   color: #e9b949;
 }
-.dotm[data-state='failed'] {
-  color: var(--danger);
-}
-.dotm[data-state='done'] {
+.dotm__layer[data-state='done'] {
   color: #34c759;
 }
-/* A light chasing its tail: each dot fades from bright to dim, started a step behind the last. */
-.dotm[data-state='thinking'] i[data-on],
-.dotm[data-state='working'] i[data-on] {
+.dotm__layer[data-state='failed'] {
+  color: var(--danger);
+}
+/* Every moving state runs one loop (--dotm-ms), each dot a step behind the last. */
+.dotm__layer[data-state='thinking'] i[data-on],
+.dotm__layer[data-state='working'] i[data-on],
+.dotm__layer[data-state='writing'] i[data-on],
+.dotm__layer[data-state='asking'] i[data-on] {
   animation: dotm-chase var(--dotm-ms) linear infinite;
   animation-delay: calc(var(--dotm-ms) * (var(--dotm-step) - var(--dotm-of)) / var(--dotm-of));
 }
-.dotm[data-state='writing'] i[data-on] {
-  animation: dotm-wave var(--dotm-ms) ease-in-out infinite;
-  animation-delay: calc(var(--dotm-ms) * (var(--dotm-step) - var(--dotm-of)) / var(--dotm-of));
-}
-.dotm[data-state='retrying'] i[data-on] {
+.dotm__layer[data-state='retrying'] i[data-on] {
   animation: dotm-breathe var(--dotm-ms) ease-in-out infinite;
 }
-.dotm[data-state='asking'] i[data-on] {
-  animation: dotm-blink 1200ms ease-in-out infinite;
-  animation-delay: calc(var(--dotm-step) * 200ms);
+/* Done and failed draw themselves in once, then hold. */
+.dotm__layer[data-state='done'] i[data-on],
+.dotm__layer[data-state='failed'] i[data-on] {
+  animation: dotm-pop 320ms var(--ease) backwards;
+  animation-delay: calc(var(--dotm-step) * 30ms + 120ms);
 }
-.dotm[data-state='done'] i[data-on],
-.dotm[data-state='failed'] i[data-on] {
-  animation: dotm-pop var(--dotm-ms) var(--spring-moderate, ease-out) backwards;
-  animation-delay: calc(var(--dotm-step) * 35ms);
+@keyframes dotm-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dotm-out {
+  to {
+    opacity: 0;
+  }
 }
 @keyframes dotm-chase {
   from {
@@ -1030,17 +1047,6 @@ body[data-reduce-motion='on'] .ld-trace__dash {
   }
   to {
     opacity: 0.12;
-  }
-}
-@keyframes dotm-wave {
-  0%,
-  100% {
-    opacity: 0.15;
-    transform: scale(0.7);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
   }
 }
 @keyframes dotm-breathe {
@@ -1052,25 +1058,14 @@ body[data-reduce-motion='on'] .ld-trace__dash {
     opacity: 0.9;
   }
 }
-@keyframes dotm-blink {
-  0%,
-  60%,
-  100% {
-    opacity: 0.2;
-  }
-  25% {
-    opacity: 1;
-  }
-}
 @keyframes dotm-pop {
   from {
     opacity: 0;
-    transform: scale(0.2);
   }
 }
-body[data-reduce-motion='on'] .dotm i {
+body[data-reduce-motion='on'] .dotm__layer,
+body[data-reduce-motion='on'] .dotm__layer i {
   animation: none !important;
-  opacity: 0.8;
 }
 
 @keyframes spin {

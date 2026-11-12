@@ -772,6 +772,9 @@ const ChatRow = memo(function ChatRow({
     return last.type === 'text' ? 'writing' : 'working'
   })
 
+  // A project's chat shows its state as dots, one element that changes state in place so the change is a fade.
+  const dotState: DotState | null = !inProject ? null : streaming ? (asking ? 'asking' : phase) : unread && !failed ? 'done' : failed ? 'failed' : null
+
   const commitRename = (): void => {
     setRenaming(false)
     if (draft.trim() && draft !== chat.title) renameChat(chat.id, draft.trim())
@@ -829,20 +832,16 @@ const ChatRow = memo(function ChatRow({
           <span className="nav-item__label">{chat.title}</span>
         )}
         <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
-          {streaming && asking ? (
-            inProject ? (
-              <DotMatrix state="asking" />
-            ) : (
-              <span className="nav-item__asking" title="Waiting for your answer">
-                Needs you
-              </span>
-            )
+          {dotState ? (
+            <DotMatrix state={dotState} />
+          ) : streaming && asking ? (
+            <span className="nav-item__asking" title="Waiting for your answer">
+              Needs you
+            </span>
           ) : streaming ? (
-            inProject ? <DotMatrix state={phase} /> : <Spinner size={14} label="Replying" />
+            <Spinner size={14} label="Replying" />
           ) : unread && !failed ? (
-            inProject ? <DotMatrix state="done" /> : <span className="nav-item__unread" role="img" aria-label="New reply" />
-          ) : failed && inProject ? (
-            <DotMatrix state="failed" />
+            <span className="nav-item__unread" role="img" aria-label="New reply" />
           ) : failed ? (
             <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
               <title>The last reply failed</title>
