@@ -729,7 +729,9 @@ const ChatRow = memo(function ChatRow({
   // Its reply stopped to ask something (an approval): it waits on the user, not working.
   const asking = useApp((st) => {
     const run = st.runs[chat.id]
-    return Boolean(run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run)))
+    return Boolean(
+      run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run) || st.pendingQuestions.some((q) => q.messageId === run))
+    )
   })
 
   const commitRename = (): void => {
