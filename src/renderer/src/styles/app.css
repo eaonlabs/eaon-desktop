@@ -999,7 +999,7 @@ body[data-reduce-motion='on'] .ld-trace__dash {
   background: currentColor;
 }
 .dotm__layer {
-  color: var(--accent);
+  color: var(--text);
   animation: dotm-in 500ms ease-in-out both;
 }
 .dotm__layer[data-first] {
