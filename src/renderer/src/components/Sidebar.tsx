@@ -1,4 +1,4 @@
-import { DotMatrix, Spinner } from './Spinner'
+import { DotMatrix, Spinner, type DotState } from './Spinner'
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
@@ -760,6 +760,17 @@ const ChatRow = memo(function ChatRow({
       run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run) || st.pendingQuestions.some((q) => q.messageId === run))
     )
   })
+  // What a reply in a project is doing right now, for its dots: thinking, running a tool, writing, or waiting to retry.
+  const phase = useApp((st): DotState => {
+    const run = st.runs[chat.id]
+    if (!inProject || !run) return 'thinking'
+    const message = st.chats.find((c) => c.id === chat.id)?.messages.find((m) => m.id === run)
+    if (!message) return 'thinking'
+    if (message.notice) return 'retrying'
+    const last = message.parts[message.parts.length - 1]
+    if (!last || last.type === 'reasoning') return 'thinking'
+    return last.type === 'text' ? 'writing' : 'working'
+  })
 
   const commitRename = (): void => {
     setRenaming(false)
@@ -827,7 +838,7 @@ const ChatRow = memo(function ChatRow({
               </span>
             )
           ) : streaming ? (
-            inProject ? <DotMatrix state="running" /> : <Spinner size={14} label="Replying" />
+            inProject ? <DotMatrix state={phase} /> : <Spinner size={14} label="Replying" />
           ) : unread && !failed ? (
             inProject ? <DotMatrix state="done" /> : <span className="nav-item__unread" role="img" aria-label="New reply" />
           ) : failed && inProject ? (

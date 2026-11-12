@@ -986,29 +986,42 @@ body[data-reduce-motion='on'] .ld-trace__dash {
 .dotm i[data-on] {
   background: currentColor;
 }
-.dotm[data-state='running'] {
+.dotm[data-state='thinking'],
+.dotm[data-state='working'],
+.dotm[data-state='writing'],
+.dotm[data-state='asking'],
+.dotm[data-state='done'] {
   color: var(--accent);
 }
-.dotm[data-state='running'] i[data-on] {
-  animation: dotm-chase 1200ms linear infinite;
-  animation-delay: calc(1200ms * (var(--dotm-step) - 16) / 16);
+.dotm[data-state='retrying'] {
+  color: #e9b949;
 }
-.dotm[data-state='asking'] {
-  color: var(--accent);
+.dotm[data-state='failed'] {
+  color: var(--danger);
+}
+.dotm[data-state='done'] {
+  color: #34c759;
+}
+/* A light chasing its tail: each dot fades from bright to dim, started a step behind the last. */
+.dotm[data-state='thinking'] i[data-on],
+.dotm[data-state='working'] i[data-on] {
+  animation: dotm-chase var(--dotm-ms) linear infinite;
+  animation-delay: calc(var(--dotm-ms) * (var(--dotm-step) - var(--dotm-of)) / var(--dotm-of));
+}
+.dotm[data-state='writing'] i[data-on] {
+  animation: dotm-wave var(--dotm-ms) ease-in-out infinite;
+  animation-delay: calc(var(--dotm-ms) * (var(--dotm-step) - var(--dotm-of)) / var(--dotm-of));
+}
+.dotm[data-state='retrying'] i[data-on] {
+  animation: dotm-breathe var(--dotm-ms) ease-in-out infinite;
 }
 .dotm[data-state='asking'] i[data-on] {
   animation: dotm-blink 1200ms ease-in-out infinite;
   animation-delay: calc(var(--dotm-step) * 200ms);
 }
-.dotm[data-state='done'] {
-  color: var(--accent);
-}
-.dotm[data-state='failed'] {
-  color: var(--danger);
-}
 .dotm[data-state='done'] i[data-on],
 .dotm[data-state='failed'] i[data-on] {
-  animation: dotm-pop 360ms var(--spring-moderate, ease-out) backwards;
+  animation: dotm-pop var(--dotm-ms) var(--spring-moderate, ease-out) backwards;
   animation-delay: calc(var(--dotm-step) * 35ms);
 }
 @keyframes dotm-chase {
@@ -1016,7 +1029,27 @@ body[data-reduce-motion='on'] .ld-trace__dash {
     opacity: 1;
   }
   to {
+    opacity: 0.12;
+  }
+}
+@keyframes dotm-wave {
+  0%,
+  100% {
     opacity: 0.15;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes dotm-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
   }
 }
 @keyframes dotm-blink {
