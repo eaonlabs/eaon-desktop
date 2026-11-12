@@ -10,7 +10,7 @@ import { UsageRings } from './UsageRings'
 
 type Foot = Settings['sidebarFoot']
 
-export const FOOT_DEFAULTS: Foot = { show: true, period: 'today', figure: 'tokens', chart: true, rings: true }
+export const FOOT_DEFAULTS: Foot = { show: false, period: 'today', figure: 'tokens', chart: true, rings: true }
 
 /** How often the CLIs' own logs are looked at again, which also turns the day over at midnight. */
 const REREAD_MS = 5 * 60_000
