@@ -307,12 +307,19 @@
 }
 
 .settings__section {
-  margin-top: 30px;
+  margin-top: 32px;
 }
 .settings__section-label {
   font-size: var(--fs-sm);
-  color: var(--text-3);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
   margin-bottom: 10px;
+  padding-left: 2px;
+}
+/* A line under a page's title that says what the page is for. */
+.settings__lede + .settings__section {
+  margin-top: 26px;
 }
 
 .row {
@@ -338,9 +345,18 @@
   font-size: var(--fs-sm);
   color: var(--text-3);
   margin-top: 3px;
-  line-height: 1.45;
+  line-height: 1.5;
+  /* A short line reads faster than one across the whole card. */
+  max-width: 62ch;
   /* Paths and addresses have no spaces to break at. */
   overflow-wrap: anywhere;
+}
+.row__desc code,
+.details__body code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  font-size: 0.92em;
 }
 .row__trail {
   flex: none;
@@ -1899,4 +1915,192 @@ body[data-reduce-motion='on'] .star-card {
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--text-3);
+}
+
+
+/* "Details" under a setting: its fine print, folded away. */
+.details {
+  margin-top: 5px;
+}
+.details__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  transition: color var(--dur) var(--ease);
+}
+.details__toggle:hover {
+  color: var(--text);
+}
+.details__toggle svg {
+  transition: transform var(--dur) var(--ease);
+}
+.details[data-open] .details__toggle svg {
+  transform: rotate(180deg);
+}
+.details__body {
+  max-width: 62ch;
+  margin-top: 6px;
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2, var(--hover));
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  animation: settings-page-in 220ms var(--ease) both;
+}
+
+/* A section that starts closed (ui.tsx Fold): a row you open, then its card. */
+.settings__fold-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.settings__fold-head:hover {
+  background: var(--surface-2, var(--hover));
+}
+.settings__fold-head .settings__section-label {
+  margin: 0;
+  padding: 0;
+  color: var(--text);
+}
+.settings__fold-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.settings__fold-chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+}
+.settings__fold[data-open] .settings__fold-chevron {
+  transform: rotate(180deg);
+}
+.settings__fold-body {
+  margin-top: 10px;
+  animation: settings-page-in 260ms var(--ease) both;
+}
+.settings__fold-body > .settings__section:first-child {
+  margin-top: 0;
+}
+.settings__fold-body > .settings__section > .settings__section-label {
+  margin-top: 4px;
+}
+
+/* ---- Command rules: one list at a time ---- */
+.rules__bar + .rules__tabs {
+  margin: 12px 16px 0;
+}
+.rules__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.rules__tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-md);
+  background: var(--surface-2, var(--hover));
+}
+.rules__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: calc(var(--r-md) - 2px);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.rules__tab:hover {
+  color: var(--text-2);
+}
+.rules__tab[aria-selected='true'] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.rules__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.rules__tab[data-kind='allow'] .rules__dot {
+  background: var(--success, #34c759);
+}
+.rules__tab[data-kind='ask'] .rules__dot {
+  background: #e9b949;
+}
+.rules__tab[data-kind='deny'] .rules__dot {
+  background: var(--danger, #ff453a);
+}
+.rules__count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+  color: var(--text-3);
+  font-size: var(--fs-xxs, 11px);
+  text-align: center;
+}
+.rules__scope {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rules__body {
+  padding: 14px 16px 16px;
+}
+.rules__what {
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+.rules__box {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.rules__foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.rules__hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.rules__bad {
+  margin-top: 6px;
+  color: var(--danger, #ff453a);
+  font-size: var(--fs-xs);
 }

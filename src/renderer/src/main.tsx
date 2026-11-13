@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { CrashScreen, reportRendererErrors } from './components/CrashScreen'
+import { Splash } from './components/Splash'
 import './styles/tokens.css'
 import './styles/app.css'
 import './styles/chat.css'
@@ -36,6 +37,8 @@ import './styles/connectApps.css'
 import './styles/usage.css'
 import './styles/cliAccounts.css'
 import './styles/workerHost.css'
+import './styles/computers.css'
+import './styles/splash.css'
 
 reportRendererErrors()
 
@@ -44,5 +47,7 @@ createRoot(document.getElementById('root') as HTMLElement).render(
     <CrashScreen>
       <App />
     </CrashScreen>
+    {/* Over the app while it starts, crash page included; gone within three seconds. */}
+    <Splash />
   </StrictMode>
 )

@@ -736,6 +736,11 @@
   width: min(680px, calc(100vw - 48px));
   transform: translateX(-50%);
 }
+/* Centred on the page beside the sidebar, not on the whole window. */
+body:has(.sidebar[data-open='true']) .elsewhere-float {
+  left: calc(50% + var(--sidebar-w) / 2);
+  width: min(680px, calc(100vw - var(--sidebar-w) - 48px));
+}
 .elsewhere-float .elsewhere-ask {
   margin: 0;
   border-color: transparent;
@@ -776,5 +781,339 @@
   .approval__json,
   .approval[data-risk='high'] .approval__tile::after {
     animation: none !important;
+  }
+}
+/* Save a rule for the command being asked about. */
+.ask-row__more-rules,
+.elsewhere-ask__rules {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px 0 12px;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.ask-row__more-rules svg,
+.elsewhere-ask__rules svg {
+  transition: transform 180ms var(--ease);
+}
+.ask-row__more-rules:hover:not(:disabled),
+.elsewhere-ask__rules:hover:not(:disabled),
+.ask-row__more-rules[aria-expanded='true'],
+.elsewhere-ask__rules[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.ask-row__more-rules[aria-expanded='true'] svg,
+.elsewhere-ask__rules[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.ask-row__more-rules:disabled,
+.elsewhere-ask__rules:disabled {
+  opacity: 0.5;
+}
+.ask-row__rules {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  font-size: var(--fs-sm);
+  animation: approval-reveal 200ms ease both;
+}
+.ask-row__rules-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ask-row__rules-cap {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.ask-row__rules-what code {
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  background: var(--hover-strong);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.ask-row__rules-act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ask-row__rules-scope {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+}
+.ask-row__rules-scope button {
+  height: 24px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  font-weight: 500;
+}
+.ask-row__rules-scope button[data-on] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.ask-row__rules-go-group {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.ask-row__rules-go {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text);
+  font-weight: 500;
+  transition: background-color var(--dur) var(--ease);
+}
+.ask-row__rules-go:hover {
+  background: color-mix(in srgb, var(--hover-strong), var(--text) 8%);
+}
+.ask-row__rules-go--deny {
+  background: color-mix(in srgb, var(--danger, #ff453a) 14%, transparent);
+  color: var(--danger, var(--text));
+}
+.ask-row__rules-go--deny:hover {
+  background: color-mix(in srgb, var(--danger, #ff453a) 24%, transparent);
+}
+.ask-row__rules-go--allow {
+  background: var(--allow, var(--accent-fill, var(--accent)));
+  color: var(--allow-ink, var(--on-accent, #fff));
+}
+.ask-row__rules-go--allow:hover {
+  background: color-mix(in srgb, var(--allow, var(--accent-fill, var(--accent))), #000 10%);
+}
+.ask-row__more-rules:focus-visible,
+.elsewhere-ask__rules:focus-visible,
+.ask-row__rules button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- The agent's questions (ask_user_question), docked above the box --
+   Tucked under the message box's top edge so the two read as one piece. */
+.qdock {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: -14px;
+  padding: 14px 14px 26px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--r-composer) var(--r-composer) 0 0;
+  background: var(--surface-1);
+  animation: ask-row-in 220ms var(--ease) both;
+}
+.qdock__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+}
+.qdock__tag {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.qdock__from {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.qdock__from strong {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--text-2);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qdock__from button {
+  color: var(--accent);
+  font-weight: 500;
+}
+.qdock__steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.qdock__steps button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: var(--text-2);
+}
+.qdock__steps button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.qdock__steps button:disabled {
+  opacity: 0.35;
+}
+.qdock__question {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.qdock__hint {
+  margin-top: -4px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.qdock__options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(300px, 38vh);
+  margin: 0 -4px;
+  padding: 0 4px;
+  overflow-y: auto;
+}
+.qdock__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--r-md, 10px);
+  text-align: left;
+  transition: background-color var(--dur) var(--ease);
+}
+.qdock__option:hover {
+  background: var(--hover);
+}
+.qdock__option[data-on] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.qdock__num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 6px;
+  background: var(--hover-strong);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.qdock__option[data-on] .qdock__num {
+  background: var(--accent-fill, var(--accent));
+  color: var(--on-accent, #fff);
+}
+.qdock__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.qdock__label {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.qdock__desc {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.qdock__option--other {
+  align-items: center;
+  cursor: text;
+}
+.qdock__option--other .qdock__num {
+  margin-top: 0;
+}
+.qdock__option--other input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-base);
+}
+.qdock__option--other input::placeholder {
+  color: var(--text-3);
+}
+.qdock__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+.qdock__skip,
+.qdock__go {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.qdock__skip {
+  color: var(--text-2);
+}
+.qdock__skip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.qdock__go {
+  background: var(--text);
+  color: var(--bg, #000);
+}
+.qdock__go:disabled {
+  opacity: 0.35;
+}
+.qdock button:focus-visible,
+.qdock__option--other:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qdock {
+    animation: none;
   }
 }

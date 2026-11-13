@@ -49,6 +49,9 @@ export interface NewRemoteSessionRequest {
   title?: string
 }
 
+/** A folder on a host picked for a Chat project (no session is made). */
+export type RemoteFolderResult = { ok: true; cwd: string; label: string } | { ok: false; error: string }
+
 export type NewRemoteSessionResult = { ok: true; session: AdeSession } | { ok: false; error: string }
 
 export function hostLabel(h: Pick<SshHost, 'alias' | 'user' | 'hostname' | 'label'>): string {
@@ -78,3 +81,11 @@ export function remoteLocation(cwd: string): { hostId: string; path: string } | 
 }
 
 export const isRemote = (cwd: string): boolean => remoteLocation(cwd) !== null
+
+/** A remote folder as a person reads it: `host:/folder`, the host as `hostLabel` has it (the config alias, or what `labelOf` knows). */
+export function remoteDisplay(cwd: string, labelOf: (hostId: string) => string | null): string {
+  const place = remoteLocation(cwd)
+  if (!place) return cwd
+  const label = labelOf(place.hostId) ?? (place.hostId.startsWith('cfg:') ? place.hostId.slice(4) : 'ssh')
+  return `${label}:${place.path}`
+}

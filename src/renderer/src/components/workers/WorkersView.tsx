@@ -52,6 +52,7 @@ import { VaultPage } from './WorkerVault'
 import { SignInSheet, WorkerThreadContext } from './WorkerCards'
 import { WorkerHoldBanner } from './WorkerLimits'
 import { duplicateWorker, exportWorker, WorkerImport } from './WorkerTransfer'
+import { WorkerVersions } from './WorkerVersions'
 import { AppFacts, WorkerAppsSheet } from './WorkerApps'
 import { MentionContext, mentionValue } from '../agent/Markdown'
 import { workerAppsEnabled } from '@shared/workerApps'
@@ -727,6 +728,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
   const elsewhere = useWorkersElsewhere()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null)
+  const [history, setHistory] = useState(false)
   const working = worker.status === 'working'
 
   return (
@@ -798,6 +800,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
             { icon: <Copy size={15} strokeWidth={1.9} />, label: 'Duplicate worker', action: () => void duplicateWorker(worker) },
             { icon: <FileDown size={15} strokeWidth={1.9} />, label: 'Export setup…', action: () => void exportWorker(worker) },
+            { icon: <History size={15} strokeWidth={1.9} />, label: 'Earlier versions', action: () => setHistory(true) },
             // Its folder is on the worker computer; its chat apps went there with it.
             ...(elsewhere ? [] : [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) }]),
             { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },
@@ -806,6 +809,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           ]}
         />
       )}
+      <WorkerVersions worker={worker} open={history} onClose={() => setHistory(false)} />
       <Modal
         open={confirm === 'clear'}
         onClose={() => setConfirm(null)}

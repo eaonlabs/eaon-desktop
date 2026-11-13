@@ -639,6 +639,11 @@ a:hover {
   justify-content: space-between;
   padding-right: 3px;
 }
+.sidebar__section-btns {
+  display: inline-flex;
+  gap: 2px;
+}
+
 .sidebar__section-btn {
   display: grid;
   place-items: center;
@@ -947,6 +952,130 @@ a:hover {
 .spinner {
   animation: spin 900ms linear infinite;
 }
+
+/* Working indicators (see Spinner.tsx): trace for chats, dot matrix for projects. */
+.ld-trace {
+  width: var(--ld-size);
+  height: var(--ld-size);
+  flex: none;
+}
+.ld-trace__dash {
+  animation: ld-trace-run 1200ms linear infinite;
+}
+@keyframes ld-trace-run {
+  to {
+    stroke-dashoffset: -63.13;
+  }
+}
+body[data-reduce-motion='on'] .ld-trace__dash {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ld-trace__dash {
+    animation: none;
+  }
+}
+
+.dotm {
+  position: relative;
+  display: inline-block;
+  width: var(--dotm-size);
+  height: var(--dotm-size);
+  flex: none;
+}
+.dotm__base,
+.dotm__layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: calc(var(--dotm-size) * 0.08);
+}
+.dotm i {
+  border-radius: 50%;
+}
+/* The footprint every state shares: the whole grid, faintly. */
+.dotm__base i {
+  background: currentColor;
+  opacity: 0.12;
+}
+.dotm__layer i[data-on] {
+  background: currentColor;
+}
+.dotm__layer {
+  color: var(--text);
+  animation: dotm-in 500ms ease-in-out both;
+}
+.dotm__layer[data-first] {
+  animation: none;
+}
+.dotm__layer[data-leaving] {
+  animation: dotm-out 500ms ease-in-out both;
+}
+.dotm__layer[data-state='retrying'] {
+  color: #e9b949;
+}
+.dotm__layer[data-state='done'] {
+  color: #34c759;
+}
+.dotm__layer[data-state='failed'] {
+  color: var(--danger);
+}
+/* Every moving state runs one loop (--dotm-ms), each dot a step behind the last. */
+.dotm__layer[data-state='thinking'] i[data-on],
+.dotm__layer[data-state='working'] i[data-on],
+.dotm__layer[data-state='writing'] i[data-on],
+.dotm__layer[data-state='asking'] i[data-on] {
+  animation: dotm-chase var(--dotm-ms) linear infinite;
+  animation-delay: calc(var(--dotm-ms) * (var(--dotm-step) - var(--dotm-of)) / var(--dotm-of));
+}
+.dotm__layer[data-state='retrying'] i[data-on] {
+  animation: dotm-breathe var(--dotm-ms) ease-in-out infinite;
+}
+/* Done and failed draw themselves in once, then hold. */
+.dotm__layer[data-state='done'] i[data-on],
+.dotm__layer[data-state='failed'] i[data-on] {
+  animation: dotm-pop 320ms var(--ease) backwards;
+  animation-delay: calc(var(--dotm-step) * 30ms + 120ms);
+}
+@keyframes dotm-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dotm-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes dotm-chase {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+@keyframes dotm-breathe {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes dotm-pop {
+  from {
+    opacity: 0;
+  }
+}
+body[data-reduce-motion='on'] .dotm__layer,
+body[data-reduce-motion='on'] .dotm__layer i {
+  animation: none !important;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

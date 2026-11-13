@@ -13,12 +13,14 @@ import { revealLabel } from '../../lib/files'
 import { useBindingLabel } from '../../lib/bindings'
 import { DockToggle } from '../ide/Dock'
 import { useAdeDock } from '../ide/adeDock'
-import { OpenInButton } from '../chatCode/CodeTools'
-import { isRemote } from '@shared/adeRemote'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
-/** The ADE's top bar: the project folder, plan usage, review, a new terminal and the dock's switch. */
+/**
+ * The ADE's top bar: the project folder, plan usage, review, a new terminal
+ * and the dock's switch. Opening the folder in an editor is in the sidebar's
+ * menu for a session, not here beside the usage rings.
+ */
 export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
   // Open, the dock has its own switch in the same corner.
@@ -31,8 +33,6 @@ export function CodeHeader(): JSX.Element {
       right={
         <div className="chat-header__actions">
           <UsagePlacement />
-          {/* The session's folder in your editor; one on another machine has none here. */}
-          {cwd && !isRemote(cwd) && <OpenInButton icon folder={cwd} />}
           <ReviewButton />
           <NewTerminalButton />
           {cwd && !dockOpen && <DockToggle store={useAdeDock} holds={`browser${browserKey ? ` (${browserKey})` : ''}, files, diff, pull request`} />}

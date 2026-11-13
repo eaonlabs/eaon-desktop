@@ -1,14 +1,15 @@
-/* Temporary chats: the start page's switch, its hint, and the note in the conversation.
+/* Temporary chats: the start page's switch and what it says, the dashed box, and the note in the conversation.
    `.thread-note` is also the archived chat's note (ArchivedNote.tsx). */
 
 .temp-hint {
-  max-width: min(440px, 100%);
-  margin: 10px 0 0;
+  max-width: min(420px, 100%);
+  margin: 14px 0 0;
   text-align: center;
   text-wrap: balance;
   font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--text-3);
+  animation: temp-in var(--dur) var(--ease) both;
 }
 
 .chat-header__temp {
@@ -42,4 +43,33 @@
   flex: none;
   margin-top: 2px;
   color: var(--text-3);
+}
+
+/* The switch in the top bar's corner, and what the bar's left says while it is on. */
+.temp-toggle[aria-pressed='true'] {
+  color: var(--text-2);
+}
+.temp-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  animation: temp-in var(--dur) var(--ease) both;
+}
+@keyframes temp-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* A chat that won't be kept: the box is drawn dashed, here and on the start page. */
+.composer[data-temporary],
+.composer[data-temporary]:focus-within {
+  box-shadow: 0 10px 30px -18px rgb(0 0 0 / 0.55);
+  outline: 1px dashed var(--border-strong);
+  outline-offset: -1px;
 }

@@ -16,6 +16,7 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
+import { cancelQuestions } from './questions'
 import { buildHistory, estimateMessages, estimateTokens, prepareAttachments, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard, MAX_IDLE_ROUNDS } from './guards'
@@ -38,6 +39,7 @@ import type { EngineId } from '@shared/engines'
 import { audit, auditIncludesToolInputs } from '../enterprise/audit'
 import { clampUnattended } from '../enterprise/policy'
 import { forgetGoalPause, markGoalPaused } from './goalPause'
+import { isRemote } from '@shared/adeRemote'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -63,6 +65,7 @@ export function cancelRun(messageId: string): void {
   activeRuns.get(messageId)?.abort()
   activeRuns.delete(messageId)
   cancelApprovals(messageId)
+  cancelQuestions(messageId)
 }
 
 /**
@@ -115,6 +118,8 @@ export function isRunning(messageId: string): boolean {
 /** Where Work mode acts when no project folder has been chosen. */
 export async function ensureWorkFolder(requested: string | null, settings: Settings): Promise<string> {
   const folder = requested || settings.work.defaultFolder || join(homedir(), 'Eaon')
+  // A project on another machine has no folder here to make.
+  if (isRemote(folder)) return folder
   await mkdir(folder, { recursive: true })
   return folder
 }
@@ -707,7 +712,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       roundsSincePlan = 0
     }
     // Files were edited this round: the project's own check runs, and what it says when it fails goes back with the results.
-    if (params.depth === 0 && params.cwd && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
+    if (params.depth === 0 && params.cwd && !isRemote(params.cwd) && results.length > 0 && result.calls.some((c, i) => FILE_EDIT_TOOLS.has(c.name) && !results[i]?.isError)) {
       const checked = await checkAfterEdits(params.cwd, params.liveSettings?.() ?? params.settings, (turn.checks ??= { runs: 0, failing: false }), signal)
       if (checked) {
         const last = results[results.length - 1]
@@ -880,11 +885,14 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
   const forwardAbort = (): void => controller.abort()
   if (options.signal?.aborted) controller.abort()
   else options.signal?.addEventListener('abort', forwardAbort, { once: true })
-  controller.signal.addEventListener('abort', () => cancelApprovals(request.messageId), { once: true })
+  controller.signal.addEventListener('abort', () => (cancelApprovals(request.messageId), cancelQuestions(request.messageId)), { once: true })
   activeRuns.set(request.messageId, controller)
   holdAwake()
   try {
     const settings = store.getSettings()
+    if (request.cwd && isRemote(request.cwd)) {
+      throw new Error('This model runs its own agent on this computer, so it can’t work in a project on another machine over SSH. Pick one of Eaon’s providers for this chat, or open the project in the ADE.')
+    }
     const cwd = await ensureWorkFolder(request.cwd, settings)
     const outcome = await runEngineChat(
       { request, engine: engineId, cwd, settings, signal: controller.signal, emit },
@@ -944,7 +952,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
   if (options.signal?.aborted) controller.abort()
   else options.signal?.addEventListener('abort', forwardAbort, { once: true })
   // However the run is stopped, nothing may stay parked on an approval.
-  controller.signal.addEventListener('abort', () => cancelApprovals(request.messageId), { once: true })
+  controller.signal.addEventListener('abort', () => (cancelApprovals(request.messageId), cancelQuestions(request.messageId)), { once: true })
   activeRuns.set(request.messageId, controller)
   if (request.goal?.status === 'active' && request.goal.until) untilRuns.add(request.messageId)
   holdAwake()

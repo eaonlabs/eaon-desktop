@@ -111,6 +111,9 @@ export function connectProblem(host: SshHost, res: RemoteExecResult, folder?: st
   if (/permission denied|publickey|passphrase|authentication/i.test(said)) {
     return `${name} wouldn’t let Eaon in without a password or passphrase. Add your key to the SSH agent (ssh-add) so Eaon can connect without asking.`
   }
+  if (/host key verification failed|remote host identification has changed/i.test(said)) {
+    return `${name}’s host key isn’t trusted yet (${said}). Connect once in Terminal (ssh ${host.alias ?? host.hostname}) to check and accept it, then try again.`
+  }
   if (/could not resolve|name or service not known|nodename nor servname/i.test(said)) return `Couldn’t find ${name}: ${said}`
   if (/timed out|connection refused|no route/i.test(said)) return `Couldn’t reach ${name}: ${said}`
   if (res.code === 255) return `Couldn’t connect to ${name}${said ? `: ${said}` : '.'}`

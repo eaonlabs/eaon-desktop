@@ -3,6 +3,29 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Eaon shows when you've starred it.** Settings → General says "You starred Eaon" once your GitHub account has (read through the GitHub CLI, also when you pressed the star on github.com), and the star card thanks you when you come back from GitHub having starred it.
+- **The agent can ask you questions above the message box.** In Chat and the IDE, when a request is ambiguous or a decision is yours, the agent can stop with a few multiple-choice questions (pick an option, or type something else) instead of guessing. Skip sends it on to use its own judgment. With several questions it shows one at a time. When the question comes from a chat you're not looking at, the card says which one and can open it. Not used by workers or scheduled tasks, which have nobody to answer.
+- **A quick chat shortcut.** Settings → General → Quick chat shortcut (off until you turn it on) opens Eaon on a new chat from any app with ⌘⇧Space (Ctrl+Shift+Space elsewhere).
+
+### Changed
+- **New status indicators in the sidebar.** A chat that is replying shows a dash tracing a rounded square. Chats in a project show a small dot grid instead: two lights orbiting steadily while it works (it doesn't change as it moves between thinking, tools and writing), a slow glow while it waits to retry, three dots when it needs you, a green tick when it finishes and a red cross when it fails. A change of state fades in only after it has held for a moment.
+
+### Fixed
+- **Coming back from the ADE reopens the chat you left,** instead of a new one. Each tab remembers its open chat.
+- **The marks beside a chat highlight your newest message when you are at the bottom,** not the one before it.
+- **"Eaon is looking at your screen" has a new look:** a quiet pill with an eye, the stop shortcut as keys, and a softer Stop button. Its arrow opens a card showing the last thing it saw, which display that was, and when.
+
+- **Command rules: an ask list, regular expressions and rules per project.** Settings → General → Command rules now has three lists: always allow, always ask (the command stops and asks in Ask, Auto and Full access, and a worker with nobody to ask doesn't run it) and never allow. A line between slashes, like `/^git (push|reset)/`, is a regular expression. The same lists can be set for one project, and they add to the ones for every project. Never beats ask, which beats allow. The lists also apply to the commands Codex and the other coding engines run in Chat, and a rule saved while a reply is running counts at once.
+- **Always allow, from the question itself.** A command the agent asks about has a Rules button (also on the strip that asks for a chat you're not looking at): it shows the pattern that would be saved (the tool and its subcommand, such as `npm run build`, not the whole line) and saves it as Always allow or Never allow, for this project or for every project.
+- **Projects on another machine, over SSH.** In Edit project, "On another machine…" picks a host from `~/.ssh/config` (or adds one) and a folder on it. The project's chats then read, search, edit and run commands there: every file and shell tool runs on the host, inside that folder, and the editor beside the chat, the file tree's git marks, the Git panel, search and the @ menu's files read it too. Eaon connects with your own SSH keys and agent and never asks for a password; a key with a passphrase has to be in the agent (`ssh-add`). Calls to one host share a connection. The folder is a boundary: paths elsewhere on the host, `..` and links that lead out are refused, delete moves into `~/.eaon-trash` on the host, and your command rules still decide every command. Not on a project over SSH: Claude, Codex and the other CLI engines, the code index, replace in files, per-reply undo, and opening it in an app on this computer.
+
+- **How a worker has done lately.** Its Activity panel shows runs, how many completed, the average time and tokens over 7 or 30 days.
+- **Earlier versions of a worker.** More → Earlier versions lists the setups a worker had before each change, shows what changed, and restores one (the setup it replaces is kept, so a restore can be undone).
+- **Tables a worker keeps.** Workers can read and write their own tables (leads, orders, results) with `table_read`, `table_write` and `table_delete_rows`; a table shows in the Activity panel, can be viewed as a grid, copied as CSV and removed.
+
 ## [2026.7.6] — 2026-11-10
 
 ### Added
@@ -18,6 +41,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **A project's chats say which project** in the header: "tally / Add refunds".
 - **A chat waiting on you says so** in the sidebar ("Needs you") when its reply stopped for an approval.
 - **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
+- **Computers: virtual machines for you and your agents.** A new Computers page (in the Workers and ADE sidebars) makes whole Linux and macOS computers that run on this Mac or on your worker computer, a Raspberry Pi among them, apart from your own. Pick the system, the version (Ubuntu 24.04 or 26.04, Debian 13 or 12, or the newest macOS this Mac can run), desktop or terminal only, and how big it is; Eaon downloads the official image, checks it, and sets it up. Watch and use its screen live in Eaon, take snapshots to come back to, and turn on "Agents can use it" so agents in Chat and Workers can run commands in it and see and use its screen, Devin-style, without touching your computer. macOS VMs need a Mac with Apple silicon; Windows VMs come later.
 - **Issues: Jira and GitHub next to Linear.** The Linear page is now Issues, with a tab for each. Jira Cloud connects with an Atlassian API token (kept in the vault, sent only to your site) and lists what is assigned to you; Start makes a worktree and branch, gives an agent the issue, moves it to In Progress, and links the pull request and moves it to In Review once there is one. GitHub issues come through the `gh` you are signed in with, so Eaon holds no token, and the agent is told to write "Closes" in its pull request.
 - **Parallel agents.** New session takes a first task and can start the same task with several agents at once, each in a worktree and branch of its own, so you can compare what they made.
 - **Keep or reject each hunk.** In the Diff pane's Uncommitted view, each hunk has Keep (stage it) and Reject (undo it in the file). A diff that changed since it was drawn is refused rather than undoing lines you never saw.

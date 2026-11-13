@@ -1,0 +1,85 @@
+/* The window's opening (Splash.tsx): Eaon's mark over the app, blurred
+   beneath it. Before the theme is applied (no data-theme yet) the colours
+   follow the system's, which the main process sets to the chosen mode. */
+.splash {
+  --splash-veil: rgb(17 17 17 / 0.55);
+  --splash-mark: #fcfcfc;
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: var(--splash-veil);
+  transition: opacity 420ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  .splash {
+    --splash-veil: rgb(255 255 255 / 0.5);
+    --splash-mark: #1a1c1f;
+  }
+}
+
+[data-theme] .splash {
+  --splash-veil: color-mix(in srgb, var(--canvas) 55%, transparent);
+  --splash-mark: var(--fg);
+}
+
+/* The blur is on the app itself, not a backdrop-filter on the splash: that
+   missed whatever had its own compositing layer (the start page's animated
+   title, mark and chips), which stayed sharp under it. html[data-splash] is
+   set while it shows, and is gone with it. */
+html[data-splash] #root > :not(.splash),
+html[data-splash] body > :not(#root, svg, script) {
+  filter: blur(40px) saturate(1.2);
+  transition: filter 420ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+html[data-splash='leaving'] #root > :not(.splash),
+html[data-splash='leaving'] body > :not(#root, svg, script) {
+  filter: blur(0px) saturate(1);
+}
+
+.splash__mark {
+  width: 64px;
+  height: 64px;
+  color: var(--splash-mark);
+  filter: drop-shadow(0 6px 24px rgb(0 0 0 / 0.18));
+  animation: splash-in 560ms cubic-bezier(0.2, 0, 0, 1) both;
+  transition-property: opacity, scale;
+  transition-duration: 360ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.splash[data-leaving] {
+  opacity: 0;
+}
+
+.splash[data-leaving] .splash__mark {
+  opacity: 0;
+  scale: 1.06;
+}
+
+@keyframes splash-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+    filter: blur(4px) drop-shadow(0 6px 24px rgb(0 0 0 / 0));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash__mark {
+    animation-name: splash-fade;
+  }
+  .splash[data-leaving] .splash__mark {
+    scale: 1;
+  }
+}
+
+@keyframes splash-fade {
+  from {
+    opacity: 0;
+  }
+}

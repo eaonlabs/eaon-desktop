@@ -115,6 +115,11 @@ export interface AgentTool {
    */
   denied?: (input: Record<string, unknown>, ctx: ToolContext) => string | null
   /**
+   * The person's own ask list: why this call must always ask (the rule that matched), or null.
+   * Asked in every approval mode, Full access included; a worker with nobody to ask doesn't run it.
+   */
+  asks?: (input: Record<string, unknown>, ctx: ToolContext) => string | null
+  /**
    * The person's own allowlist: this call is one they have said may run without asking.
    * It never covers what `catastrophic` says can't be undone.
    */

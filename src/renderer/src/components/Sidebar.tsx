@@ -1,7 +1,8 @@
+import { DotMatrix, Spinner, type DotState } from './Spinner'
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Monitor, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { SidebarFoot } from './SidebarFoot'
@@ -14,8 +15,10 @@ import { FolderMenu } from './composer/ComposerBits'
 import { notify } from './Notice'
 import { CHAT_SORTS, PROJECT_SORTS, SIDEBAR_IS_NEW, sortChats, sortProjects, useChatSidebar, type ChatSort, type ProjectSort } from './chatSidebar'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
+import { RemoteFolderDialog } from './RemoteFolderDialog'
 import type { Project } from '@shared/types'
 import { sessionSubtitle, sessionTitle, type AdeSession } from '@shared/adeSessions'
+import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
 
 export function Sidebar(): JSX.Element {
   const { sidebarOpen, toggleSidebar, goForward } = useApp(
@@ -377,6 +380,7 @@ function AdeMenu(): JSX.Element {
         onClick={() => setView('pull-requests')}
       />
       <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
+      <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
     </>
   )
@@ -552,7 +556,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
           items={[
             { icon: <SquarePen size={15} strokeWidth={1.9} />, label: 'New chat', action: () => newChat(project.id) },
             { icon: <ScrollText size={15} strokeWidth={1.9} />, label: 'Edit project', action: onEdit },
-            ...(project.folder
+            ...(project.folder && !project.folder.startsWith('ssh://')
               ? [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Show folder', action: () => void showFolder(project.folder!) }]
               : []),
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete project', danger: true, action: () => setConfirmDelete(true) }
@@ -580,6 +584,13 @@ function ProjectDialog({ project, onClose }: { project: Project; onClose: () => 
   // More folders the project's chats work in beside the first.
   const [extras, setExtras] = useState<string[]>(project.extraFolders ?? [])
   const [instructions, setInstructions] = useState(project.instructions)
+  // A folder on another machine: picked in its own dialog, and shown as host:/folder.
+  const [picking, setPicking] = useState(false)
+  const [hosts, setHosts] = useState<SshHost[]>([])
+  useEffect(() => {
+    if (folder && isRemote(folder)) void window.api.ade.hosts().then(setHosts, () => undefined)
+  }, [folder])
+  const shown = folder && isRemote(folder) ? remoteDisplay(folder, (id) => hosts.find((h) => h.id === id)?.label ?? null) : folder
   const clash = folder !== null && projects.some((p) => p.id !== project.id && p.workspaceId === project.workspaceId && p.folder === folder)
   const submit = (): void => {
     if (!name.trim() || clash) return
@@ -623,16 +634,33 @@ function ProjectDialog({ project, onClose }: { project: Project; onClose: () => 
         <span className="field-label">Folder</span>
         <div className="project-folder">
           <FolderOpen size={15} strokeWidth={1.9} />
-          <span className="project-folder__path" title={folder ?? undefined}>
-            {folder ? `\u200e${folder}\u200e` : 'None yet. Its chats code once it has one'}
+          <span className="project-folder__path" title={shown ?? undefined}>
+            {shown ? `\u200e${shown}\u200e` : 'None yet. Its chats code once it has one'}
           </span>
           <button type="button" className="btn btn--sm" onClick={choose}>
             {folder ? 'Change…' : 'Choose…'}
           </button>
+          <button type="button" className="btn btn--sm" onClick={() => setPicking(true)}>
+            On another machine…
+          </button>
         </div>
         {clash && <span className="field-error">Another project already works in this folder.</span>}
       </div>
-      {folder && (
+      {picking && (
+        <RemoteFolderDialog
+          onClose={() => setPicking(false)}
+          onPicked={(cwd, label) => {
+            // Named after its folder until now: it follows the new one.
+            if (!project.folder || name.trim() === folderName(project.folder)) setName(folderName(cwd))
+            setFolder(cwd)
+            // Other folders are on this computer; a project on a host has none.
+            setExtras([])
+            setPicking(false)
+            notify(`Connected to ${label}.`)
+          }}
+        />
+      )}
+      {folder && !isRemote(folder) && (
         <div className="field">
           <span className="field-label">Other folders</span>
           {extras.map((extra) => (
@@ -726,10 +754,20 @@ const ChatRow = memo(function ChatRow({
   // Finished while another chat was on screen: a dot until it's opened.
   const unread = chat.unread && !active && !streaming
   // Its reply stopped to ask something (an approval): it waits on the user, not working.
+  // Waiting out a rate limit or a retry: the only change of pace while a reply runs.
+  const retrying = useApp((st) => {
+    const run = st.runs[chat.id]
+    if (!inProject || !run) return false
+    return Boolean(st.chats.find((c) => c.id === chat.id)?.messages.find((m) => m.id === run)?.notice)
+  })
   const asking = useApp((st) => {
     const run = st.runs[chat.id]
-    return Boolean(run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run)))
+    return Boolean(
+      run && (st.pendingApproval?.messageId === run || st.approvalQueue.some((a) => a.messageId === run) || st.pendingQuestions.some((q) => q.messageId === run))
+    )
   })
+  // A project's chat shows its state as dots, one element that changes state in place so the change is a fade.
+  const dotState: DotState | null = !inProject ? null : streaming ? (asking ? 'asking' : retrying ? 'retrying' : 'thinking') : unread && !failed ? 'done' : failed ? 'failed' : null
 
   const commitRename = (): void => {
     setRenaming(false)
@@ -788,12 +826,14 @@ const ChatRow = memo(function ChatRow({
           <span className="nav-item__label">{chat.title}</span>
         )}
         <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
-          {streaming && asking ? (
+          {dotState ? (
+            <DotMatrix state={dotState} />
+          ) : streaming && asking ? (
             <span className="nav-item__asking" title="Waiting for your answer">
               Needs you
             </span>
           ) : streaming ? (
-            <Loader2 size={14} strokeWidth={2} className="spinner" role="img" aria-label="Replying" />
+            <Spinner size={14} label="Replying" />
           ) : unread && !failed ? (
             <span className="nav-item__unread" role="img" aria-label="New reply" />
           ) : failed ? (

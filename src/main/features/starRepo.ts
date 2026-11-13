@@ -1,6 +1,6 @@
 import { shell } from 'electron'
-import type { StarAnswer, StarResult } from '@shared/star'
-import { alreadyStarred, shouldAsk, starRepository } from '../starPrompt'
+import type { StarAnswer, StarResult, StarStatus } from '@shared/star'
+import { alreadyStarred, shouldAsk, starRepository, starStatus } from '../starPrompt'
 import { store } from '../store'
 import type { Feature } from './types'
 
@@ -43,6 +43,13 @@ export const starRepoFeature: Feature = {
     ipcMain.handle('star:should-ask-first', async (): Promise<boolean> => {
       if (process.env.EAON_OFFERS === 'off' || state().asked > 0) return false
       return ask()
+    })
+
+    /** Asks GitHub (through the CLI) whether it is starred, so the app can show it. A star found here ends the asking. */
+    ipcMain.handle('star:status', async (): Promise<StarStatus> => {
+      const status = await starStatus()
+      if (status === 'starred' && state().status !== 'starred') patch({ status: 'starred' })
+      return status
     })
 
     ipcMain.handle('star:answer', async (_e, answer: StarAnswer): Promise<StarResult | null> => {

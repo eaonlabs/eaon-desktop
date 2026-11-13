@@ -20,6 +20,9 @@ import { createWorkersService, type WorkersService } from '@main/features/worker
 import { sealVaultAtRest } from '@main/features/workers/vaultSeal'
 import { createChannels } from '@main/features/channels'
 import { listen } from '@main/workerHost/channel'
+import { createVmManager, defaultSocketDir } from '@main/vms/service'
+import { registerVmIpc } from '@main/vms/ipc'
+import { vmToolSource } from '@main/vms/tool'
 import { broadcast, ipc } from './ipc'
 import { createHost, type SyncPayload } from './host'
 import { applySync } from './sync'
@@ -92,6 +95,32 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
     registerToolSource({ id: 'worker-browser', tools: () => [] })
   }
 
+  // VMs on this computer, for the desktop's Computers page and for agents (workers here among them).
+  const vms = createVmManager({
+    root: join(home, 'vms'),
+    socketDir: defaultSocketDir(),
+    helper: process.platform === 'darwin' ? join(home, 'app', 'vm', 'eaon-vm') : null,
+    device: 'host',
+    name: () => config.name || hostname().replace(/\.local\.?$/i, ''),
+    onChange: (list) => broadcast('vms:changed', list),
+    autostart: true
+  })
+  const offVmIpc = registerVmIpc(ipc as unknown as Parameters<typeof registerVmIpc>[0], vms, {
+    // systemd (INVOCATION_ID) restarts the host whenever it ends (Restart=always): a quit is a restart.
+    restart: process.platform === 'linux' && process.env.INVOCATION_ID ? () => process.kill(process.pid, 'SIGTERM') : undefined
+  })
+  registerToolSource(
+    vmToolSource({
+      cached: () => vms.list(),
+      start: (_device, id) => vms.start(id),
+      stop: (_device, id) => vms.stop(id),
+      exec: (_device, id, command, timeoutMs) => vms.exec(id, command, timeoutMs),
+      screenshot: (_device, id) => vms.screenshot(id),
+      input: (_device, id, actions) => vms.input(id, actions),
+      setActive: (_device, id, active) => vms.setAgentActive(id, active)
+    })
+  )
+
   void syncMcpServers()
   void refreshLocalProviders(true).catch(() => undefined)
   void refreshCatalogInBackground().catch(() => undefined)
@@ -155,6 +184,10 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
     stopping = (async () => {
       offSecrets()
       if (signInTimer) clearTimeout(signInTimer)
+      offVmIpc()
+      // On Linux the service manager ends QEMU with this app, so VMs are shut down properly and come back when it starts again.
+      // A Mac's helpers run on their own and keep their VMs going.
+      await vms.shutdown({ stopVms: process.platform === 'linux', resumeLater: true, graceMs: 25_000 }).catch(() => undefined)
       await server.close().catch(() => undefined)
       killBackgroundProcesses()
       await channels.stop().catch(() => undefined)

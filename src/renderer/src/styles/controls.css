@@ -460,29 +460,57 @@
 
 .input {
   width: 100%;
-  height: 34px;
-  padding: 0 11px;
-  border-radius: var(--r-sm);
-  background: var(--sunken);
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  /* A little lighter than the card it sits on, so the field reads as a field
+     and not a hole: --sunken alone was near black on dark themes. */
+  background: color-mix(in srgb, var(--sunken) 55%, var(--surface-2, var(--surface-1)));
   border: 1px solid var(--border);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.14);
   font-size: var(--fs-base);
   color: var(--text);
   outline: none;
-  transition: border-color var(--dur) var(--ease);
+  caret-color: var(--text);
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.input:hover:not(:focus):not(:disabled) {
+  border-color: var(--border-strong, var(--border));
 }
 .input:focus {
-  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 25%);
+  /* A soft ring, so the field you are typing in is the one that glows. */
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.1),
+    0 0 0 3px color-mix(in srgb, var(--toggle-on), transparent 82%);
+}
+.input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .input::placeholder {
   color: var(--text-3);
+  opacity: 0.8;
+}
+.input::selection {
+  background: color-mix(in srgb, var(--toggle-on), transparent 65%);
 }
 
 textarea.input {
   height: auto;
-  padding: 10px 11px;
-  line-height: 1.5;
+  padding: 11px 12px;
+  line-height: 1.55;
   resize: vertical;
   min-height: 96px;
+  scrollbar-width: thin;
+}
+/* The corner grip: native ones are a heavy diagonal. */
+textarea.input::-webkit-resizer {
+  background: linear-gradient(135deg, transparent 55%, var(--text-3) 55%, var(--text-3) 62%, transparent 62%, transparent 74%, var(--text-3) 74%, var(--text-3) 81%, transparent 81%);
+  opacity: 0.5;
 }
 
 .search-field {
@@ -515,7 +543,8 @@ textarea.input {
 }
 /* The same accent edge as .input: --border-strong alone was barely visible. */
 .search-field input:focus {
-  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 25%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--toggle-on), transparent 82%);
 }
 .search-field--sm input {
   height: 34px;

@@ -4,6 +4,7 @@ import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join, relative, sep } from 'node:path'
 import { app } from 'electron'
 import type { IndexStatus, SearchHit } from '@shared/types'
+import { isRemote } from '@shared/adeRemote'
 import { dot, embedAll, embedQuery, getEmbeddingConfig, isEmbeddingConfigured } from './embeddings'
 
 /**
@@ -517,6 +518,8 @@ let currentBuild: { cwd: string; force: boolean; run: AbortController; done: Pro
  * build of another folder, or a forced rebuild, still replaces it.
  */
 export function buildIndex(cwd: string, force = false): Promise<IndexStatus> {
+  // A folder on another machine (`ssh://`) isn't on this disk: nothing to index.
+  if (isRemote(cwd)) return Promise.resolve(getIndexStatus(null))
   const under = currentBuild
   if (under && under.run === currentRun && under.cwd === cwd && (under.force || !force)) return under.done
   cancelIndexing()

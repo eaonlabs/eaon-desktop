@@ -1,5 +1,7 @@
 import type { ChatMessage, ChatToolPart } from '@shared/types'
 import { activitySummary, type ActivityCall } from '../agent/Activity'
+import type { FileChange } from '../agent/FilesChanged'
+import { changeCounts, partEdits } from '../chatCode/changes/build'
 
 /**
  * A reply as a work log, the way Chat lays it out: its sentences, each
@@ -239,6 +241,29 @@ export function stepSummary(calls: StepCall[]): StepSummary {
   } else if (leftOver > 0) clauses.push(n(leftOver, 'other step'))
   const text = clauses.map((c, i) => (i === 0 ? c : c.charAt(0).toLowerCase() + c.slice(1))).join(clauses.length > 2 ? ', ' : ' and ')
   return { text: clauses.length > 2 ? text.replace(/, ([^,]*)$/, ', and $1') : text, failed, skipped, kind }
+}
+
+/**
+ * Lines a run's edits added and removed, for its line: each file counted
+ * once, the way the reply's changed-files card counts them. What a command
+ * changed isn't known call by call, so it isn't here; that card has it, from
+ * the checkpoints.
+ */
+export function runLines(parts: ChatToolPart[]): { added: number; removed: number } {
+  const byFile = new Map<string, FileChange[]>()
+  for (const part of parts)
+    for (const edit of partEdits(part, 0)) {
+      const change: FileChange = { file: edit.path, before: edit.before, after: edit.after, ...(edit.kind === 'write' ? { write: true } : {}), ...(edit.replaceAll ? { replaceAll: true } : {}) }
+      byFile.set(edit.path, [...(byFile.get(edit.path) ?? []), change])
+    }
+  let added = 0
+  let removed = 0
+  for (const changes of byFile.values()) {
+    const counts = changeCounts(changes)
+    added += counts.added
+    removed += counts.removed
+  }
+  return { added, removed }
 }
 
 const LIVE: Partial<Record<StepKind, string>> = {

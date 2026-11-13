@@ -99,6 +99,8 @@ export interface CallFacts {
   spends: boolean
   /** The denylist rule that forbids this call, if one does. */
   denied?: string | null
+  /** The ask-list rule that makes this call ask, if one does, even when it only reads. */
+  asked?: string | null
   /** The user blocked this tool (Settings → MCP Servers): it never runs, mutating or not. */
   blocked?: boolean
 }
@@ -117,15 +119,17 @@ export async function callFacts(
   const mutating = isMutating(tool, input, ctx)
   const spends = tool.spends?.(input, ctx) ?? false
   const denied = tool.denied?.(input, ctx) ?? null
+  const asked = denied ? null : (tool.asks?.(input, ctx) ?? null)
   const rule = tool.permission?.(input, ctx)
   if (rule === 'block') return { mutating, risky: false, catastrophic: false, preApproved: false, spends, blocked: true }
-  if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends, denied }
+  if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends, denied, asked }
   const catastrophic = (await tool.catastrophic?.(input, ctx)) ?? false
   // Said to run without asking by the person's allowlist; what can't be undone still asks.
-  const allowed = !catastrophic && !denied && (tool.allowed?.(input, ctx) ?? false)
+  const allowed = !catastrophic && !denied && !asked && (tool.allowed?.(input, ctx) ?? false)
   return {
     mutating,
     denied,
+    asked,
     risky: !allowed && ((tool.risky?.(input, ctx) ?? false) || delegates(tool, input, ctx)),
     // What can't be undone (a real-money order, a destructive plugin call) is
     // never covered by the blanket plugin pre-approval, in any mode.
@@ -160,10 +164,13 @@ export function decide(
   // Money is spent only for the user's own requests, however much the
   // worker is trusted otherwise — no Approve once lifts this.
   if (facts.spends && (policy.origin === 'guest' || policy.origin === 'delegated')) return { kind: 'deny', reason: SPENDING_REFUSAL }
-  if (!facts.mutating) return { kind: 'run', mutating: false }
-  if (policy.readOnly) return { kind: 'deny', reason: PLAN_MODE_REFUSAL }
+  // An ask-list command asks even when it only reads (`cat .env`); a call that
+  // changes something in Plan or Ask mode is still refused first.
+  if (!facts.mutating && !facts.asked) return { kind: 'run', mutating: false }
+  if (policy.readOnly && facts.mutating) return { kind: 'deny', reason: PLAN_MODE_REFUSAL }
 
   const { risky, catastrophic, preApproved } = facts
+  const asked = Boolean(facts.asked)
   // Scheduled tasks and workers: nobody is there to ask, so the run's own
   // policy stands in for the user's approval setting.
   if (policy.unattended) {
@@ -171,12 +178,12 @@ export function decide(
     if (policy.unattended === 'autonomous') {
       // Trusted to act alone: everything runs except what can't be undone —
       // unless the user approved this very call (ask_user).
-      if (catastrophic && !policy.allowOnce?.(name, input)) return { kind: 'deny', reason: UNATTENDED_CATASTROPHIC }
+      if ((catastrophic || asked) && !policy.allowOnce?.(name, input)) return { kind: 'deny', reason: UNATTENDED_CATASTROPHIC }
       return { kind: 'run', mutating: true }
     }
     // "Allow All MCP Tool Permissions" approves plugin calls in advance, for
     // a worker as for a chat.
-    if ((catastrophic || (risky && !preApproved)) && !policy.allowOnce?.(name, input)) {
+    if ((catastrophic || asked || (risky && !preApproved)) && !policy.allowOnce?.(name, input)) {
       return { kind: 'deny', reason: UNATTENDED_RISKY }
     }
     return { kind: 'run', mutating: true }
@@ -185,9 +192,9 @@ export function decide(
     // Full autonomy: the user is here but has trusted the agent to act.
     // Everything runs except what can't be undone, which still waits for
     // them like any approval (plugin pre-approval or not).
-    return catastrophic ? { kind: 'ask', mutating: true } : { kind: 'run', mutating: true }
+    return catastrophic || asked ? { kind: 'ask', mutating: true } : { kind: 'run', mutating: true }
   }
-  if (catastrophic || (!preApproved && (approvalMode === 'ask' || risky))) return { kind: 'ask', mutating: true }
+  if (catastrophic || asked || (!preApproved && (approvalMode === 'ask' || risky))) return { kind: 'ask', mutating: true }
   return { kind: 'run', mutating: true }
 }
 

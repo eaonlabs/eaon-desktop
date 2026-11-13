@@ -25,3 +25,9 @@ export const askAfterMs = (random: number): number => ASK_AFTER_MIN_MS + Math.fl
 
 /** The very first ask comes sooner, as a welcome: after half a minute of use. */
 export const FIRST_ASK_AFTER_MS = 30_000
+
+/**
+ * Whether the signed-in GitHub CLI's account has starred it. `unknown` when
+ * there is no CLI or it isn't signed in: nothing can be said either way.
+ */
+export type StarStatus = 'starred' | 'not-starred' | 'unknown'

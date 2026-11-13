@@ -30,7 +30,9 @@ import {
   type WorkerThreadInfo
 } from '@shared/workers'
 import { useApp } from '../../state/store'
-import { MenuItem, MenuSearch, Popover, useDisclosure } from '../ui'
+import { MenuItem, MenuSearch, Popover, Segmented, useDisclosure } from '../ui'
+import { workerStats } from '@shared/workerStats'
+import { WorkerTablesSection } from './WorkerTables'
 import { WorkerFace } from './WorkerFace'
 import { errorText, useWorkers } from './workersStore'
 
@@ -225,6 +227,43 @@ function tokens(execution: WorkerExecution): string | null {
   return execution.billing === 'plan' ? `${count} · on your plan` : count
 }
 
+/** How the worker has done lately, from its run receipts: shown once it has finished a run. */
+function StatsStrip({ runs, now }: { runs: WorkerExecution[]; now: number }): JSX.Element | null {
+  const [days, setDays] = useState<'7' | '30'>('7')
+  const stats = useMemo(() => workerStats(runs, Number(days), now), [runs, days, now])
+  if (runs.length === 0) return null
+  const tokenText = (count: number): string => (count >= 1000 ? `${Math.round(count / 100) / 10}k` : String(count))
+  const cells: [string, string][] = [
+    ['Runs', String(stats.runs)],
+    ['Completed', stats.successRate === null ? '–' : `${Math.round(stats.successRate * 100)}%`],
+    ['Average', stats.averageMs === null ? '–' : duration(stats.averageMs)],
+    ['Tokens', stats.tokens + stats.planTokens === 0 ? '–' : tokenText(stats.tokens + stats.planTokens)]
+  ]
+  return (
+    <section className="worker-activity__section">
+      <div className="worker-stats__head">
+        <h2 className="worker-activity__heading">Lately</h2>
+        <Segmented
+          value={days}
+          onChange={setDays}
+          options={[
+            { value: '7', label: '7 days' },
+            { value: '30', label: '30 days' }
+          ]}
+        />
+      </div>
+      <div className="worker-stats" title={stats.planTokens > 0 ? `${tokenText(stats.planTokens)} of the tokens ran on a subscription` : undefined}>
+        {cells.map(([label, value]) => (
+          <div key={label} className="worker-stats__cell">
+            <span className="worker-stats__value">{value}</span>
+            <span className="worker-stats__label">{label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /**
  * The run history beside a worker's page: every run with what woke it, the
  * thread it ran in, how it ended, how long it took and what it cost, and the
@@ -270,6 +309,8 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
         </button>
       </div>
       <div className="worker-activity__body scroll">
+        {runs && <StatsStrip runs={runs} now={now} />}
+        <WorkerTablesSection worker={worker} />
         {mine.length > 0 && (
           <section className="worker-activity__section">
             <h2 className="worker-activity__heading">Delegated work</h2>

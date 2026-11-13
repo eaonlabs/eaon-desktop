@@ -1,8 +1,11 @@
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { agentWorkspace, useApp, type PendingApproval } from '../../state/store'
 import { approvalDoes, approvalRisk } from './ApprovalCard'
+import { AlwaysRules } from './AlwaysRules'
 import { ApprovalPreview } from './ApprovalRow'
+import { QuestionDock } from './QuestionDock'
 import { approvalRow, askerName } from './approvalText'
 
 /**
@@ -52,8 +55,15 @@ export function ElsewhereAsk({ floating = false, everyChat = floating }: { float
     })
   )
   const ask = asks[0]
-  if (!ask) return null
-  const strip = <Ask key={ask.requestId} ask={ask} more={asks.length - 1} />
+  const hasQuestion = useApp((s) => s.pendingQuestions.length > 0)
+  if (!ask && !hasQuestion) return null
+  // The agent's own questions sit on the box like an approval does, for whichever chat asks.
+  const strip = (
+    <>
+      <QuestionDock />
+      {ask && <Ask key={ask.requestId} ask={ask} more={asks.length - 1} />}
+    </>
+  )
   return floating ? <div className="elsewhere-float">{strip}</div> : strip
 }
 
@@ -73,6 +83,7 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
   // What can't be taken back shows exactly what it would do without a click.
   const [open, setOpen] = useState(risk === 'high')
   const [answered, setAnswered] = useState(false)
+  const [rules, setRules] = useState(false)
   const titleId = useId()
   const previewId = useId()
 
@@ -115,6 +126,19 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
           {risk === 'high' && <div className="elsewhere-ask__warn">{approvalDoes(ask.tool, ask.input)}</div>}
         </div>
         <div className="elsewhere-ask__answers">
+          {ask.tool === 'run_command' && (
+            <button
+              type="button"
+              className="elsewhere-ask__rules"
+              disabled={answered}
+              aria-expanded={rules}
+              title="Always allow or never allow commands like this"
+              onClick={() => setRules(!rules)}
+            >
+              Rules
+              <ChevronDown size={13} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+          )}
           {chat && (
             <button type="button" className="elsewhere-ask__open" onClick={() => openAsking(chat.id)}>
               Open
@@ -128,6 +152,7 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
           </button>
         </div>
       </div>
+      {rules && !answered && <AlwaysRules ask={ask} answer={respond} />}
       {open && (
         <div id={previewId} className="elsewhere-ask__preview">
           <ApprovalPreview ask={ask} />

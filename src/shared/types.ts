@@ -1,5 +1,6 @@
 /** Types shared between the main and renderer processes. */
 
+import type { AskQuestion } from './askQuestions'
 import type { AppControlSettings } from './appControl'
 import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
@@ -415,8 +416,10 @@ export interface Settings {
   general: {
     defaultPermissions: boolean
     fullAccess: boolean
-    /** Shell commands the person has allowed to run without asking, and ones that may never run (shared/commandRules.ts). */
-    commandRules?: { allow: string[]; deny: string[] }
+    /** Shell commands the person has allowed to run without asking, ones that always ask and ones that may never run (shared/commandRules.ts). */
+    commandRules?: { allow: string[]; ask?: string[]; deny: string[] }
+    /** The same lists for one project's folder, added to the ones above while the agent works there. */
+    projectCommandRules?: Record<string, { allow: string[]; ask?: string[]; deny: string[] }>
     /** After the agent edits files, run the project's typecheck or lint and show the agent what failed (shared/projectChecks.ts). */
     checks?: { enabled: boolean; command: string }
     /** Run the agent's shell commands in a macOS sandbox: write only in the work folder, no keys, no internet unless allowed (shared/sandbox.ts). */
@@ -426,6 +429,8 @@ export interface Settings {
     showInMenuBar: boolean
     bottomPanel: boolean
     preventSleep: boolean
+    /** A system-wide key (⌘⇧Space, Ctrl+Shift+Space) that brings Eaon to the front on a new chat. Off until switched on. */
+    quickChat?: boolean
     suggestedPrompts: boolean
     /** The Trading desk, its tools and trading workers. Off unless switched on; takes effect after a restart. */
     trading: boolean
@@ -931,6 +936,8 @@ export type StreamEvent =
   | { type: 'notice'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
+  /** The agent is asking the user multiple-choice questions in a pop-up (shared/askQuestions.ts); answered over chat:answer-question. */
+  | { type: 'question-request'; messageId: string; requestId: string; questions: AskQuestion[] }
   | {
       type: 'approval-request'
       messageId: string
