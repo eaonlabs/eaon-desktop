@@ -1179,138 +1179,21 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   font-size: var(--fs-base);
 }
 
-/* A scene in characters behind the conversation (ChatScene.tsx): a wash of
-   colour with the marks over it. The marks are quieter in the column where
-   the words and the message box sit, so the scene frames the text and never
-   competes with it. */
+/* A scene in characters behind the conversation (ChatScene.tsx). The column
+   where the words and the message box sit is quieter, so the scene frames the
+   text and never competes with it. */
 .chat-scene {
   position: absolute;
   inset: 0;
   z-index: 0;
-  overflow: hidden;
-  pointer-events: none;
-  animation: field-in 900ms var(--ease) both;
-}
-.chat-scene__sky {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, var(--sky-a), var(--sky-b));
-  opacity: 0.85;
-}
-:root[data-theme='light'] .chat-scene__sky {
-  background: linear-gradient(to bottom, var(--sky-a-light), var(--sky-b-light));
-  opacity: 0.7;
-}
-.chat-scene__marks {
-  position: absolute;
-  inset: 0;
   width: 100%;
   height: 100%;
-  -webkit-mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.16), #000 88%);
-  mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.16), #000 88%);
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.12), #000 88%);
+  mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.12), #000 88%);
+  animation: field-in 900ms var(--ease) both;
 }
 /* In a conversation the words are in the flow, so the scene sits under them. */
 .chat-scene--behind {
   z-index: -1;
-}
-
-/* ---- /theme: the scene picker, docked above the message box ---- */
-.scene-picker {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  margin-bottom: -14px;
-  padding: 12px 14px 26px;
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  border-radius: var(--r-composer) var(--r-composer) 0 0;
-  background: var(--surface-1);
-  outline: none;
-  animation: ask-row-in 220ms var(--ease) both;
-}
-.scene-picker__top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.scene-picker__tag {
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--hover);
-  color: var(--text);
-  font: 600 var(--fs-xs) ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.scene-picker__title {
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-}
-.scene-picker__keys {
-  margin-left: auto;
-  color: var(--text-tertiary, var(--text-secondary));
-  font-size: var(--fs-xs);
-}
-.scene-picker__row {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 2px 2px 4px;
-  scrollbar-width: none;
-}
-.scene-picker__row::-webkit-scrollbar {
-  display: none;
-}
-.scene-card {
-  flex: 0 0 148px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-}
-.scene-card__thumb {
-  position: relative;
-  display: block;
-  height: 84px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2, var(--hover));
-  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
-}
-.scene-card[data-focus] .scene-card__thumb {
-  border-color: var(--text);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 18%, transparent);
-}
-.scene-card__label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
-.scene-card__label svg {
-  color: var(--success, #34c759);
-}
-.scene-card__none {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--text-secondary);
-  font-size: var(--fs-xs);
-}
-.chat-scene--thumb {
-  animation: none;
-}
-.chat-scene--thumb .chat-scene__sky {
-  opacity: 1;
-}
-.chat-scene--thumb .chat-scene__marks {
-  -webkit-mask-image: none;
-  mask-image: none;
 }

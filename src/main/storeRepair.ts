@@ -60,7 +60,7 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   'general.launchMode': values<LaunchMode>({ chat: true, workers: true, ade: true, last: true }),
   'appearance.mode': values<ThemeMode>({ system: true, light: true, dark: true }),
   'appearance.reduceMotion': values<Settings['appearance']['reduceMotion']>({ system: true, on: true, off: true }),
-  'appearance.chatScene': values<ChatScene>({ off: true, aurora: true, lagoon: true, drift: true, koi: true, jellyfish: true, boats: true, fireflies: true, moonlit: true, sunburst: true }),
+  'appearance.chatScene': values<ChatScene>({ off: true, sunburst: true, drift: true, koi: true, jellyfish: true, fireflies: true, moonlit: true }),
   'appearance.appIcon': values<AppIcon>({ default: true, agent: true, light: true, ocean: true, sunset: true, forest: true, grape: true, aurora: true, peaks: true }),
   effort: values<EffortLevel>({ none: true, minimal: true, light: true, medium: true, high: true, 'extra-high': true, ultra: true }),
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
