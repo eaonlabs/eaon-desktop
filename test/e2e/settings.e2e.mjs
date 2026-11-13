@@ -78,7 +78,8 @@ scenario('Settings → General: every control does something', { timeout: 150_00
           return `${title ? `${title} › ` : ''}${text}`.slice(0, 80) === label
         })
         // Gone, or switched off by an earlier click (Hold to talk off greys its Key): nothing to try.
-        if (!el || el.disabled) return 'gone'
+        // A tab that is already the selected one has nothing to do when clicked.
+        if (!el || el.disabled || el.getAttribute('aria-selected') === 'true') return 'gone'
         el.scrollIntoView({ block: 'center' })
         const rect = el.getBoundingClientRect()
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
