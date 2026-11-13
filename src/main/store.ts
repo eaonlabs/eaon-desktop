@@ -7,6 +7,7 @@ import { REMOTE_DEFAULT_PORT } from '@shared/remote'
 import { logCrash } from './crashGuard'
 import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
 import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
+import { DEFAULT_CHAT_SCENE } from '@shared/chatScenes'
 import { enforceSettings } from './enterprise/policy'
 
 /**
@@ -152,7 +153,7 @@ export const defaultSettings: Settings = {
     },
     pointerCursors: false,
     reduceMotion: 'system',
-    chatScene: 'off',
+    chatScene: DEFAULT_CHAT_SCENE,
     fontSize: 14,
     fontSmoothing: true,
     appIcon: 'default',
