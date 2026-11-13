@@ -2009,7 +2009,7 @@ body[data-reduce-motion='on'] .star-card {
 .rules__bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);

@@ -386,10 +386,11 @@ function TradingRow(): JSX.Element {
   return (
     <Row
       title="Trading"
+      more="A trading worker you set up before keeps its settings but stays idle while this is off."
       description={
         wanted && !started
           ? 'On. Restart Eaon to start the Trading desk, its tools and trading workers.'
-          : 'The Trading desk, its tools and trading workers. Off by default; a trading worker you set up before keeps its settings but stays idle.'
+          : 'The Trading desk, its tools and trading workers. Off by default'
       }
     >
       <Switch label="Trading" checked={wanted} onChange={(on) => void patchSettings({ general: { trading: on } })} />
