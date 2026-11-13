@@ -733,11 +733,14 @@ export function Card({ children, className }: { children: ReactNode; className?:
 export function Row({
   title,
   description,
+  more,
   children,
   onClick
 }: {
   title: ReactNode
   description?: ReactNode
+  /** The long version: folded away behind "Details" so the row stays one short line of text. */
+  more?: ReactNode
   children?: ReactNode
   onClick?: () => void
 }): JSX.Element {
@@ -746,6 +749,7 @@ export function Row({
       <div className="row__body">
         <div className="row__title">{title}</div>
         {description && <div className="row__desc">{description}</div>}
+        {more && <Details>{more}</Details>}
       </div>
       {children && (
         <div className="row__trail">
@@ -767,6 +771,39 @@ export function Section({
     <section className="settings__section">
       {label && <div className="settings__section-label">{label}</div>}
       {children}
+    </section>
+  )
+}
+
+/** "Details": the fine print of a setting, one click away and closed by default. */
+export function Details({ children, label = 'Details' }: { children: ReactNode; label?: string }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="details" data-open={open || undefined}>
+      <button type="button" className="details__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {label}
+        <ChevronDown size={12} strokeWidth={2.2} aria-hidden />
+      </button>
+      {open && <div className="details__body">{children}</div>}
+    </div>
+  )
+}
+
+/**
+ * A section that starts closed: a heading, a line saying how it is set, and
+ * the settings under it once opened. For the rarely touched controls, so a
+ * page lists what most people use and the rest is one click down.
+ */
+export function Fold({ label, summary, children, defaultOpen = false }: { label: ReactNode; summary?: ReactNode; children: ReactNode; defaultOpen?: boolean }): JSX.Element {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <section className="settings__section settings__fold" data-open={open || undefined}>
+      <button type="button" className="settings__fold-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="settings__section-label">{label}</span>
+        {summary && <span className="settings__fold-summary">{summary}</span>}
+        <ChevronDown className="settings__fold-chevron" size={14} strokeWidth={2.2} aria-hidden />
+      </button>
+      {open && <div className="settings__fold-body">{children}</div>}
     </section>
   )
 }

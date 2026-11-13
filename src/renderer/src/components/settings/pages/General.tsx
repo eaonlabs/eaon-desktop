@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
-import { Card, ErrorDetails, Modal, Row, Section, Select, Switch } from '../../ui'
+import { Card, ErrorDetails, Fold, Modal, Row, Section, Select, Switch } from '../../ui'
 import { LinkAccounts } from '../../LinkAccounts'
 import { Compass, ExternalLink, Github, Sparkles, Star } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
@@ -52,36 +52,11 @@ export function GeneralPage(): JSX.Element {
   return (
     <>
       <h1 className="settings__h1">General</h1>
+      <p className="settings__lede">How Eaon starts, how chats behave{isWork ? ', and what the agent may do on its own' : ''}.</p>
 
-      {/* Describes exactly the local file/command permission model that only
-          exists for Eaon Work's tools — meaningless copy in chat mode. */}
-      {isWork && (
-      <Section label="Permissions">
+      <Section label="Startup">
         <Card>
-          {/* What fullAccess really gates (localTools.ts riskyPath): the
-              "outside the work folder" check. It used to promise commands with
-              network and no approvals at all, which it never did. A disabled
-              "Default permissions" switch beside it only mirrored this one. */}
-          <Row
-            title="Full access"
-            description="Off: changing anything outside the folder the assistant works in (a chat's project, or Eaon's folder) always asks you first. On: it can change files anywhere on your computer, following your usual approval setting. Risky commands always ask."
-          >
-            <Switch
-              label="Full access"
-              checked={g.fullAccess}
-              onChange={(on) => void patchSettings({ general: { fullAccess: on } })}
-            />
-          </Row>
-        </Card>
-      </Section>
-      )}
-      {isWork && <CommandRules />}
-      {isWork && <CommandSandbox />}
-      {isWork && <ProjectChecks />}
-
-      <Section label="General">
-        <Card>
-          <Row title="Open on launch" description="The mode Eaon opens in when it starts">
+          <Row title="Open on launch" description="The mode Eaon opens in">
             <Select
               value={g.launchMode ?? 'chat'}
               onChange={(value) => void patchSettings({ general: { launchMode: value as LaunchMode } })}
@@ -93,86 +68,85 @@ export function GeneralPage(): JSX.Element {
               ]}
             />
           </Row>
-          <Row title="Prevent sleep while running" description="Keep your computer awake while the assistant is running a task">
-            <Switch
-              label="Prevent sleep while running"
-              checked={g.preventSleep}
-              onChange={(on) => void patchSettings({ general: { preventSleep: on } })}
-            />
+          {background?.supported && (
+            <Row title="Launch at login" description="Start Eaon in the background when you log in, so scheduled tasks run">
+              <Switch label="Launch at login" checked={background.enabled} onChange={setLaunchAtLogin} />
+            </Row>
+          )}
+          {backgroundError && <Row title={<span className="ch-error">{backgroundError}</span>} />}
+          <Row title="Prevent sleep while running" description="Keep the computer awake while the assistant works on a task">
+            <Switch label="Prevent sleep while running" checked={g.preventSleep} onChange={(on) => void patchSettings({ general: { preventSleep: on } })} />
           </Row>
-          <Row
-            title="Notify me when an agent needs me"
-            description="A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t the window in front. It covers Chat, Workers, scheduled tasks and the ADE."
-          >
+          <Row title="Notify me when an agent needs me" description="A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t in front">
             <Switch
               label="Notify me when an agent needs me"
               checked={settings.notifications?.taskComplete !== false}
               onChange={(on) => void patchSettings({ notifications: { taskComplete: on } })}
             />
           </Row>
-          <Row
-            title="Quick chat shortcut"
-            description={`Opens Eaon on a new chat from any app, with ${isMac ? '⌘⇧Space' : 'Ctrl+Shift+Space'}. Off until you turn it on.`}
-          >
+        </Card>
+      </Section>
+
+      <Section label="Chat">
+        <Card>
+          <Row title="Quick chat shortcut" description={`Open a new chat from any app with ${isMac ? '⌘⇧Space' : 'Ctrl+Shift+Space'}`}>
             <Switch label="Quick chat shortcut" checked={g.quickChat === true} onChange={(on) => void patchSettings({ general: { quickChat: on } })} />
           </Row>
-          <Row
-            title="Auto-compact long chats"
-            description="When a chat nears the model’s context limit, summarize its older messages so it can keep going. Nothing in the chat is removed."
-          >
-            <Switch
-              label="Auto-compact long chats"
-              checked={settings.context?.autoCompact !== false}
-              onChange={(on) => void patchSettings({ context: { autoCompact: on } })}
-            />
+          <Row title="Auto-compact long chats" description="Summarize older messages when a chat nears the model’s limit, so it can keep going" more="Nothing in the chat is removed; the summary is added to it.">
+            <Switch label="Auto-compact long chats" checked={settings.context?.autoCompact !== false} onChange={(on) => void patchSettings({ context: { autoCompact: on } })} />
           </Row>
-          <Row title="Suggested prompts" description="Show starter prompts under the message box on the home screen">
-            <Switch
-              label="Suggested prompts"
-              checked={g.suggestedPrompts}
-              onChange={(on) => void patchSettings({ general: { suggestedPrompts: on } })}
-            />
+          <Row title="Suggested prompts" description="Starter prompts under the message box on the home screen">
+            <Switch label="Suggested prompts" checked={g.suggestedPrompts} onChange={(on) => void patchSettings({ general: { suggestedPrompts: on } })} />
           </Row>
-          <TradingRow />
+        </Card>
+      </Section>
+
+      <CustomInstructions />
+
+      {/* The permission model below exists only for Eaon Work's tools: meaningless copy in chat mode. */}
+      {isWork && (
+        <>
+          <Section label="Agent permissions">
+            <Card>
+              {/* What fullAccess really gates (localTools.ts riskyPath): the "outside the work folder" check. */}
+              <Row
+                title="Full access"
+                description="Let the agent change files anywhere on this computer, not just in its work folder"
+                more="Off: changing anything outside the folder the assistant works in (a chat’s project, or Eaon’s folder) always asks you first. On: it can change files anywhere, following your usual approval setting. Risky commands always ask."
+              >
+                <Switch label="Full access" checked={g.fullAccess} onChange={(on) => void patchSettings({ general: { fullAccess: on } })} />
+              </Row>
+            </Card>
+          </Section>
+          <CommandRules />
+          <Fold label="Advanced agent controls" summary="Command sandbox, checks after edits">
+            <CommandSandbox />
+            <ProjectChecks />
+          </Fold>
+        </>
+      )}
+
+      <Section label="Speech to text">
+        <Card>
+          <HoldToTalkRows description="Hold the key and speak. What you said goes into the message box, ready to edit before you send it." />
+          <SpeechModelRow />
+        </Card>
+      </Section>
+
+      <Section label="Accounts and features">
+        <Card>
           {/* Accounts only: chats and projects stay in the other apps. Reading
               another app's stored sign-in to "import" it can get the account
               banned, so Link accounts uses each provider's own sign-in. */}
-          <Row
-            title="Use your accounts from other AI apps"
-            description="Finds the AI apps on this computer and signs in to their providers the official way. Chats and projects stay in those apps."
-          >
+          <Row title="Use your accounts from other AI apps" description="Finds AI apps on this computer and signs in to their providers the official way" more="Chats and projects stay in those apps.">
             <button type="button" className="btn" onClick={() => setLinking(true)}>
               Link accounts
             </button>
           </Row>
-          <Row title="License" description="Eaon's license and copyright notice, in its GitHub repository">
-            <button type="button" className="btn" onClick={() => void window.api.app.openExternal(`${REPO_URL}/blob/main/NOTICE`)}>
-              View
-            </button>
-          </Row>
-          {background?.supported && (
-            <Row
-              title="Launch at login"
-              description="Start Eaon in the background when you log in, without opening a window, so scheduled tasks run"
-            >
-              <Switch label="Launch at login" checked={background.enabled} onChange={setLaunchAtLogin} />
-            </Row>
-          )}
-          {backgroundError && (
-            <Row title={<span className="ch-error">{backgroundError}</span>} />
-          )}
+          <TradingRow />
         </Card>
       </Section>
       <LinkAccounts open={linking} onClose={() => setLinking(false)} />
-
-      <CustomInstructions />
-
-      <Section label="Speech to text">
-        <Card>
-          <HoldToTalkRows description="Hold the key and speak, in Chat, Workers or the ADE. When you let go, what you said goes into the message box (in the ADE, the terminal you last typed in), ready to edit before you send it." />
-          <SpeechModelRow />
-        </Card>
-      </Section>
 
       <Section label="Software update">
         <Card>
@@ -189,12 +163,8 @@ export function GeneralPage(): JSX.Element {
                   : 'Check for updates'}
             </button>
           </Row>
-          {update.state === 'not-available' && (
-            <Row title="Up to date" description="You have the latest version installed" />
-          )}
-          {update.state === 'available' && (
-            <Row title="Update available" description={`Version ${versionLabel(update.version)} is downloading in the background`} />
-          )}
+          {update.state === 'not-available' && <Row title="Up to date" description="You have the latest version installed" />}
+          {update.state === 'available' && <Row title="Update available" description={`Version ${versionLabel(update.version)} is downloading in the background`} />}
           {update.state === 'downloaded' && (
             <Row title="Update ready" description={`Version ${versionLabel(update.version)} is ready. Restart Eaon to install it.`}>
               <button className="btn" onClick={() => void window.api.updater.install()}>
@@ -204,10 +174,7 @@ export function GeneralPage(): JSX.Element {
           )}
           {update.state === 'error' && <UpdateError message={update.message} />}
           {isBeta && (
-            <Row
-              title="Go back to the stable version"
-              description="You’re on a beta, which can be unstable. This downloads the latest stable release and installs it when Eaon restarts."
-            >
+            <Row title="Go back to the stable version" description="You’re on a beta, which can be unstable. Installs the latest stable release when Eaon restarts.">
               <button className="btn" onClick={() => setConfirmStable(true)}>
                 Switch to stable
               </button>
@@ -263,6 +230,12 @@ export function GeneralPage(): JSX.Element {
           <Row title="Documentation" description="How to install Eaon, pick models, and use Chat, Workers and the ADE">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal(DOCS_URL)}>
               View docs
+              <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
+            </button>
+          </Row>
+          <Row title="License" description="Eaon’s license and copyright notice, in its GitHub repository">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal(`${REPO_URL}/blob/main/NOTICE`)}>
+              View
               <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
             </button>
           </Row>

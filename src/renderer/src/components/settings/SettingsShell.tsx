@@ -64,6 +64,9 @@ import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
 import { matchesSearch } from '@shared/searchWords'
 
+/** The nav's groups, top to bottom. */
+const GROUP_ORDER = ['Personal', 'Agents', 'Models and tools', 'Usage', 'Advanced', 'Archived']
+
 interface NavEntry {
   id: string
   label: string
@@ -122,29 +125,29 @@ export const KEYWORDS: Record<string, string> = {
 const NAV: NavEntry[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
-  { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
-  { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
-  { id: 'usage-limits', label: 'Usage & limits', icon: <Gauge size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Usage' },
+  { id: 'usage-limits', label: 'Usage & limits', icon: <Gauge size={size} strokeWidth={stroke} />, group: 'Usage' },
   { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'memory', label: 'Memory', icon: <Brain size={size} strokeWidth={stroke} />, group: 'Personal' },
 
-  { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'app-control', label: 'App control', icon: <MousePointerClick size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  ...WORKER_TABS.map((tab) => ({ id: tab.id, label: tab.label, icon: <tab.icon size={size} strokeWidth={stroke} />, group: 'Integrations', parent: 'workers' })),
-  { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'connect-apps', label: 'Connect apps', icon: <Cable size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'code-index', label: 'Code index', icon: <Binary size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Models and tools' },
+  { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'app-control', label: 'App control', icon: <MousePointerClick size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Models and tools' },
+  { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Agents' },
+  ...WORKER_TABS.map((tab) => ({ id: tab.id, label: tab.label, icon: <tab.icon size={size} strokeWidth={stroke} />, group: 'Agents', parent: 'workers' })),
+  { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Models and tools' },
+  { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Models and tools' },
+  { id: 'connect-apps', label: 'Connect apps', icon: <Cable size={size} strokeWidth={stroke} />, group: 'Models and tools' },
+  { id: 'code-index', label: 'Code index', icon: <Binary size={size} strokeWidth={stroke} />, group: 'Models and tools' },
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
@@ -278,7 +281,7 @@ export function SettingsShell(): JSX.Element {
       list.push(entry)
       map.set(entry.group, list)
     }
-    return [...map.entries()]
+    return [...map.entries()].sort(([a], [b]) => GROUP_ORDER.indexOf(a) - GROUP_ORDER.indexOf(b))
   }, [entries])
 
   // A tab is drawn by its page, which stays in place (no replayed entrance) while its tabs change.
