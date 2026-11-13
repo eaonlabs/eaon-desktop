@@ -1,4 +1,3 @@
-import type { ChatScene } from '@shared/chatScenes'
 import type { AppIcon, ApprovalMode, Chat, ChatMessage, EffortLevel, LaunchMode, McpServer, Project, Settings, ThemeMode, Workspace } from '@shared/types'
 import type { Repaired } from './storeFiles'
 import type { AgentPermission } from '@shared/agentPermissions'
@@ -60,7 +59,6 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   'general.launchMode': values<LaunchMode>({ chat: true, workers: true, ade: true, last: true }),
   'appearance.mode': values<ThemeMode>({ system: true, light: true, dark: true }),
   'appearance.reduceMotion': values<Settings['appearance']['reduceMotion']>({ system: true, on: true, off: true }),
-  'appearance.chatScene': values<ChatScene>({ off: true, sunburst: true, drift: true, koi: true, jellyfish: true, fireflies: true, moonlit: true }),
   'appearance.appIcon': values<AppIcon>({ default: true, agent: true, light: true, ocean: true, sunset: true, forest: true, grape: true, aurora: true, peaks: true }),
   effort: values<EffortLevel>({ none: true, minimal: true, light: true, medium: true, high: true, 'extra-high': true, ultra: true }),
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),

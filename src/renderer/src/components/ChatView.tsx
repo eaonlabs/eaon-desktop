@@ -48,7 +48,6 @@ import { PlanRow, ThoughtRow, ToolRun } from './chat/WorkRows'
 import { workLog } from './chat/workLog'
 import { TopBar } from './TopBar'
 import { AsciiField } from './AsciiField'
-import { ChatScene } from './ChatScene'
 import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { MessageActions } from './agent/MessageActions'
@@ -119,7 +118,6 @@ function Home(): JSX.Element {
     useShallow((s) => ({ settings: s.settings, setComposerDraft: s.setComposerDraft, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser }))
   )
   const showSuggestions = settings?.general.suggestedPrompts !== false
-  const scene = useApp((s) => s.settings?.appearance.chatScene ?? 'off')
   const isWork = useIsWork()
   // A chat in a project codes; an ordinary one has none of the coding tools.
   const coding = useCoding() && isWork
@@ -134,7 +132,7 @@ function Home(): JSX.Element {
           </div>
         }
       />
-      {scene === 'off' ? <AsciiField className="home__field" /> : <ChatScene scene={scene} />}
+      <AsciiField className="home__field" />
       <div className="home">
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
@@ -404,7 +402,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const coding = useCoding() && isWork
   // The workspace card beside the conversation: the thread and the message box move over for it.
   const cardInline = useCardInline() && coding
-  const sceneOf = useApp((s) => s.settings?.appearance.chatScene ?? 'off')
 
   return (
     <FileLinks.Provider value={coding ? fileLinks : null}>
@@ -449,7 +446,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       />
       {coding && <WorkspaceCard />}
 
-      <ChatScene scene={sceneOf} className="chat-scene chat-scene--behind" />
       <FindBar open={finding} onClose={() => setFinding(false)} thread={thread} version={chat.messages} />
       <Minimap thread={thread} version={chat.messages.length} />
       <QuoteSelection thread={thread} />

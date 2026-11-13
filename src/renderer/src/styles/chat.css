@@ -1178,22 +1178,3 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   color: var(--text-4, var(--text-3));
   font-size: var(--fs-base);
 }
-
-/* A scene in characters behind the conversation (ChatScene.tsx). The column
-   where the words and the message box sit is quieter, so the scene frames the
-   text and never competes with it. */
-.chat-scene {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  -webkit-mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.12), #000 88%);
-  mask-image: radial-gradient(ellipse 30% 62% at 50% 52%, rgb(0 0 0 / 0.12), #000 88%);
-  animation: field-in 900ms var(--ease) both;
-}
-/* In a conversation the words are in the flow, so the scene sits under them. */
-.chat-scene--behind {
-  z-index: -1;
-}
