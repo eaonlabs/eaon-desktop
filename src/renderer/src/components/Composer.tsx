@@ -24,7 +24,6 @@ import {
   Clock3,
   MessageCircleQuestion,
   MessageSquarePlus,
-  Palette,
   Sparkles,
   X,
   Zap
@@ -53,7 +52,6 @@ import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { ENGINE_MARK, ProviderMark } from './composer/ProviderMark'
 import { ElsewhereAsk } from './agent/ElsewhereAsk'
-import { ScenePicker, useScenePicker } from './ScenePicker'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
@@ -542,7 +540,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       items.push(
         { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
         { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
-        { id: 'theme', title: 'theme', keywords: 'theme background scene wallpaper aurora', description: 'Pick a scene for behind the chat', section: 'Chat', icon: <Palette size={16} strokeWidth={1.8} />, run: () => useScenePicker.getState().setOpen(true) },
         { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
       return isAgent
@@ -789,7 +786,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
       <SideQuestion />
-      <ScenePicker />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">
