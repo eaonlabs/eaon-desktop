@@ -110,11 +110,11 @@ export function GeneralPage(): JSX.Element {
             <Card>
               {/* What fullAccess really gates (localTools.ts riskyPath): the "outside the work folder" check. */}
               <Row
-                title="Full access"
-                description="Let the agent change files anywhere on this computer, not just in its work folder"
-                more="Off: changing anything outside the folder the assistant works in (a chat’s project, or Eaon’s folder) always asks you first. On: it can change files anywhere, following your usual approval setting. Risky commands always ask."
+                title="Change files outside the project"
+                description="Let the agent change files anywhere on this computer, not just in its project folder"
+                more="Off: changing anything outside the folder the agent works in (a chat’s project, or Eaon’s folder) asks you first, in Ask and Auto-approve. On: it can change files anywhere. This is separate from the access mode under the message box; with Full access there, nothing but what can’t be undone asks."
               >
-                <Switch label="Full access" checked={g.fullAccess} onChange={(on) => void patchSettings({ general: { fullAccess: on } })} />
+                <Switch label="Change files outside the project" checked={g.fullAccess} onChange={(on) => void patchSettings({ general: { fullAccess: on } })} />
               </Row>
             </Card>
           </Section>

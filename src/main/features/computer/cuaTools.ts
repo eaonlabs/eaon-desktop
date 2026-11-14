@@ -1,6 +1,6 @@
 import type { AgentTool, ToolContext, ToolResult } from '../../agent/tools'
 import { store } from '../../store'
-import { riskReason } from './actions'
+import { irreversibleReason, riskReason } from './actions'
 import type { CuaCallResult, CuaDriver, CuaTool } from './cua'
 import { ownerLabel, REVOKED_TEXT as REVOKED } from './lease'
 import { beginDriving, STOP_LABEL } from './session'
@@ -64,6 +64,16 @@ export function cuaRisk(name: string, input: Record<string, unknown>, platform: 
   return null
 }
 
+/** What of cuaRisk can't be taken back, so it asks even with Full access, or null. */
+export function cuaIrreversible(name: string, input: Record<string, unknown>, platform: NodeJS.Platform = process.platform): string | null {
+  if (name === 'hotkey' || name === 'press_key') return irreversibleReason({ action: 'key', keys: keysOf(input) }, platform)
+  if (name === 'type_text' || name === 'set_value' || name === 'clipboard_write') {
+    const text = typeof input.text === 'string' ? input.text : typeof input.value === 'string' ? input.value : ''
+    return irreversibleReason({ action: 'type', text }, platform)
+  }
+  return null
+}
+
 function describe(name: string, input: Record<string, unknown>): string {
   const text = typeof input.text === 'string' ? input.text : typeof input.value === 'string' ? input.value : null
   if (text !== null) return `${name.replace(/_/g, ' ')} "${text.length > 40 ? `${text.slice(0, 40)}…` : text}"`
@@ -120,7 +130,7 @@ export function cuaAgentTools(driver: CuaDriver, tools: CuaTool[]): AgentTool[] 
       inputSchema: tool.inputSchema,
       mutating: !LOOKING.has(name),
       risky: (input) => cuaRisk(name, input) !== null,
-      catastrophic: (input) => cuaRisk(name, input) !== null,
+      catastrophic: (input) => cuaIrreversible(name, input) !== null,
       describe: (input) => describe(name, input),
       run: (input, ctx) => run(driver, name, input, ctx)
     }

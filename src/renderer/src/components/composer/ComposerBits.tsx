@@ -10,15 +10,16 @@ import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from '../
 
 type ApprovalMode = 'ask' | 'auto' | 'full'
 
+/**
+ * Short on purpose: what each mode asks about, in a few words. What Full
+ * access still stops for (what can't be undone: sudo, erasing a disk,
+ * force-pushing, emptying the Trash, passwords, payments) is the tools' own
+ * `catastrophic` (agent/policy.ts), and the command rules' ask list.
+ */
 const MODES: { id: ApprovalMode; title: string; description: string; icon: typeof Hand }[] = [
-  { id: 'ask', title: 'Ask for approval', description: 'Eaon asks before editing files, running commands or acting in apps', icon: Hand },
-  { id: 'auto', title: 'Auto-approve', description: 'Eaon only asks before actions that look unsafe', icon: ShieldCheck },
-  {
-    id: 'full',
-    title: 'Full access',
-    description: 'Eaon runs every action without asking. It still stops for sudo, erasing disks, force-pushing, passwords and payments',
-    icon: CircleAlert
-  }
+  { id: 'ask', title: 'Ask for approval', description: 'Asks before every change', icon: Hand },
+  { id: 'auto', title: 'Auto-approve', description: 'Asks only before risky actions', icon: ShieldCheck },
+  { id: 'full', title: 'Full access', description: 'Asks only if it can’t be undone', icon: CircleAlert }
 ]
 
 /**
@@ -38,7 +39,7 @@ export function PermissionPicker(): JSX.Element {
         <span className="composer-pill__label">{current.title}</span>
         <ChevronDown size={13} strokeWidth={2} className="composer-pill__chevron" />
       </button>
-      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="top-start" width={340} className="perm-menu">
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="top-start" width={300} className="perm-menu">
         {MODES.map((m) => (
           <div key={m.id} className="perm-menu__option" data-tone={m.id === 'full' ? 'warn' : undefined}>
             <MenuItem
