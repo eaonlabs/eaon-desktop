@@ -1,7 +1,8 @@
 /**
  * Import from other agent apps in the real app: Settings → ADE → From other
  * apps finds a Claude Squad session and a T3 Code thread in the scenario's
- * home, and a T3 Code project's scripts, each command shown in full; Import
+ * home, and a T3 Code project's scripts, shown as a row per app in plain
+ * words (Choose lists an app's things by name); Import
  * makes ADE sessions on the same folders (named as the other app named them,
  * filed under their repository), opens the T3 thread's Claude conversation
  * in a pane, and keeps the scripts.
@@ -88,25 +89,35 @@ scenario('import from other agent apps: Claude Squad and T3 Code sessions, and a
   )
   db.close()
 
-  // Settings → ADE: both sessions and the scripts, every command in full.
+  // Settings → ADE: a row per app, with its logo and what it has in plain words; no folders or commands.
   await openSettings(page, 'ADE')
   const rows = await page.waitFor(
     () => {
-      const list = [...document.querySelectorAll('.ade-apps .import__row')]
-      return list.length >= 3 ? list.map((r) => r.textContent?.replace(/\s+/g, ' ').trim() ?? '') : null
+      const list = [...document.querySelectorAll('.ade-apps .sources__app')]
+      return list.length >= 2 ? list.map((r) => r.textContent?.replace(/\s+/g, ' ').trim() ?? '') : null
     },
-    { message: 'the other apps’ sessions', timeout: 20_000 }
+    { message: 'the other apps', timeout: 20_000 }
   )
   s.t.diagnostic(`found: ${JSON.stringify(rows)}`)
-  const apps = await page.eval(() => [...document.querySelectorAll('.ade-apps .import__app-name')].map((h) => h.textContent))
-  assert.deepEqual(apps, ['Claude Squad', 'T3 Code'])
-  assert.ok(rows.some((t) => /^Checkout flow in shop/.test(t) && /me\/checkout/.test(t)))
-  assert.ok(rows.some((t) => /^Add billing page in shop/.test(t) && /Reopens its Claude Code conversation/.test(t)))
-  assert.ok(rows.some((t) => /^Scripts for shop/.test(t) && /bun install/.test(t) && /bun run dev --port 4100/.test(t)))
+  assert.deepEqual(rows, ['Claude Squad1 session', 'T3 Code1 session and its chat · commands for 1 projectChoose'])
+  assert.equal(await page.eval(() => document.querySelectorAll('.ade-apps .sources__logo').length), 2)
+  assert.ok(!rows.some((t) => t.includes(home) || t.includes('bun ')), 'no folders or commands in the list')
   await s.shot(page, 'from-other-apps')
 
-  await page.click('.settings__inner button', { text: /^Import 3$/ })
-  await page.find('.ade-import__done', { text: 'Imported 2 sessions and scripts for 1 project.', timeout: 20_000 })
+  // Choose: T3 Code's things by name, each ticked.
+  await page.click('.ade-apps .sources__choose')
+  const items = await page.waitFor(() => {
+    const list = [...document.querySelectorAll('.ade-apps .sources__item')]
+    return list.length ? list.map((i) => [i.querySelector('.sources__item-label')?.textContent, i.querySelector('input')?.checked]) : null
+  }, { message: 'T3 Code’s things' })
+  assert.deepEqual(items, [
+    ['Add billing page', true],
+    ['Commands for shop', true]
+  ])
+  await s.shot(page, 'from-other-apps-choose')
+
+  await page.click('.settings__inner button', { text: /^Import$/ })
+  await page.find('.ade-import__done', { text: 'Imported 2 sessions and the commands for 1 project.', timeout: 20_000 })
   await s.shot(page, 'from-other-apps-imported')
 
   // The sessions: on the same folders, named as before, filed under the repository, and where they came from.
@@ -145,7 +156,9 @@ scenario('import from other agent apps: Claude Squad and T3 Code sessions, and a
     ]
   )
 
-  // Looked at again, they're in the ADE and can't be ticked twice.
+  // Looked at again, the sessions are in the ADE and can't be brought in twice.
   await page.click('.settings__inner button', { text: /^Look again$/ })
-  await page.waitFor(() => [...document.querySelectorAll('.ade-apps .import__row[data-disabled]')].length === 2, { message: 'both sessions to show as in the ADE' })
+  await page.waitFor(() => document.querySelector('.ade-apps .sources__app .sources__summary')?.textContent === 'In Eaon already', {
+    message: 'Claude Squad to show as in Eaon'
+  })
 })

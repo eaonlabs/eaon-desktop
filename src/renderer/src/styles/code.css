@@ -1257,7 +1257,7 @@ body[data-reduce-motion='on'] .ade-spinner {
 }
 /* From other apps (Settings → ADE): their sessions and scripts, under the card's first row. */
 .ade-apps {
-  padding: 12px 16px;
+  padding: 4px 0;
   border-top: 1px solid var(--border-soft);
 }
 .ade-apps__foot .ade-import__done {

@@ -10,8 +10,9 @@ import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp } from '../../state/store'
 import { ToknMark, useToknAccount } from '../account/ToknAccount'
 import { LinkAccounts } from '../LinkAccounts'
-import { ImportList, useImportServers } from '../ImportServers'
-import { AgentAppsList, useAgentAppsImport } from '../AgentAppsImport'
+import { useImportServers } from '../ImportServers'
+import { useAgentAppsImport } from '../AgentAppsImport'
+import { ImportSources } from '../ImportSources'
 import { Switch } from '../ui'
 import { useOnboarding } from './onboardingStore'
 import { RedeemCode } from '../RedeemCode'
@@ -540,13 +541,6 @@ function LookStep({ onNext }: { onNext: () => void }): JSX.Element {
 function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
   const servers = useImportServers()
   const work = useAgentAppsImport()
-  const [home, setHome] = useState<string | null>(null)
-  useEffect(() => {
-    void window.api.ade.worktreesRoot().then(
-      (root) => setHome(root.home),
-      () => setHome(null)
-    )
-  }, [])
   const count = servers.count + work.count
   const working = servers.working || work.working
   const bring = async (): Promise<void> => {
@@ -564,13 +558,11 @@ function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
         }
         title="Bring your work over"
       >
-        Sessions from your other agent apps, and the MCP servers you set up elsewhere. Nothing in those apps changes.
+        Your sessions, chats and tools from the apps you already use. Nothing in those apps changes.
       </Header>
       <div className="onboarding__import" style={stagger(3)}>
         <div className="onboarding__import-scroll edge-fade">
-          {work.total > 0 && <AgentAppsList state={work} home={home} />}
-          {servers.total > 0 && <ImportList state={servers} />}
-          {work.apps === null && servers.apps === null && <p className="import__empty">Looking in your other apps…</p>}
+          <ImportSources work={work} tools={servers} />
         </div>
       </div>
       {(work.error || servers.error) && <p className="onboarding__note onboarding__note--error">{work.error ?? servers.error}</p>}
@@ -579,7 +571,7 @@ function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
           <>
             <Primary onClick={() => void bring()} disabled={working}>
               {working ? <Loader2 size={15} strokeWidth={2} className="spinner" /> : null}
-              Import {count}
+              Import
             </Primary>
             <Secondary onClick={onNext}>Skip</Secondary>
           </>
