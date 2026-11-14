@@ -601,6 +601,58 @@
 .composer__tray > .context-meter {
   margin-left: 4px;
 }
+/* The model's highest reasoning level lights up on the model button, as it
+   does in the picker's slider (ReasoningEffort.module.css): a brief flare
+   when it's chosen, then a band of light through the word every few
+   seconds, with a soft glow of the accent. */
+.chip--model .chip__effort[data-top],
+.composer__tray .chip--model .chip__effort[data-top] {
+  --lit-base: color-mix(in srgb, var(--text) 70%, transparent);
+  --lit: #ffffff;
+  --lit-glow: color-mix(in srgb, color-mix(in srgb, var(--accent) 55%, #ffffff) 40%, transparent);
+  font-weight: 600;
+  background: linear-gradient(100deg, var(--lit-base) 0%, var(--lit-base) 36%, var(--lit) 50%, var(--lit-base) 64%, var(--lit-base) 100%);
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 3px var(--lit-glow));
+  animation:
+    effort-ignite 700ms ease-out,
+    effort-lit 3.6s linear 0.7s infinite;
+}
+[data-theme='light'] .chip--model .chip__effort[data-top],
+[data-theme='light'] .composer__tray .chip--model .chip__effort[data-top] {
+  --lit-base: var(--text-2);
+  --lit: color-mix(in srgb, var(--accent) 85%, #ffffff);
+  --lit-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+@keyframes effort-ignite {
+  0% {
+    opacity: 0.3;
+    filter: blur(1.5px) drop-shadow(0 0 0 transparent);
+  }
+  40% {
+    opacity: 1;
+    filter: blur(0) drop-shadow(0 0 7px var(--lit-glow));
+  }
+}
+@keyframes effort-lit {
+  0% {
+    background-position: 130% 0;
+  }
+  55%,
+  100% {
+    background-position: -30% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip--model .chip__effort[data-top] {
+    animation: none;
+  }
+}
+
 /* A narrow box: the tray keeps its icons and drops the words before the model's. */
 @container (max-width: 560px) {
   .composer__tray .composer-pill--permission .composer-pill__label,
