@@ -157,7 +157,7 @@
 
 /* ---- The highest level the model takes ----
    The fill keeps its colour and shows Eaon's dot matrix over it (the canvas,
-   ReasoningEffort.tsx). Nothing else changes: no glow, no other colours. */
+   ReasoningEffort.tsx), and the level's name lights up. No other colours. */
 .overdrive {
   position: absolute;
   top: 0;
@@ -174,8 +174,66 @@
   }
 }
 
+/* The level's name lights up, as the top level's should: brighter and a
+   little heavier, with a soft glow of the fill's colour, and a band of light
+   passes through the letters each time the dots' wave crosses the track
+   (the same 3 s, two of them sweeping). Reaching the level, it flares once. */
+.root[data-overdrive] .restLevel {
+  /* At rest a little under full white, so the light passing through shows. */
+  --ss-lit-base: color-mix(in srgb, var(--ss-label) 72%, transparent);
+  --ss-lit: #ffffff;
+  --ss-glow: color-mix(in srgb, color-mix(in srgb, var(--ss-fill) 55%, #ffffff) 45%, transparent);
+  font-weight: 600;
+  background: linear-gradient(
+    100deg,
+    var(--ss-lit-base) 0%,
+    var(--ss-lit-base) 36%,
+    var(--ss-lit) 50%,
+    var(--ss-lit-base) 64%,
+    var(--ss-lit-base) 100%
+  );
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 3px var(--ss-glow));
+  animation:
+    ss-ignite 700ms ease-out,
+    ss-lit 3s linear infinite;
+}
+
+:global([data-theme="light"]) .root[data-overdrive] .restLevel {
+  --ss-lit-base: var(--ss-label);
+  --ss-lit: color-mix(in srgb, var(--ss-fill) 85%, #ffffff);
+  --ss-glow: color-mix(in srgb, var(--ss-fill) 22%, transparent);
+}
+
+/* Reaching the level: the name comes up out of a blur into a brief flare of light. */
+@keyframes ss-ignite {
+  0% {
+    opacity: 0.3;
+    filter: blur(1.5px) drop-shadow(0 0 0 transparent);
+  }
+  40% {
+    opacity: 1;
+    filter: blur(0) drop-shadow(0 0 7px var(--ss-glow));
+  }
+}
+
+@keyframes ss-lit {
+  0% {
+    background-position: 130% 0;
+  }
+  66%,
+  100% {
+    background-position: -30% 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .overdrive {
+  .overdrive,
+  .root[data-overdrive] .restLevel {
     animation: none;
   }
 }
