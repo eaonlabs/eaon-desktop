@@ -113,6 +113,7 @@
   top: 0;
   bottom: 0;
   left: 0;
+  overflow: hidden;
   border-radius: 16px;
   background: linear-gradient(90deg, var(--ss-fill), color-mix(in srgb, var(--ss-fill), #000000 16%));
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.16);
@@ -152,4 +153,97 @@
 .track:focus-visible {
   outline: 2px solid var(--ss-fill);
   outline-offset: 3px;
+}
+
+/* ---- Overdrive: the highest level the model takes ----
+   The fill becomes a rippling field of squares (the canvas, ReasoningEffort.tsx),
+   the track breathes a violet glow, the thumb gets a halo, and the level's name
+   shimmers. Everything here is still when motion is off. */
+.overdrive {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 264px;
+  height: 32px;
+  animation: ss-overdrive-in 240ms ease-out both;
+}
+
+@keyframes ss-overdrive-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The fill's own shine stays on top of the field. */
+.root[data-overdrive] .fill {
+  box-shadow: none;
+}
+
+.root[data-overdrive] .fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.28),
+    inset 0 -6px 10px -6px rgba(20, 0, 60, 0.45);
+  pointer-events: none;
+}
+
+.root[data-overdrive] .track {
+  animation: ss-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes ss-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(167, 139, 250, 0.32),
+      0 0 14px -4px rgba(139, 92, 246, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(216, 180, 254, 0.5),
+      0 0 22px -2px rgba(168, 85, 247, 0.75);
+  }
+}
+
+.root[data-overdrive] .thumb {
+  box-shadow:
+    var(--ss-thumb-shadow),
+    0 0 0 2px rgba(233, 213, 255, 0.55),
+    0 0 14px 2px rgba(192, 132, 252, 0.7);
+}
+
+.root[data-overdrive] .tick[data-on-thumb="false"] {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.root[data-overdrive] .restLevel {
+  background: linear-gradient(90deg, #93c5fd, #c4b5fd, #f0abfc, #c4b5fd, #93c5fd);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation:
+    ss-blur-in 180ms ease-out,
+    ss-shimmer 2.8s linear infinite;
+}
+
+:global([data-theme="light"]) .root[data-overdrive] .restLevel {
+  background-image: linear-gradient(90deg, #2563eb, #7c3aed, #c026d3, #7c3aed, #2563eb);
+}
+
+@keyframes ss-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overdrive,
+  .root[data-overdrive] .track,
+  .root[data-overdrive] .restLevel {
+    animation: none;
+  }
 }

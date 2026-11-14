@@ -168,6 +168,83 @@ function shellPath(cx: number, open: number, plateauW: number) {
 }
 
 
+/** Motion is off: the system setting or Eaon's own (Settings → Appearance). */
+function stillMotion() {
+  return (
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+    document.body.dataset.reduceMotion === "on"
+  );
+}
+
+/** One square of the overdrive field, in track units. */
+const CELL = 4;
+/** How long the charge takes to sweep the track when the top level is reached. */
+const CHARGE_S = 0.65;
+/** A glint crosses the track this often. */
+const GLINT_S = 3.4;
+
+/**
+ * The fill at the top level: a field of small squares rippling in waves
+ * that drift from blue through violet to magenta. Reaching the level sends a
+ * charge across it from the left; after that a glint crosses now and then.
+ * Drawn on a canvas the width of the whole track and clipped by the fill, at
+ * about 30 frames a second, and only while the level is chosen. With motion
+ * off it is drawn once, charged and still.
+ */
+function Overdrive() {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = TRACK * dpr;
+    canvas.height = HEIGHT * dpr;
+    ctx.scale(dpr, dpr);
+    const still = stillMotion();
+    const cols = Math.ceil(TRACK / CELL);
+    const rows = Math.ceil(HEIGHT / CELL);
+    const born = performance.now();
+    let raf = 0;
+    let last = -Infinity;
+
+    const draw = (now: number) => {
+      if (!still) raf = requestAnimationFrame(draw);
+      if (now - last < 33) return;
+      last = now;
+      const t = still ? 2 : (now - born) / 1000;
+      const front = (still ? 1 : Math.min(1, t / CHARGE_S)) * (cols + 10);
+      const glint = ((t % GLINT_S) / GLINT_S) * (cols + 40) - 20;
+      for (let c = 0; c < cols; c++) {
+        const across = c / (cols - 1);
+        const hue = 222 + across * 72;
+        for (let r = 0; r < rows; r++) {
+          const wave =
+            Math.sin(c * 0.42 - t * 3.1) * 0.5 +
+            Math.sin(c * 0.13 + r * 0.9 + t * 1.7) * 0.35 +
+            Math.sin((c + r * 2) * 0.07 - t * 1.05) * 0.4;
+          let b = 0.5 + wave * 0.34;
+          // Ahead of the charge it is dark; the charge's own edge burns bright.
+          const behind = front - c;
+          if (behind < 0) b *= 0.18;
+          else if (behind < 7) b = Math.max(b, 1 - behind / 7);
+          // The glint leans a little, like light across glass.
+          const off = Math.abs(c - glint - r * 0.7);
+          if (off < 3.5) b += (1 - off / 3.5) * 0.55;
+          b = clamp(b, 0, 1.25);
+          ctx.fillStyle = `hsl(${(hue + b * 14).toFixed(1)} 90% ${(30 + b * 36).toFixed(1)}%)`;
+          ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        }
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <canvas ref={ref} className={s.overdrive} aria-hidden />;
+}
+
 /**
  * A stepped slider for reasoning effort. `labels` are the levels the current
  * model takes, lowest first (two or more); `value` is the index of the chosen
@@ -379,6 +456,8 @@ export function ReasoningEffort({
   const fillW = Math.min(TRACK, thumbRight + EDGE_PAD);
   const active = Math.round(display);
   const level = labels[active];
+  // The highest level the model takes (Extra high or Max): the fill goes into overdrive.
+  const overdrive = count >= 2 && active === count - 1;
   // 4.8 to 9.6px, rising with the level, however many levels there are.
   const tickHeights = labels.map((_, i) => Math.round((4.8 + (4.8 * i) / (count - 1)) * 100) / 100);
   const plateau = shellGeom(center, plateauW);
@@ -398,6 +477,7 @@ export function ReasoningEffort({
       ref={rootRef}
       className={s.root}
       data-dragging={dragging ? "true" : "false"}
+      data-overdrive={overdrive ? "true" : undefined}
     >
       <svg
         className={s.shell}
@@ -458,7 +538,9 @@ export function ReasoningEffort({
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
       >
-        <div className={s.fill} style={{ width: fillW }} />
+        <div className={s.fill} style={{ width: fillW }}>
+          {overdrive && <Overdrive />}
+        </div>
         <div
           className={s.thumb}
           style={{
