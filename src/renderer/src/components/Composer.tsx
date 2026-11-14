@@ -177,7 +177,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   })
   const dictating = dictation.state !== 'idle'
   // In a conversation, text that wraps takes the whole box, with + and send under it.
-  const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
+  // Grows with what's typed (the text always has the box's whole width, so it never stacks).
+  useFitInput(textarea, text, 320, false)
   // A temporary chat, or the start page about to make one: the box is dashed.
   const temporary = useApp((s) => (variant === 'home' ? s.pendingTemporary : Boolean(s.activeChat()?.temporary)))
   // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
@@ -600,9 +601,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
               ? coding && isAgent
                 ? 'Ask for follow-up changes'
                 : 'Ask a follow-up'
-              : isAgent
-                ? 'Ask Eaon to do anything'
-                : 'Ask anything'
+              : 'Ask anything, / for commands, @ for context'
       }
       value={text}
       rows={1}
@@ -788,13 +787,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
       <SideQuestion />
-      {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
-      {isAgent && variant !== 'chat' && (
-        <div className="composer__above">
-          <ProjectPicker />
-          <BranchPicker />
-        </div>
-      )}
       {variant === 'chat' && draftId && <QueuedMessages chatId={draftId} onEdit={takeBack} />}
       {editing && (
         <div className="composer-editing" role="status">
@@ -819,7 +811,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-temporary={temporary || undefined} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -851,41 +843,28 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </div>
         )}
 
-        {variant === 'chat' ? (
-          // In a conversation: one pill, + at one end and send at the other (under the text once
-          // it wraps); its settings sit under it.
-          <div className="composer__row">
-            {plusButton}
-            {input}
-            {micButton}
-            {queueButton}
-            {sendButton}
-          </div>
-        ) : (
-          <>
-            {input}
-            <div className="composer__toolbar">
-              {plusButton}
-              {isAgent && <PermissionPicker />}
-              {chips}
-              <div className="composer__spacer" />
-              {modelButton}
-              {micButton}
-              {sendButton}
-            </div>
-          </>
-        )}
+        {/* The text, then + at one end and the mic and send at the other. */}
+        {input}
+        <div className="composer__toolbar">
+          {plusButton}
+          <div className="composer__spacer" />
+          {variant === 'chat' && queueButton}
+          {micButton}
+          {sendButton}
+        </div>
       </div>
 
-      {variant === 'chat' && (
-        <div className="composer__meta">
-          {isAgent && <PermissionPicker />}
-          {chips}
-          <div className="composer__spacer" />
-          {modelButton}
-          {!engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
-        </div>
-      )}
+      {/* Tucked under the box: what Eaon may do, the project and its branch, what's switched on,
+          and the model (with how full the context is, in a conversation). */}
+      <div className="composer__tray">
+        {isAgent && <PermissionPicker />}
+        {isAgent && <ProjectPicker />}
+        {isAgent && <BranchPicker />}
+        {chips}
+        <div className="composer__spacer" />
+        {modelButton}
+        {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
+      </div>
 
       {suggest.menu}
       <AddMenu

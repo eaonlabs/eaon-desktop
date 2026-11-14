@@ -496,6 +496,123 @@
   font-size: var(--fs-base);
 }
 
+/* ---- The box and its tray ----
+   The box: the text, then + at one end and the mic and send at the other.
+   Under it, a little narrower and tucked behind its bottom edge, a tray of
+   what the message goes out with: what Eaon may do, the project and its
+   branch, what's switched on, and the model. The same on the start page and
+   in a conversation (Composer.tsx). */
+.composer-stack {
+  container-type: inline-size;
+}
+.composer[data-variant] {
+  padding: 0 10px 10px;
+  border-radius: 20px;
+}
+.composer[data-variant] .composer__input {
+  min-height: 50px;
+  padding: 15px 8px 4px;
+}
+.composer[data-variant='home'] .composer__input {
+  min-height: 62px;
+}
+.composer[data-variant] .composer__toolbar {
+  height: 38px;
+  gap: 6px;
+}
+/* + an outlined disc, the mic a bare icon, send the solid disc. */
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic) {
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):hover,
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic)[data-open='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer[data-variant] .composer__toolbar > .composer__mic {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+}
+.composer[data-variant] .composer__toolbar > .composer__mic:hover {
+  background: var(--hover);
+}
+.composer[data-variant] .composer__toolbar > .send {
+  width: 36px;
+  height: 36px;
+  margin-left: 0;
+}
+
+.composer__tray {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: -18px 16px 0;
+  padding: 22px 8px 5px;
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--canvas));
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.composer__tray .composer-pill {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px 0 9px;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.composer__tray .composer-pill:hover,
+.composer__tray .composer-pill[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+/* The project and branch give way first when the tray is short of room. */
+.composer__tray .composer-pill--project,
+.composer__tray .composer-pill--branch {
+  flex-shrink: 1;
+  max-width: 220px;
+}
+.composer__tray .composer-pill--permission .composer-pill__chevron {
+  display: none;
+}
+/* In the tray the branch reads like the rest, not as code. */
+.composer__tray .composer-pill--branch .composer-pill__label {
+  font-family: inherit;
+  font-size: inherit;
+}
+.composer__tray .chip--model {
+  height: 30px;
+  min-width: 52px;
+  padding: 0 8px 0 10px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.composer__tray .chip--model .chip__effort,
+.composer__tray .chip--model .chip__window,
+.composer__tray .chip--model .chip__chevron {
+  color: var(--text-3);
+}
+.composer__tray > .context-meter {
+  margin-left: 4px;
+}
+/* A narrow box: the tray keeps its icons and drops the words before the model's. */
+@container (max-width: 560px) {
+  .composer__tray .composer-pill--permission .composer-pill__label,
+  .composer__tray .composer-pill--branch .composer-pill__label {
+    display: none;
+  }
+  .composer__tray .composer-pill--permission,
+  .composer__tray .composer-pill--branch {
+    padding: 0 8px;
+  }
+}
+
 /* Over the box: the project, and the chat's changes. */
 .composer__above {
   display: flex;

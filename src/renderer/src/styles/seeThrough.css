@@ -244,6 +244,7 @@ body[data-see-through='on'] .queued,
 body[data-see-through='on'] .elsewhere-ask,
 body[data-see-through='on'] .approval[data-variant='dock'],
 body[data-see-through='on'] .composer__above .composer-pill,
+body[data-see-through='on'] .composer__tray,
 body[data-see-through='on'] .suggestion-chip {
   background: var(--glass-strong);
   -webkit-backdrop-filter: var(--glass-blur);
