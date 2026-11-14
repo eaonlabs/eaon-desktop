@@ -40,18 +40,21 @@ const ONLY: Record<LinkMethod, { title: string; lede?: string }> = {
 /**
  * `inSetup`: shown over first-run setup, where going to Settings or the ADE
  * would change the app hidden underneath and seem to do nothing.
- * `only`: just the providers that link one way (the setup's rows open it so).
+ * `only`: just the providers that link one way.
+ * `provider`: just that one (the setup's logos open it so).
  */
 export function LinkAccounts({
   open,
   onClose,
   inSetup = false,
-  only
+  only,
+  provider: just
 }: {
   open: boolean
   onClose: () => void
   inSetup?: boolean
   only?: LinkMethod
+  provider?: string
 }): JSX.Element | null {
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))
   const [apps, setApps] = useState<DetectedApp[]>([])
@@ -78,8 +81,10 @@ export function LinkAccounts({
     const found = (t: LinkTarget): boolean => t.apps.some((a) => installed.has(a))
     // Over the setup, a sign-in that needs a client set up in Settings first can't be done: it isn't listed.
     const doable = (t: LinkTarget): boolean => !(inSetup && t.method === 'signin' && auth[t.providerId]?.needsClientId)
-    return LINK_TARGETS.filter((t) => byId.has(t.providerId) && (!only || t.method === only) && doable(t)).sort((a, b) => Number(found(b)) - Number(found(a)))
-  }, [installed, byId, only, inSetup, auth])
+    return LINK_TARGETS.filter((t) => byId.has(t.providerId) && (!only || t.method === only) && (!just || t.providerId === just) && doable(t)).sort(
+      (a, b) => Number(found(b)) - Number(found(a))
+    )
+  }, [installed, byId, only, just, inSetup, auth])
   const foundApps = (t: LinkTarget): string[] => apps.filter((a) => a.installed && t.apps.includes(a.id)).map((a) => a.name)
   // The apps found here that the providers shown link through.
   const foundHere = apps.filter((a) => a.installed && (!only || targets.some((t) => t.apps.includes(a.id))))
@@ -140,7 +145,7 @@ export function LinkAccounts({
     <Modal
       open={open}
       onClose={onClose}
-      title={only ? ONLY[only].title : 'Link accounts'}
+      title={just ? `Connect ${byId.get(just)?.name ?? 'a model'}` : only ? ONLY[only].title : 'Link accounts'}
       width={600}
       actions={
         <button className="btn btn--primary" onClick={onClose}>
@@ -150,11 +155,12 @@ export function LinkAccounts({
     >
       <div className="la">
         <p className="la__lede">
-          {(only && ONLY[only].lede) ??
+          {(just && 'Eaon connects only the way the provider allows, its own sign-in or an API key, and never takes a sign-in from another app.') ??
+            (only && ONLY[only].lede) ??
             'Bring in the AI accounts you already have. Eaon signs in only the way each provider allows (its official sign-in or an API key) and never takes a sign-in from another app, so your accounts stay safe.'}
         </p>
         {/* Keys can't be linked for you: each is pasted in its own row. */}
-        {only !== 'key' && (
+        {only !== 'key' && !just && (
           <div className="la__all">
             <button className="btn btn--primary" disabled={linkingAll || !anyFound} onClick={() => void linkEverything()}>
               {linkingAll ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} strokeWidth={2} />}

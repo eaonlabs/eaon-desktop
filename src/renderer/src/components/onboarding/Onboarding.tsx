@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, CircleAlert, CircleUserRound, CornerDownLeft, FolderInput, KeyRound, Laptop, Loader2, Moon, Palette, Sparkles, Sun } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, CornerDownLeft, FolderInput, Laptop, LayoutGrid, Loader2, Moon, Palette, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { LINK_TARGETS, type LinkMethod } from '@shared/linkAccounts'
-import { isProviderUsable, providerReadiness } from '@shared/modelSelection'
+import type { LinkMethod } from '@shared/linkAccounts'
+import { providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
 import type { ToknAccount } from '@shared/usage'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
@@ -14,6 +14,7 @@ import { useImportServers } from '../ImportServers'
 import { useAgentAppsImport } from '../AgentAppsImport'
 import { ImportSources } from '../ImportSources'
 import { Switch } from '../ui'
+import { BrandIcon } from '../../icons/brand'
 import { useOnboarding } from './onboardingStore'
 import { RedeemCode } from '../RedeemCode'
 import '../../styles/onboarding.css'
@@ -103,8 +104,6 @@ function Setup(): JSX.Element {
     void refreshProviders()
   }, [refreshProviders])
   const ready = providers.filter((p) => providerReadiness(p).state === 'ready')
-  // Eaon Lite on a network that has used up its day: still shown, with why, rather than gone or "Ready".
-  const eaonWaiting = providers.find((p) => wayOf(p) === 'eaon' && isProviderUsable(p) && providerReadiness(p).state === 'attention') ?? null
 
   // Enter presses the step's white button, as its ↵ says, unless something
   // else has the key: a field being typed in, a focused button (Enter
@@ -174,7 +173,7 @@ function Setup(): JSX.Element {
         <div className="onboarding__column">
           <section key={step} className="onboarding__step" data-direction={direction} aria-label={steps[index]?.label}>
             {step === 'welcome' && <Welcome updated={updated} onNext={next} />}
-            {step === 'models' && <ModelsStep ready={ready} eaonWaiting={eaonWaiting} refresh={() => void refreshProviders()} onNext={next} />}
+            {step === 'models' && <ModelsStep ready={ready} refresh={() => void refreshProviders()} onNext={next} />}
             {step === 'look' && <LookStep onNext={next} />}
             {step === 'import' && <ImportStep onNext={next} />}
             {step === 'tokn' && <ToknStep onNext={next} />}
@@ -309,107 +308,118 @@ function Welcome({ updated, onNext }: { updated: boolean; onNext: () => void }):
   )
 }
 
-/** The ways to connect a model, each opening Link accounts on just the providers that link that way. */
-const WAYS: { method: LinkMethod; title: string; text: string; icon: JSX.Element }[] = [
-  // Its text is the accounts that can sign in now (useSigninNames); this is for when none can.
-  { method: 'signin', title: 'Sign in with an account', text: 'Accounts are set up in Settings → Model providers', icon: <CircleUserRound size={16} strokeWidth={1.9} /> },
-  { method: 'key', title: 'Paste an API key', text: 'Anthropic, OpenAI, Gemini, Grok and more', icon: <KeyRound size={16} strokeWidth={1.9} /> },
-  { method: 'local', title: 'Run models on this computer', text: 'Ollama or LM Studio, no account needed', icon: <Laptop size={16} strokeWidth={1.9} /> }
+/**
+ * The providers the setup offers by their logos: the few most people have,
+ * each saying how it connects, and More for the rest. Each opens Link
+ * accounts on just that provider. A sign-in that needs a client of the
+ * user's own first (set up in Settings) isn't offered here.
+ */
+const OFFERED: { id: string; method: LinkMethod; how: string }[] = [
+  { id: 'chatgpt', method: 'signin', how: 'Sign in' },
+  { id: 'claude-agent', method: 'signin', how: 'Sign in' },
+  { id: 'gemini', method: 'key', how: 'API key' },
+  { id: 'openrouter', method: 'signin', how: 'Sign in' },
+  { id: 'ollama', method: 'local', how: 'On this computer' }
 ]
 
-/** Which of the ways a ready provider came in by; Eaon's own (Eaon Lite, Eaon Event) need none. */
+/** Which way a ready provider came in by; Eaon's own (Eaon Lite, Eaon Event) need none. */
 const wayOf = (provider: Provider): LinkMethod | 'eaon' =>
   provider.category === 'eaon' ? 'eaon' : provider.local ? 'local' : provider.auth === 'oauth' ? 'signin' : 'key'
 
-/** "A, B or C". */
-const orList = (names: string[]): string => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`)
-
-/**
- * The accounts the setup can sign in to now. One whose sign-in needs a
- * client of the user's own first (Hugging Face, Poe until Eaon's are
- * registered) is set up in Settings, not offered here.
- */
-function useSigninNames(): string | null {
-  const providers = useApp((s) => s.providers)
-  const [needsSetup, setNeedsSetup] = useState<Set<string> | null>(null)
+/** The sign-ins that need a client set up in Settings first; null until known. */
+function useNeedsClient(): Set<string> | null {
+  const [needs, setNeeds] = useState<Set<string> | null>(null)
   useEffect(() => {
     void window.api.providerAuth
       .status()
-      .then((list) => setNeedsSetup(new Set(list.filter((s) => s.needsClientId).map((s) => s.providerId))))
-      .catch(() => setNeedsSetup(new Set()))
+      .then((list) => setNeeds(new Set(list.filter((s) => s.needsClientId).map((s) => s.providerId))))
+      .catch(() => setNeeds(new Set()))
   }, [])
-  if (!needsSetup) return null
-  const names = LINK_TARGETS.filter((t) => t.method === 'signin' && !needsSetup.has(t.providerId))
-    .map((t) => providers.find((p) => p.id === t.providerId)?.name)
-    .filter((name): name is string => Boolean(name))
-  return orList(names)
+  return needs
 }
 
-function ModelsStep({ ready, eaonWaiting, refresh, onNext }: { ready: Provider[]; eaonWaiting: Provider | null; refresh: () => void; onNext: () => void }): JSX.Element {
-  const [linking, setLinking] = useState(false)
-  const signinNames = useSigninNames()
+/** The step's picture: a few of the providers it connects, fanned out like cards. */
+function ProviderFan(): JSX.Element {
+  return (
+    <span className="onboarding__fan" aria-hidden="true">
+      {['chatgpt', 'claude-agent', 'gemini'].map((id) => (
+        <span key={id} className="onboarding__fan-card">
+          <BrandIcon id={id} size={44} />
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function ModelsStep({ ready, refresh, onNext }: { ready: Provider[]; refresh: () => void; onNext: () => void }): JSX.Element {
+  const providers = useApp((s) => s.providers)
+  const needsClient = useNeedsClient()
   // Kept while the dialog closes, so its list doesn't change on the way out.
-  const [method, setMethod] = useState<LinkMethod>('signin')
+  const [linking, setLinking] = useState(false)
+  const [shown, setShown] = useState<{ method?: LinkMethod; provider?: string }>({})
   const [codeOpen, setCodeOpen] = useState(false)
-  const names = (way: LinkMethod | 'eaon'): string => ready.filter((p) => wayOf(p) === way).map((p) => p.name).join(', ')
-  const eaon = names('eaon')
-  const waiting = !eaon && eaonWaiting ? providerReadiness(eaonWaiting) : null
+  const open = (method?: LinkMethod, provider?: string): void => {
+    setShown({ method, provider })
+    setLinking(true)
+  }
+  const byId = new Map(providers.map((p) => [p.id, p]))
+  const isReady = new Set(ready.map((p) => p.id))
+  // Eaon's free models, when they're on: then nothing else is needed to start.
+  const eaon = ready.find((p) => wayOf(p) === 'eaon') ?? null
+  const offered = OFFERED.filter((o) => byId.has(o.id) && !(o.method === 'signin' && needsClient?.has(o.id)))
   return (
     <>
-      <Header
-        hero={
-          <Tile>
-            <Sparkles size={20} strokeWidth={1.8} />
-          </Tile>
-        }
-        title="Connect a model"
-      >
-        {eaon ? 'Free models from Eaon are on already, so you can start now. Add your own for more.' : 'Eaon works with whatever you have. Connect as many as you like.'}
+      <Header hero={<ProviderFan />} title="Connect a model">
+        {eaon ? 'Eaon’s free models are on, so you can start right away. Add the AI you already pay for.' : 'Use an AI plan you already have, or an API key.'}
       </Header>
-      <div className="onboarding__list" style={stagger(3)}>
-        {(eaon || waiting) && (
-          <div className="onboarding__row" data-static data-waiting={waiting ? true : undefined}>
-            <span className="onboarding__row-icon onboarding__row-icon--eaon">
-              <EaonSymbol size={15} />
+      <div className="onboarding__connect" style={stagger(3)}>
+        {eaon && (
+          <div className="onboarding__free">
+            <BrandIcon id={eaon.id} size={30} name={eaon.name} />
+            <span className="onboarding__free-body">
+              <span className="onboarding__free-name">{eaon.name}</span>
+              <span className="onboarding__free-text">Free models, ready to use</span>
             </span>
-            <span className="onboarding__row-body">
-              <span className="onboarding__row-title">{eaon || eaonWaiting?.name}</span>
-              <span className="onboarding__row-text">{waiting?.reason ?? 'Free models from Eaon, on already'}</span>
-            </span>
-            <span className="onboarding__row-state">
-              {waiting ? <CircleAlert size={14} strokeWidth={2.2} /> : <Check size={14} strokeWidth={2.4} />}
-              {waiting ? waiting.label : 'Ready'}
+            <span className="onboarding__pill">
+              <Check size={13} strokeWidth={2.6} />
+              On
             </span>
           </div>
         )}
-        {WAYS.map((way) => {
-          const linked = names(way.method)
-          return (
-            <button
-              key={way.method}
-              type="button"
-              className="onboarding__row"
-              onClick={() => {
-                setMethod(way.method)
-                setLinking(true)
-              }}
-            >
-              <span className="onboarding__row-icon">{way.icon}</span>
-              <span className="onboarding__row-body">
-                <span className="onboarding__row-title">{way.title}</span>
-                <span className="onboarding__row-text">{way.method === 'signin' ? (signinNames ?? ' ') || way.text : way.text}</span>
-              </span>
-              {linked ? (
-                <span className="onboarding__row-state" title={linked}>
-                  <Check size={14} strokeWidth={2.4} />
-                  <span className="onboarding__row-names">{linked}</span>
+        <div className="onboarding__tiles">
+          {offered.map((o) => {
+            const provider = byId.get(o.id)!
+            const on = isReady.has(o.id)
+            return (
+              <button
+                key={o.id}
+                type="button"
+                className="onboarding__tile-btn"
+                data-on={on || undefined}
+                onClick={() => open(o.method, o.id)}
+                aria-label={on ? `${provider.name}, connected` : `Connect ${provider.name}`}
+              >
+                <span className="onboarding__tile-logo">
+                  <BrandIcon id={o.id} size={32} name={provider.name} />
+                  {on && (
+                    <span className="onboarding__tile-check" aria-hidden="true">
+                      <Check size={10} strokeWidth={3.4} />
+                    </span>
+                  )}
                 </span>
-              ) : (
-                <ChevronRight className="onboarding__row-chevron" size={16} strokeWidth={1.9} aria-hidden="true" />
-              )}
-            </button>
-          )
-        })}
+                <span className="onboarding__tile-name">{provider.name}</span>
+                <span className="onboarding__tile-how">{on ? 'Connected' : o.how}</span>
+              </button>
+            )
+          })}
+          <button type="button" className="onboarding__tile-btn onboarding__tile-btn--more" onClick={() => open()}>
+            <span className="onboarding__tile-logo onboarding__tile-logo--more">
+              <LayoutGrid size={16} strokeWidth={1.9} />
+            </span>
+            <span className="onboarding__tile-name">More</span>
+            <span className="onboarding__tile-how">Every provider</span>
+          </button>
+        </div>
       </div>
       <Actions>
         {ready.length > 0 ? <Primary onClick={onNext}>Continue</Primary> : <Secondary onClick={onNext}>Not now</Secondary>}
@@ -433,7 +443,8 @@ function ModelsStep({ ready, eaonWaiting, refresh, onNext }: { ready: Provider[]
       </div>
       <LinkAccounts
         inSetup
-        only={method}
+        only={shown.method}
+        provider={shown.provider}
         open={linking}
         onClose={() => {
           setLinking(false)

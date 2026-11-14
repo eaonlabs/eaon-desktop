@@ -403,6 +403,182 @@ button.onboarding__row:hover .onboarding__row-chevron {
   cursor: default;
 }
 
+/*
+ * Connect a model: a few provider logos fanned out above the title; Eaon's
+ * free models on a card of their own when they're on; then the providers by
+ * logo, each a tile that opens just that one.
+ */
+.onboarding__fan {
+  display: flex;
+  align-items: center;
+  height: 56px;
+}
+.onboarding__fan-card {
+  display: grid;
+  border-radius: 13px;
+  /* A faint edge, so a dark tile (Gemini's) still reads against the page, then the page cut out around it. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent),
+    0 0 0 4px var(--canvas),
+    0 10px 24px -12px color-mix(in srgb, var(--shadow-ink) 80%, transparent);
+  animation: onboarding-fan 760ms var(--spring-slow) both;
+}
+.onboarding__fan-card:nth-child(1) {
+  --turn: -10deg;
+  --x: 8px;
+  animation-delay: 60ms;
+}
+.onboarding__fan-card:nth-child(2) {
+  --turn: 0deg;
+  --x: 0px;
+  position: relative;
+  z-index: 1;
+  margin: 0 -10px;
+  translate: 0 -5px;
+  animation-delay: 0ms;
+}
+.onboarding__fan-card:nth-child(3) {
+  --turn: 10deg;
+  --x: -8px;
+  animation-delay: 120ms;
+}
+.onboarding__fan-card:not(:nth-child(2)) {
+  rotate: var(--turn);
+}
+@keyframes onboarding-fan {
+  from {
+    opacity: 0;
+    rotate: 0deg;
+    transform: translateX(var(--x)) scale(0.9);
+  }
+}
+.onboarding__column:has(.onboarding__connect) {
+  width: min(460px, 100%);
+}
+.onboarding__connect {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.onboarding__free {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 11%, var(--surface-1)), var(--surface-1) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+.onboarding__free-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.onboarding__free-name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.onboarding__free-text {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.onboarding__pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--diff-add-fg) 15%, transparent);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--diff-add-fg);
+}
+/* The providers: three to a row, each its logo over its name and how it connects. */
+.onboarding__tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.onboarding__tile-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 16px 8px 13px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  text-align: center;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-spring) var(--spring-fast);
+}
+.onboarding__tile-btn:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.onboarding__tile-btn:active {
+  transform: scale(0.97);
+}
+.onboarding__tile-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.onboarding__tile-btn[data-on] {
+  background: color-mix(in srgb, var(--diff-add-fg) 6%, var(--surface-1));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diff-add-fg) 45%, var(--border));
+}
+.onboarding__tile-logo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+}
+.onboarding__tile-logo--more {
+  border-radius: 9px;
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-2);
+}
+/* Connected: a green tick on the logo's corner, cut out of the tile. */
+.onboarding__tile-check {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--diff-add-fg);
+  box-shadow: 0 0 0 2px var(--surface-1);
+  color: #fff;
+}
+.onboarding__tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.onboarding__tile-how {
+  margin-top: 1px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.onboarding__tile-btn[data-on] .onboarding__tile-how {
+  color: var(--diff-add-fg);
+}
+
 /* The event code: a quiet link until it's asked for, then its field in the link's place. */
 .onboarding__code {
   display: flex;
