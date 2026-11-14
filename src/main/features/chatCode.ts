@@ -357,6 +357,24 @@ async function files(cwd: string): Promise<string[]> {
 
 const savedScripts = (): Record<string, ProjectScript[]> => store.getJson<Record<string, ProjectScript[]>>(SCRIPTS_FILE, {})
 
+/**
+ * Scripts brought in for a project from another app (agentApps.ts), after
+ * the ones it has: one whose command is there already is left out. Returns
+ * how many were added.
+ */
+export function addProjectScripts(folder: string, scripts: { name: string; command: string }[]): number {
+  const all = savedScripts()
+  const have = cleanScripts(all[folder] ?? [])
+  const commands = new Set(have.map((s) => s.command.trim()))
+  const added = scripts
+    .filter((s) => s.command.trim() && !commands.has(s.command.trim()))
+    .map((s) => ({ id: randomUUID(), name: s.name, command: s.command.trim(), icon: scriptIcon(s.name) }))
+  if (added.length === 0) return 0
+  all[folder] = cleanScripts([...have, ...added])
+  store.setJson(SCRIPTS_FILE, all)
+  return added.length
+}
+
 function cleanScripts(value: unknown): ProjectScript[] {
   if (!Array.isArray(value)) return []
   return value

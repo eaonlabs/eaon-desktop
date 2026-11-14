@@ -11,6 +11,7 @@ import { useApp } from '../../state/store'
 import { ToknMark, useToknAccount } from '../account/ToknAccount'
 import { LinkAccounts } from '../LinkAccounts'
 import { ImportList, useImportServers } from '../ImportServers'
+import { AgentAppsList, useAgentAppsImport } from '../AgentAppsImport'
 import { Switch } from '../ui'
 import { useOnboarding } from './onboardingStore'
 import { RedeemCode } from '../RedeemCode'
@@ -19,10 +20,11 @@ import '../../styles/onboarding.css'
 /**
  * The first-run setup: a few short steps over the whole window on a fresh
  * install (main/features/onboarding.ts decides which installs are fresh).
- * Welcome, a model, light or dark, tools from other apps (only when there are
- * some), the Tokn account that tracks usage, then an offer of the tour. Every
- * step can be skipped, and so can the whole setup; nothing in it is needed to
- * use Eaon, and all of it is in Settings afterwards.
+ * Welcome, a model, light or dark, work from other apps (sessions, scripts
+ * and MCP servers, only when there are some), the Tokn account that tracks
+ * usage, then an offer of the tour. Every step can be skipped, and so can
+ * the whole setup; nothing in it is needed to use Eaon, and all of it is in
+ * Settings afterwards.
  *
  * One quiet column in the middle of the window: a mark or an icon, a title,
  * a line under it, the step's few choices, and full-width buttons. Enter
@@ -70,14 +72,19 @@ function Setup(): JSX.Element {
   const [leaving, setLeaving] = useState(false)
   const root = useRef<HTMLDivElement>(null)
 
-  // The import step is there only if another app has servers to bring over; the scan is quick, so it
-  // settles before that step comes up, and until then the step is counted in.
+  // The import step is there only if another app has sessions, scripts or servers to bring over; the
+  // scans are quick, so they settle before that step comes up, and until then the step is counted in.
   const [anyToImport, setAnyToImport] = useState<boolean | null>(null)
   useEffect(() => {
-    void window.api.importApps
+    const servers = window.api.importApps
       .scan()
-      .then((apps) => setAnyToImport(apps.some((app) => app.servers.some((server) => !server.duplicate))))
-      .catch(() => setAnyToImport(false))
+      .then((apps) => apps.some((app) => app.servers.some((server) => !server.duplicate)))
+      .catch(() => false)
+    const work = window.api.agentApps
+      .scan()
+      .then((apps) => apps.some((app) => app.scripts.length > 0 || app.sessions.some((session) => !session.already)))
+      .catch(() => false)
+    void Promise.all([servers, work]).then(([a, b]) => setAnyToImport(a || b))
   }, [])
   const steps = anyToImport === false ? STEPS.filter((s) => s.id !== 'import') : STEPS
 
@@ -524,15 +531,28 @@ function LookStep({ onNext }: { onNext: () => void }): JSX.Element {
 }
 
 /**
- * Import from another app: the MCP servers set up in Claude, Cursor, Windsurf,
- * VS Code or Gemini CLI, ticked to come over. Only their server lists are
- * read; never an account, a chat or a sign-in.
+ * Import from other apps: the sessions and project scripts other agent apps
+ * have (Conductor, Orca, Paradev, Claude Squad, T3 Code, Synara, Crystal),
+ * and the MCP servers set up in Claude, Cursor, Windsurf, VS Code or Gemini
+ * CLI, ticked to come over. Only what those apps keep about the work and their
+ * server lists are read; never an account, a chat or a sign-in.
  */
 function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
-  const state = useImportServers()
-  const { count, working, error } = state
+  const servers = useImportServers()
+  const work = useAgentAppsImport()
+  const [home, setHome] = useState<string | null>(null)
+  useEffect(() => {
+    void window.api.ade.worktreesRoot().then(
+      (root) => setHome(root.home),
+      () => setHome(null)
+    )
+  }, [])
+  const count = servers.count + work.count
+  const working = servers.working || work.working
   const bring = async (): Promise<void> => {
-    if (await state.run()) onNext()
+    const sessions = work.count > 0 ? await work.run() : true
+    const tools = servers.count > 0 ? await servers.run() : true
+    if (sessions && tools) onNext()
   }
   return (
     <>
@@ -542,20 +562,22 @@ function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
             <FolderInput size={20} strokeWidth={1.8} />
           </Tile>
         }
-        title="Bring your tools over"
+        title="Bring your work over"
       >
-        Eaon can use the MCP servers you already set up in other apps. Pick the ones to add.
+        Sessions from your other agent apps, and the MCP servers you set up elsewhere. Nothing in those apps changes.
       </Header>
       <div className="onboarding__import" style={stagger(3)}>
-        <ImportList state={state} />
-        {error && <p className="onboarding__note onboarding__note--error">{error}</p>}
+        {work.total > 0 && <AgentAppsList state={work} home={home} />}
+        {servers.total > 0 && <ImportList state={servers} />}
+        {work.apps === null && servers.apps === null && <p className="import__empty">Looking in your other apps…</p>}
+        {(work.error || servers.error) && <p className="onboarding__note onboarding__note--error">{work.error ?? servers.error}</p>}
       </div>
       <Actions>
         {count > 0 ? (
           <>
             <Primary onClick={() => void bring()} disabled={working}>
               {working ? <Loader2 size={15} strokeWidth={2} className="spinner" /> : null}
-              Import {count} {count === 1 ? 'server' : 'servers'}
+              Import {count}
             </Primary>
             <Secondary onClick={onNext}>Skip</Secondary>
           </>

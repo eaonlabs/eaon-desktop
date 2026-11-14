@@ -13,10 +13,66 @@ import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 import { HoldToTalkRows } from './HoldToTalk'
 import { WorktreeCopySection } from './AdeWorktreeCopy'
+import { AgentAppsList, importedLine, useAgentAppsImport } from '../../AgentAppsImport'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 
+
+/**
+ * From other apps: the sessions and project scripts Conductor, Orca,
+ * Paradev (Superset), Claude Squad, T3 Code, Synara and Crystal have on
+ * this computer, picked and brought in (components/AgentAppsImport.tsx).
+ */
+function OtherApps({ home, onOpen }: { home: string | null; onOpen: () => void }): JSX.Element {
+  const state = useAgentAppsImport()
+  const { apps, count, working, done, error } = state
+  return (
+    <Section label="From other apps">
+      <Card>
+        <Row
+          title="Bring your sessions over"
+          description="Sessions and project scripts from Conductor, Orca, Paradev (Superset), Claude Squad, T3 Code, Synara and Crystal. Each session opens on the same folder and branch, with its Claude Code or Codex conversation; scripts are shown in full before they’re kept. Nothing in those apps changes."
+        >
+          <button type="button" className="btn btn--sm" onClick={state.rescan} disabled={apps === null || working}>
+            {apps === null ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : <FolderSearch size={13} strokeWidth={1.9} />}
+            {apps === null ? 'Looking…' : 'Look again'}
+          </button>
+        </Row>
+        <div className="ade-apps">
+          <AgentAppsList state={state} home={home} />
+        </div>
+        {error && (
+          <div className="row">
+            <div className="row__body">
+              <div className="row__desc ade-import__error" role="alert">
+                {error}
+              </div>
+            </div>
+          </div>
+        )}
+        {(state.total > 0 || done) && (
+          <div className="ade-import__foot ade-apps__foot">
+            {done && (
+              <span className="ade-import__done" role="status">
+                {importedLine(done)}
+                {done.sessions > 0 && (
+                  <button type="button" className="ade-import__toggle" onClick={onOpen}>
+                    Open the ADE
+                  </button>
+                )}
+              </span>
+            )}
+            <button type="button" className="btn btn--primary btn--sm" disabled={count === 0 || working} onClick={() => void state.run()}>
+              <Download size={13} strokeWidth={2} />
+              {working ? 'Importing…' : count === 0 ? 'Import' : `Import ${count}`}
+            </button>
+          </div>
+        )}
+      </Card>
+    </Section>
+  )
+}
 
 /**
  * Settings → ADE: bringing in the sessions Claude Code and Codex already have
@@ -200,6 +256,8 @@ export function AdePage(): JSX.Element {
           )}
         </Card>
       </Section>
+
+      <OtherApps home={root?.home ?? null} onOpen={openAde} />
 
       <Section label="New sessions">
         <Card>

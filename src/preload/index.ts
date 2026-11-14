@@ -60,6 +60,7 @@ import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
 import { importAppsApi } from './features/importApps'
+import { agentAppsApi } from './features/agentApps'
 import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { personalizeApi } from './features/personalize'
@@ -386,6 +387,7 @@ const fullApi = {
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
   importApps: importAppsApi,
+  agentApps: agentAppsApi,
   providerLogos: providerLogosApi,
   usage: usageApi,
   personalize: personalizeApi,

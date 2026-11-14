@@ -1916,6 +1916,40 @@ body[data-reduce-motion='on'] .star-card {
   font-size: var(--fs-sm);
   color: var(--text-3);
 }
+/* Sessions and scripts from other agent apps (components/AgentAppsImport.tsx). */
+.import__in {
+  margin-left: -4px;
+  color: var(--text-3);
+}
+.import__name .import__badge {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.import__env {
+  color: var(--text-2);
+}
+/* A script, in full: what it's for, then the command exactly as it would run. */
+.import__command {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+  font-family: inherit;
+  /* Never cut short: the whole command is what is being agreed to. */
+  white-space: normal;
+}
+.import__command-name {
+  flex: none;
+  min-width: 56px;
+  color: var(--text-2);
+}
+.import__command code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
 
 
 /* "Details" under a setting: its fine print, folded away. */
