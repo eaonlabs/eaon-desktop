@@ -176,20 +176,24 @@ function stillMotion() {
   );
 }
 
-/** One square of the overdrive field, in track units. */
-const CELL = 4;
-/** How long the charge takes to sweep the track when the top level is reached. */
-const CHARGE_S = 0.65;
-/** A glint crosses the track this often. */
-const GLINT_S = 3.4;
+/** The dot grid's pitch and each dot's radius, in track units. */
+const PITCH = 4;
+const DOT = 0.8;
+/** The dots fill in from the left this fast when the top level is reached. */
+const FILL_IN_S = 0.45;
+/** A wave crosses toward the thumb every this often, taking this long. */
+const WAVE_EVERY_S = 3;
+const WAVE_TAKES_S = 2;
 
 /**
- * The fill at the top level: a field of small squares rippling in waves
- * that drift from blue through violet to magenta. Reaching the level sends a
- * charge across it from the left; after that a glint crosses now and then.
- * Drawn on a canvas the width of the whole track and clipped by the fill, at
- * about 30 frames a second, and only while the level is chosen. With motion
- * off it is drawn once, charged and still.
+ * The fill at the top level: Eaon's dot matrix (the sidebar's status dots,
+ * the home page's field) laid over the accent, faint, with a slow wave of
+ * brighter dots travelling toward the thumb every few seconds and a few
+ * single dots lighting up in between, as if something were being thought
+ * through. Reaching the level fills the dots in from the left. Drawn on a
+ * canvas the width of the whole track, clipped by the fill, at about 30
+ * frames a second and only while the level is chosen. With motion off the
+ * dots are drawn once, still.
  */
 function Overdrive() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -203,8 +207,10 @@ function Overdrive() {
     canvas.height = HEIGHT * dpr;
     ctx.scale(dpr, dpr);
     const still = stillMotion();
-    const cols = Math.ceil(TRACK / CELL);
-    const rows = Math.ceil(HEIGHT / CELL);
+    const cols = Math.floor(TRACK / PITCH);
+    const rows = Math.floor(HEIGHT / PITCH);
+    // Each dot's own moment to light up, fixed for the dot so it doesn't flicker at random.
+    const phase = Array.from({ length: cols * rows }, (_, i) => (Math.sin(i * 12.9898) * 43758.5453) % 1);
     const born = performance.now();
     let raf = 0;
     let last = -Infinity;
@@ -213,30 +219,29 @@ function Overdrive() {
       if (!still) raf = requestAnimationFrame(draw);
       if (now - last < 33) return;
       last = now;
-      const t = still ? 2 : (now - born) / 1000;
-      const front = (still ? 1 : Math.min(1, t / CHARGE_S)) * (cols + 10);
-      const glint = ((t % GLINT_S) / GLINT_S) * (cols + 40) - 20;
+      const t = still ? 0 : (now - born) / 1000;
+      const filled = still ? cols : (Math.min(1, t / FILL_IN_S) * cols);
+      const cycle = t % WAVE_EVERY_S;
+      const wave = cycle < WAVE_TAKES_S ? (cycle / WAVE_TAKES_S) * (TRACK + 60) - 30 : -1e3;
+      ctx.clearRect(0, 0, TRACK, HEIGHT);
+      ctx.fillStyle = "#ffffff";
       for (let c = 0; c < cols; c++) {
-        const across = c / (cols - 1);
-        const hue = 222 + across * 72;
+        if (c > filled) break;
+        const x = c * PITCH + PITCH / 2;
+        const swell = Math.exp(-(((x - wave) / 16) ** 2));
         for (let r = 0; r < rows; r++) {
-          const wave =
-            Math.sin(c * 0.42 - t * 3.1) * 0.5 +
-            Math.sin(c * 0.13 + r * 0.9 + t * 1.7) * 0.35 +
-            Math.sin((c + r * 2) * 0.07 - t * 1.05) * 0.4;
-          let b = 0.5 + wave * 0.34;
-          // Ahead of the charge it is dark; the charge's own edge burns bright.
-          const behind = front - c;
-          if (behind < 0) b *= 0.18;
-          else if (behind < 7) b = Math.max(b, 1 - behind / 7);
-          // The glint leans a little, like light across glass.
-          const off = Math.abs(c - glint - r * 0.7);
-          if (off < 3.5) b += (1 - off / 3.5) * 0.55;
-          b = clamp(b, 0, 1.25);
-          ctx.fillStyle = `hsl(${(hue + b * 14).toFixed(1)} 90% ${(30 + b * 36).toFixed(1)}%)`;
-          ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+          const y = r * PITCH + PITCH / 2;
+          const p = Math.abs(phase[c * rows + r]);
+          // A dot now and then, each at its own time, slowly up and down.
+          const glow = still ? 0 : Math.max(0, Math.sin(t * 0.8 + p * Math.PI * 2)) ** 14 * 0.32;
+          const alpha = 0.1 + swell * 0.42 + glow;
+          ctx.globalAlpha = Math.min(0.62, alpha);
+          ctx.beginPath();
+          ctx.arc(x, y, DOT + swell * 0.35, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
+      ctx.globalAlpha = 1;
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
@@ -456,7 +461,7 @@ export function ReasoningEffort({
   const fillW = Math.min(TRACK, thumbRight + EDGE_PAD);
   const active = Math.round(display);
   const level = labels[active];
-  // The highest level the model takes (Extra high or Max): the fill goes into overdrive.
+  // The highest level the model takes (Extra high or Max): the fill shows its dot matrix.
   const overdrive = count >= 2 && active === count - 1;
   // 4.8 to 9.6px, rising with the level, however many levels there are.
   const tickHeights = labels.map((_, i) => Math.round((4.8 + (4.8 * i) / (count - 1)) * 100) / 100);
