@@ -78,7 +78,7 @@ export function ImportList({ state }: { state: ImportState }): JSX.Element {
   const withServers = apps.filter((app) => app.servers.length > 0)
   if (withServers.length === 0) return <p className="import__empty">No MCP servers found in Claude, Cursor, Windsurf, VS Code or Gemini CLI on this computer.</p>
   return (
-    <div className="import">
+    <div className="import edge-fade">
       {withServers.map((app) => (
         <section key={app.id} className="import__app">
           <h2 className="import__app-name">{app.name}</h2>

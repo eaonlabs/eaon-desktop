@@ -421,22 +421,49 @@ button.onboarding__row:hover .onboarding__row-chevron {
   flex: 1;
 }
 
-/* Import: the other apps' sessions, scripts and servers, in one card that scrolls when there are many. */
+/*
+ * Import: the other apps' sessions, scripts and servers, in one card. What
+ * scrolls is inside it (.edge-fade), so the faded edges are the list's, not
+ * the card's border.
+ */
+.onboarding__column:has(.onboarding__import) {
+  width: min(480px, 100%);
+}
 .onboarding__import {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-height: min(360px, 44vh);
-  overflow-y: auto;
-  padding: 12px 14px;
   border-radius: var(--r-lg);
   background: var(--surface-1);
   box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+.onboarding__import-scroll {
+  max-height: min(380px, 46vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px;
+  scrollbar-width: thin;
+}
+/* Room above the first heading and below the last row, inside what scrolls. */
+.onboarding__import-scroll > :not(:first-child) {
+  margin-top: 16px;
+}
+.onboarding__import-scroll > .import:first-of-type,
+.onboarding__import-scroll > p:first-of-type {
+  padding-top: 14px;
+}
+.onboarding__import-scroll > :last-child {
+  padding-bottom: 14px;
 }
 /* The card scrolls, not each list in it. */
 .onboarding__import .import {
   max-height: none;
   overflow: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+  animation: none;
+}
+.onboarding__import .import::before,
+.onboarding__import .import::after {
+  display: none;
 }
 
 /* Appearance: three small windows. */

@@ -129,7 +129,7 @@ export function AgentAppsList({ state, home }: { state: AgentAppsState; home: st
   if (apps === null) return <p className="import__empty">Looking for sessions in your other agent apps…</p>
   if (apps.length === 0) return <p className="import__empty">No sessions found in Conductor, Orca, Paradev (Superset), Claude Squad, T3 Code, Synara or Crystal on this computer.</p>
   return (
-    <div className="import">
+    <div className="import edge-fade">
       {apps.map((app) => (
         <section key={app.id} className="import__app">
           <h2 className="import__app-name">{app.name}</h2>
@@ -143,7 +143,7 @@ export function AgentAppsList({ state, home }: { state: AgentAppsState; home: st
                   {s.project && s.project !== s.cwd && <span className="import__in"> in {folderName(s.project)}</span>}
                   {s.already ? <span className="import__badge">In the ADE</span> : s.archived ? <span className="import__badge">Archived</span> : null}
                 </span>
-                <span className="import__what" title={s.cwd}>
+                <span className="import__what import__path" title={s.cwd}>
                   {tidy(s.cwd)}
                   {s.branch ? ` · ${s.branch}` : ''}
                 </span>

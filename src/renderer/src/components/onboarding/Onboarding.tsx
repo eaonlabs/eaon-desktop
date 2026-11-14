@@ -567,11 +567,13 @@ function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
         Sessions from your other agent apps, and the MCP servers you set up elsewhere. Nothing in those apps changes.
       </Header>
       <div className="onboarding__import" style={stagger(3)}>
-        {work.total > 0 && <AgentAppsList state={work} home={home} />}
-        {servers.total > 0 && <ImportList state={servers} />}
-        {work.apps === null && servers.apps === null && <p className="import__empty">Looking in your other apps…</p>}
-        {(work.error || servers.error) && <p className="onboarding__note onboarding__note--error">{work.error ?? servers.error}</p>}
+        <div className="onboarding__import-scroll edge-fade">
+          {work.total > 0 && <AgentAppsList state={work} home={home} />}
+          {servers.total > 0 && <ImportList state={servers} />}
+          {work.apps === null && servers.apps === null && <p className="import__empty">Looking in your other apps…</p>}
+        </div>
       </div>
+      {(work.error || servers.error) && <p className="onboarding__note onboarding__note--error">{work.error ?? servers.error}</p>}
       <Actions>
         {count > 0 ? (
           <>

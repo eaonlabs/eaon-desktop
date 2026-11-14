@@ -162,6 +162,88 @@ a:hover {
   background: transparent;
 }
 
+/* ---- A list that scrolls: its edges fade (and soften) where there's more ----
+   An edge with more of the list beyond it fades out under a soft blur, so a
+   row cut off there reads as more to scroll to rather than as clipped. The
+   fades follow the scroll position (none at the top until it has scrolled,
+   none at the bottom once it reaches the end), and a list that fits has
+   none. The blur strips are this box's ::before and ::after, held to its
+   edges as it scrolls, so it has to be a block, not a flex or grid box. */
+.edge-fade {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--edge-top), #000 calc(100% - var(--edge-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--edge-top), #000 calc(100% - var(--edge-bottom)), transparent);
+  animation: edge-fade linear both;
+  animation-timeline: scroll(self);
+}
+.edge-fade::before,
+.edge-fade::after {
+  content: '';
+  position: sticky;
+  z-index: 2;
+  display: block;
+  height: 28px;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+}
+.edge-fade::before {
+  top: 0;
+  margin-bottom: -28px;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  opacity: var(--edge-top-shown);
+}
+.edge-fade::after {
+  bottom: 0;
+  margin-top: -28px;
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
+  opacity: var(--edge-bottom-shown);
+}
+@property --edge-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --edge-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+/* Inherited, for the strips (pseudo-elements) to read. */
+@property --edge-top-shown {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --edge-bottom-shown {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@keyframes edge-fade {
+  0% {
+    --edge-top: 0px;
+    --edge-top-shown: 0;
+    --edge-bottom: 36px;
+    --edge-bottom-shown: 1;
+  }
+  8% {
+    --edge-top: 36px;
+    --edge-top-shown: 1;
+  }
+  92% {
+    --edge-bottom: 36px;
+    --edge-bottom-shown: 1;
+  }
+  100% {
+    --edge-top: 36px;
+    --edge-top-shown: 1;
+    --edge-bottom: 0px;
+    --edge-bottom-shown: 0;
+  }
+}
+
 /* ---------------- Shell ---------------- */
 
 .app {

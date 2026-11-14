@@ -1842,13 +1842,14 @@ body[data-reduce-motion='on'] .star-card {
 
 /* Import from another app (components/ImportServers.tsx): in the setup and in Settings → MCP Servers. */
 .import {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: block;
   max-height: min(380px, 52vh);
   overflow-y: auto;
   margin: 0 -10px;
   padding: 0 10px;
+}
+.import__app + .import__app {
+  margin-top: 14px;
 }
 .import__app-name {
   margin: 0 0 4px;
@@ -1910,6 +1911,11 @@ body[data-reduce-motion='on'] .star-card {
 }
 .import__what {
   font-family: var(--font-mono);
+}
+/* A session's folder and branch: the whole of it, on a second line if it needs one. */
+.import__path {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .import__empty {
   margin: 0;
