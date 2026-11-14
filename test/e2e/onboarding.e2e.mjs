@@ -1,5 +1,5 @@
 /**
- * The first run: the setup (welcome, Tokn, a model, light or dark, done),
+ * The first run: the setup (welcome, a model, light or dark, Tokn, done),
  * then the tour; and both skipped. The harness turns them off for every
  * other scenario (EAON_ONBOARDING=off); these turn them on.
  *
@@ -38,7 +38,21 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
       message: 'the welcome to settle'
     })
     await s.shot(page, 'setup-welcome')
-    await page.click('.onboarding .btn--primary', { text: 'Get started' })
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Get started' })
+
+    // A model: skipped here (the fake profile has none).
+    await page.find('.onboarding__title', { text: 'Connect a model' })
+    await sleep(700)
+    await s.shot(page, 'setup-models')
+    await page.click('.onboarding .onboarding__btn--secondary', { text: 'Not now' })
+
+    // Dark, at once.
+    await page.find('.onboarding__title', { text: 'Light or dark?' })
+    await page.click('.onboarding__theme', { text: 'Dark' })
+    await page.waitFor(() => document.documentElement.dataset.theme === 'dark', { message: 'the dark theme' })
+    await sleep(700)
+    await s.shot(page, 'setup-look')
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
 
     // Tokn: sign in, with the coding CLIs tracked too (the switch starts on).
     await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
@@ -47,15 +61,15 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     // Nothing in the setup scrolls sideways, whatever has focus.
     assert.deepEqual(await page.eval(() => [...document.querySelectorAll('.onboarding, .onboarding *')].filter((el) => el.scrollLeft > 0).map((el) => el.className)), [])
     assert.equal(await page.eval(() => document.querySelector('.onboarding__option .switch')?.getAttribute('aria-checked')), 'true')
-    await page.click('.onboarding .btn--primary', { text: 'Sign in with Tokn' })
-    await page.find('.onboarding .btn', { text: 'Waiting for your browser' })
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Sign in with Tokn' })
+    await page.find('.onboarding .onboarding__btn', { text: 'Waiting for your browser' })
     await approveToknSignIn(page)
     await page.find('.onboarding__account', { text: '@alex', timeout: 15_000 })
     await page.waitFor(() => !document.querySelector('.onboarding__account')?.getAnimations().some((a) => a.playState === 'running'), {
       message: 'the account to open in'
     })
     await s.shot(page, 'setup-tokn-signed-in')
-    await page.click('.onboarding .btn--primary', { text: 'Continue' })
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
 
     if (bundled) {
       // tokn is on "PATH" (the scenario's bin) and linked to @alex with a token of its own.
@@ -71,24 +85,10 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
       s.t.diagnostic('resources/tokn-cli is missing (run scripts/fetch-tokn-cli.mjs): the tokn command wasn’t checked')
     }
 
-    // A model: skipped here (the fake profile has none).
-    await page.find('.onboarding__title', { text: 'Connect a model' })
-    await sleep(700)
-    await s.shot(page, 'setup-models')
-    await page.click('.onboarding .btn--ghost', { text: 'Not now' })
-
-    // Dark, at once.
-    await page.find('.onboarding__title', { text: 'Light or dark?' })
-    await page.click('.onboarding__theme', { text: 'Dark' })
-    await page.waitFor(() => document.documentElement.dataset.theme === 'dark', { message: 'the dark theme' })
-    await sleep(700)
-    await s.shot(page, 'setup-look')
-    await page.click('.onboarding .btn--primary', { text: 'Continue' })
-
     await page.find('.onboarding__title', { text: 'You’re all set' })
     await sleep(700)
     await s.shot(page, 'setup-ready')
-    await page.click('.onboarding .btn--primary', { text: 'Show me around' })
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Show me around' })
 
     // The tour: eight stops across the three tabs, then back to Chat.
     await page.waitFor(() => !document.querySelector('.onboarding'), { message: 'the setup to close' })
@@ -180,18 +180,19 @@ scenario('an update from 2026.6: the setup again, then the tour of what’s new'
   const page = app.page
 
   await page.find('.onboarding .onboarding__title', { text: 'Eaon 2026.7 is here' })
-  assert.equal(await page.eval(() => document.querySelector('.onboarding__brand-name')?.textContent), 'Set up Eaon 2026.7')
+  assert.equal(await page.eval(() => document.querySelector('.onboarding')?.getAttribute('aria-label')), 'Set up Eaon 2026.7')
   await s.shot(page, 'update-welcome')
-  await page.click('.onboarding .btn--primary', { text: 'Get started' })
-  await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
-  await page.click('.onboarding .btn--ghost', { text: 'Not now' })
+  // Enter presses the white button, as its ↵ says.
+  await page.press('Enter')
   await page.find('.onboarding__title', { text: 'Connect a model' })
-  await page.click('.onboarding .btn--ghost', { text: 'Not now' })
+  await page.click('.onboarding .onboarding__btn--secondary', { text: 'Not now' })
   await page.find('.onboarding__title', { text: 'Light or dark?' })
-  await page.click('.onboarding .btn--primary', { text: 'Continue' })
+  await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
+  await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
+  await page.click('.onboarding .onboarding__btn--secondary', { text: 'Not now' })
   await page.find('.onboarding__title', { text: 'You’re all set' })
   await s.shot(page, 'update-ready')
-  await page.click('.onboarding .btn--primary', { text: 'See what’s new' })
+  await page.click('.onboarding .onboarding__btn--primary', { text: 'See what’s new' })
 
   await page.waitFor(() => !document.querySelector('.onboarding'), { message: 'the setup to close' })
   assert.deepEqual(await walkWhatsNew(s, page, true), WHATS_NEW_TITLES)
