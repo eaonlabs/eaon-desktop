@@ -27,18 +27,33 @@ const MODES: { id: ApprovalMode; title: string; description: string; icon: typeo
  * rather than tucked in a menu: it decides what happens when you press send.
  * Full access is set in orange, so it is never on by accident.
  */
-export function PermissionPicker(): JSX.Element {
+export function PermissionPicker({ compact = false }: { compact?: boolean } = {}): JSX.Element {
   const { mode, patchSettings } = useApp(useShallow((s) => ({ mode: (s.settings?.approvalMode ?? 'ask') as ApprovalMode, patchSettings: s.patchSettings })))
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const current = MODES.find((m) => m.id === mode) ?? MODES[0]
   return (
     <>
-      <button ref={anchor} className="composer-pill composer-pill--permission" data-tone={mode === 'full' ? 'warn' : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title="What Eaon may do without asking">
-        <current.icon size={14} strokeWidth={1.9} />
-        <span className="composer-pill__label">{current.title}</span>
-        <ChevronDown size={13} strokeWidth={2} className="composer-pill__chevron" />
-      </button>
+      {compact ? (
+        // In the box beside +, in a conversation outside a project: the mode's icon, its name on hover.
+        <button
+          ref={anchor}
+          className="composer__round composer-permission-icon"
+          data-tone={mode === 'full' ? 'warn' : undefined}
+          data-open={menu.open || undefined}
+          onClick={menu.toggle}
+          title={`${current.title}: ${current.description.toLowerCase()}`}
+          aria-label={`${current.title}. Change what Eaon may do without asking`}
+        >
+          <current.icon size={16} strokeWidth={1.9} />
+        </button>
+      ) : (
+        <button ref={anchor} className="composer-pill composer-pill--permission" data-tone={mode === 'full' ? 'warn' : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title="What Eaon may do without asking">
+          <current.icon size={14} strokeWidth={1.9} />
+          <span className="composer-pill__label">{current.title}</span>
+          <ChevronDown size={13} strokeWidth={2} className="composer-pill__chevron" />
+        </button>
+      )}
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="top-start" width={300} className="perm-menu">
         {MODES.map((m) => (
           <div key={m.id} className="perm-menu__option" data-tone={m.id === 'full' ? 'warn' : undefined}>

@@ -42,8 +42,12 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   const page = app.page
   assert.equal(await codexState(page), 'signed-in')
 
-  // With nothing else connected, the first-run notice offers Codex for Chat.
-  await page.find('.model-notice .model-notice__link', { text: /Use Codex in Chat/ })
+  // With nothing else connected, the model button offers Codex for Chat, one click.
+  await page.find('.chip--model.chip--connect', { text: /Use Codex/ })
+  assert.equal(await page.eval(() => Boolean(document.querySelector('.model-notice'))), false, 'no notice over the box')
+  await page.click('.chip--model.chip--connect', { text: /Use Codex/ })
+  await page.waitFor(async () => (await window.api.settings.get()).selectedEngine === 'codex', { message: 'Chat to run on Codex' })
+  await page.waitFor(() => !document.querySelector('.chip--connect'), { message: 'the button to show the model' })
 
   // Codex's own tab in the model picker, with its logo.
   await page.click('.chip--model')

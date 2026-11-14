@@ -46,7 +46,9 @@ import { parseSideQuestion } from '@shared/sideQuestion'
 import { ScreenshotPicker } from './composer/ScreenshotPicker'
 import { clampEffort, EFFORT_LABEL, orderEfforts } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
+import { LinkAccounts } from './LinkAccounts'
 import { ModelPicker } from './composer/ModelPicker'
+import { useSignedInEngine } from './composer/useSignedInEngine'
 import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
@@ -166,6 +168,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const isAgent = useIsWork()
   // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
   const coding = useCoding()
+  // A conversation outside a project: the box alone, no tray (its project and branch have nothing to show).
+  const compact = variant === 'chat' && !(coding && isAgent)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
     setText((current) => joinTranscript(current, spoken))
@@ -209,6 +213,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // Nothing connected, or the chosen model can't be used: the notice above
   // says why before anything is typed, and sending waits with the draft kept.
   const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
+  // Nothing connected at all (not a connected one that needs fixing, which says so above the box):
+  // the model button reads Connect a model, and sending opens the ways to connect one, keeping the draft.
+  const needsConnect = !engineChoice && selection.status === 'none' && !(selection.provider && selection.action && selection.action !== 'connect')
+  const [connecting, setConnecting] = useState(false)
+  // A coding agent already signed in here (Codex, Claude Code): the button offers it instead, one click.
+  const signedIn = useSignedInEngine(needsConnect)
   // What the request will actually use: the chosen effort, clamped to the model.
   const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
   // The highest level the model takes (Extra high or Max): its name lights up on the model button.
@@ -311,6 +321,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       return
     }
     if (askSide()) return
+    if (needsConnect && (text.trim() || attachments.length > 0)) {
+      setConnecting(true)
+      return
+    }
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
@@ -685,7 +699,28 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ))}
     </div>
   )
-  const modelButton = (
+  const chooseSignedIn = (): void => {
+    if (!signedIn) return
+    // A signed-in Claude Code runs Chat as Claude Agent, the provider (Eaon's own agent and tools on
+    // the Claude plan): Chat's picker has no tab for the Claude engine.
+    if (signedIn === 'claude') {
+      const models = useApp.getState().providers.find((p) => p.id === 'claude-agent')?.models ?? []
+      useApp.getState().selectModel(models.find((m) => m.id === 'default')?.id ?? models[0]?.id ?? 'default', 'claude-agent')
+    } else void useApp.getState().patchSettings({ selectedEngine: signedIn, selectedEngineModel: '' })
+  }
+  const modelButton = needsConnect ? (
+    signedIn ? (
+      <button className="chip chip--model chip--connect" onClick={chooseSignedIn} title={`${ENGINE_LABEL[signedIn]} is signed in on this computer: Chat can run on it, with its plan`}>
+        <ProviderMark providerId={ENGINE_MARK[signedIn]} size={15} />
+        <span className="chip__model">Use {ENGINE_LABEL[signedIn]}</span>
+      </button>
+    ) : (
+      <button className="chip chip--model chip--connect" onClick={() => setConnecting(true)} title="Sign in with an AI plan, add an API key, or use a model on this computer">
+        <Plus size={14} strokeWidth={2.2} />
+        <span className="chip__model">Connect a model</span>
+      </button>
+    )
+  ) : (
     <button
       ref={modelAnchor}
       className="chip chip--model"
@@ -745,10 +780,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0))}
+      disabled={!streaming && ((noModel && !needsConnect) || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={!streaming && noModel ? 'Connect a model first — see above' : undefined}
+      title={!streaming && needsConnect ? 'Connect a model to send this' : !streaming && noModel ? 'Pick a model that can be used — see above' : undefined}
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />
@@ -818,7 +853,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-compact={compact || undefined} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -850,11 +885,17 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </div>
         )}
 
-        {/* The text, then + at one end and the mic and send at the other. */}
+        {/* The text, then + at one end and the mic and send at the other. In a conversation
+            outside a project there is no tray: what Eaon may do sits by + as its icon, and the
+            model by the mic (it flies there from the tray as the first message is sent). */}
         {input}
         <div className="composer__toolbar">
           {plusButton}
+          {compact && isAgent && <PermissionPicker compact />}
+          {compact && chips}
           <div className="composer__spacer" />
+          {compact && modelButton}
+          {compact && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
           {variant === 'chat' && queueButton}
           {micButton}
           {sendButton}
@@ -863,15 +904,17 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
       {/* Tucked under the box: what Eaon may do, the project and its branch, what's switched on,
           and the model (with how full the context is, in a conversation). */}
-      <div className="composer__tray">
-        {isAgent && <PermissionPicker />}
-        {isAgent && <ProjectPicker />}
-        {isAgent && <BranchPicker />}
-        {chips}
-        <div className="composer__spacer" />
-        {modelButton}
-        {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
-      </div>
+      {!compact && (
+        <div className="composer__tray">
+          {isAgent && <PermissionPicker />}
+          {isAgent && <ProjectPicker />}
+          {isAgent && <BranchPicker />}
+          {chips}
+          <div className="composer__spacer" />
+          {modelButton}
+          {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
+        </div>
+      )}
 
       {suggest.menu}
       <AddMenu
@@ -904,6 +947,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       />
       <ScreenshotPicker open={shotOpen} onClose={() => setShotOpen(false)} onAttach={addAttachments} />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
+      <LinkAccounts open={connecting} onClose={() => setConnecting(false)} />
       <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
         <div className="menu__label">Saved for later</div>
         {stashed.map((prompt) => (

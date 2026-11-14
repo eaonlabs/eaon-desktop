@@ -1,5 +1,8 @@
 /* Home hero, composer, tray and the conversation view. */
 
+/* The mark, the title, the box and the chips, as one group in the middle of
+   the page (a little above it, where the eye rests). Sending the first
+   message glides the box down to the conversation's foot ([data-composer-glide]). */
 .home {
   position: relative;
   z-index: 1;
@@ -8,6 +11,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  padding: 0 0 7vh;
+  overflow-y: auto;
 }
 /* Behind the whole page, top bar included; it never takes the pointer. */
 .home__field {
@@ -32,17 +38,16 @@
   z-index: 2;
 }
 .home__hero {
-  flex: 1;
-  min-height: 0;
-  /* Its own width, not its widest child's: the chips and title below size
-     against the column and wrap inside it, rather than spilling over the
-     sidebar or a panel beside a narrow chat. */
+  flex: none;
+  /* Its own width, not its widest child's: the title sizes against the
+     column and wraps inside it, rather than spilling over the sidebar or a
+     panel beside a narrow chat. */
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 24px 24px;
+  padding: 0 24px 28px;
 }
 .home__mark {
   width: 44px;
@@ -52,10 +57,10 @@
   animation: hero-in 520ms var(--ease) both;
 }
 .home__dock {
+  flex: none;
   display: flex;
   justify-content: center;
   width: 100%;
-  padding: 0 0 16px;
   animation: hero-in 520ms var(--ease) 120ms both;
 }
 @keyframes hero-in {
@@ -91,7 +96,7 @@
   gap: 8px;
   width: var(--composer-chat-w);
   max-width: calc(100% - 48px);
-  margin: 26px 0 0;
+  margin: 20px 0 0;
 }
 .suggestion-chip {
   display: inline-flex;
@@ -521,16 +526,56 @@
   gap: 6px;
 }
 /* + an outlined disc, the mic a bare icon, send the solid disc. */
-.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic) {
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon) {
   width: 36px;
   height: 36px;
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):hover,
-.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic)[data-open='true'] {
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon):hover,
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon)[data-open='true'] {
   background: var(--hover);
   color: var(--text);
+}
+
+/* A conversation outside a project: no tray. What Eaon may do is an icon by
+   +, the model and how full the context is sit by the mic. */
+.composer__toolbar > .composer__round.composer-permission-icon {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  color: var(--text-3);
+}
+.composer__toolbar > .composer__round.composer-permission-icon:hover,
+.composer__toolbar > .composer__round.composer-permission-icon[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer__toolbar > .composer__round.composer-permission-icon[data-tone='warn'] {
+  color: var(--warn);
+}
+.composer[data-compact] .composer__toolbar > .chip--model {
+  height: 32px;
+  min-width: 52px;
+  padding: 0 8px 0 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.composer[data-compact] .composer__toolbar > .chip--model:hover,
+.composer[data-compact] .composer__toolbar > .chip--model[data-open='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer[data-compact] .chip--model .chip__effort,
+.composer[data-compact] .chip--model .chip__chevron {
+  color: var(--text-3);
+}
+/* The window size is the context meter's to show, beside it. */
+.composer[data-compact] .chip--model .chip__window {
+  display: none;
+}
+.composer[data-compact] .composer__toolbar > .context-meter {
+  margin: 0 4px 0 -2px;
 }
 .composer[data-variant] .composer__toolbar > .composer__mic {
   width: 34px;
@@ -651,6 +696,21 @@
   .chip--model .chip__effort[data-top] {
     animation: none;
   }
+}
+
+/* Nothing connected yet: the model button asks for one, in the accent, quietly. */
+.chip--model.chip--connect,
+.composer__tray .chip--model.chip--connect,
+.composer[data-compact] .composer__toolbar > .chip--model.chip--connect {
+  gap: 6px;
+  padding: 0 12px 0 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+.chip--model.chip--connect:hover,
+.composer__tray .chip--model.chip--connect:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
 }
 
 /* A narrow box: the tray keeps its icons and drops the words before the model's. */
@@ -1346,4 +1406,47 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   margin: 0 -2px;
   color: var(--text-4, var(--text-3));
   font-size: var(--fs-base);
+}
+
+/* ---- The box gliding between the start page and a conversation (ChatView) ----
+   For the length of the switch the box is its own layer, which the browser
+   moves and resizes from where it was to where it lands; the rest of the
+   page crossfades under it. Only then, so it never lifts out of anything
+   else that uses a view transition (the theme reveal). */
+:root[data-composer-glide] .composer-stack {
+  view-transition-name: composer;
+}
+/* The model and what Eaon may do fly on their own, from the tray into the box (and back). */
+:root[data-composer-glide] .composer-stack .chip--model {
+  view-transition-name: composer-model;
+}
+:root[data-composer-glide] .composer-stack :is(.composer-pill--permission, .composer-permission-icon) {
+  view-transition-name: composer-permission;
+}
+:root[data-composer-glide]::view-transition-group(composer),
+:root[data-composer-glide]::view-transition-group(composer-model),
+:root[data-composer-glide]::view-transition-group(composer-permission) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+:root[data-composer-glide]::view-transition-old(composer-model),
+:root[data-composer-glide]::view-transition-new(composer-model),
+:root[data-composer-glide]::view-transition-old(composer-permission),
+:root[data-composer-glide]::view-transition-new(composer-permission) {
+  height: 100%;
+  object-fit: none;
+  object-position: left center;
+  animation-duration: 300ms;
+}
+:root[data-composer-glide]::view-transition-old(composer),
+:root[data-composer-glide]::view-transition-new(composer) {
+  /* The two boxes differ in height; each keeps its shape and the taller one is cut, not squashed. */
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  animation-duration: 260ms;
+}
+:root[data-composer-glide]::view-transition-old(root),
+:root[data-composer-glide]::view-transition-new(root) {
+  animation-duration: 280ms;
 }

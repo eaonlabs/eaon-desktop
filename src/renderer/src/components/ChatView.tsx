@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, memo, useMemo } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
@@ -91,13 +91,82 @@ import { isKey } from '../lib/bindings'
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
+type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => { finished: Promise<void>; skipTransition?: () => void } }
+
+/** How long the switch may wait for the glide to start before it is made anyway. */
+const GLIDE_WAIT_MS = 150
+
+/**
+ * The box can glide: the browser has view transitions, motion is on, and the
+ * window is on screen (a hidden one draws no frames, so a transition there
+ * would never get to make the switch).
+ */
+const canGlide = (): boolean =>
+  typeof (document as ViewTransitionDocument).startViewTransition === 'function' &&
+  document.visibilityState === 'visible' &&
+  document.body.dataset.reduceMotion !== 'on' &&
+  !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
+  const id = chat?.id ?? null
+  // The page on screen follows the active chat, except when a new chat takes
+  // over from the start page: then the switch is made inside a view
+  // transition, so the message box glides from the middle of the page to the
+  // foot of the conversation while the rest crossfades (chat.css,
+  // [data-composer-glide]). For that one frame the start page stays.
+  const [onScreen, setOnScreen] = useState<string | null>(id)
+  const gliding = useRef(false)
+  // The chat to land on is whichever is active when the switch is made: a New chat
+  // followed at once by a message mustn't land back on the start page.
+  const latest = useRef(id)
+  latest.current = id
+  // Only into a conversation: going back to the start page is immediate, so a New chat
+  // followed at once by typing types into the new box, never the old one.
+  const glide = onScreen !== id && onScreen === null && chat !== null && chat.messages.length <= 2 && canGlide()
+  useLayoutEffect(() => {
+    if (onScreen === id) return
+    if (!glide) {
+      setOnScreen(id)
+      return
+    }
+    if (gliding.current) return
+    gliding.current = true
+    const root = document.documentElement
+    root.dataset.composerGlide = ''
+    let switched = false
+    const show = (): void => {
+      if (switched) return
+      switched = true
+      flushSync(() => setOnScreen(latest.current))
+    }
+    // While it glides the box is drawn as a picture and can't be clicked: a click lands on the
+    // page itself. It mustn't take the focus from the box, or what is typed next goes nowhere.
+    const keepFocus = (event: MouseEvent): void => {
+      if (event.target === document.documentElement || event.target === document.body) event.preventDefault()
+    }
+    document.addEventListener('mousedown', keepFocus, true)
+    const transition = (document as ViewTransitionDocument).startViewTransition!(show)
+    // Frames that never come (the window hidden as it starts) don't keep the conversation away.
+    const late = window.setTimeout(() => {
+      transition.skipTransition?.()
+      show()
+    }, GLIDE_WAIT_MS)
+    void transition.finished.finally(() => {
+      window.clearTimeout(late)
+      document.removeEventListener('mousedown', keepFocus, true)
+      delete root.dataset.composerGlide
+      gliding.current = false
+      // The active chat changed again while it glided: catch up, without another glide.
+      setOnScreen(latest.current)
+    })
+  }, [id, onScreen, glide])
+  const shown = glide ? (onScreen === null ? null : useApp.getState().chats.find((c) => c.id === onScreen) ?? null) : chat
   // The overlay approval card is mounted once, at the app's root (App.tsx),
   // not here: a run that asked while Settings or another tab was open waited
   // on a card nobody could see. The open conversation asks in its transcript
   // (see ApprovalPrompt and MessageRow).
-  return chat ? <Conversation chat={chat} /> : <Home />
+  return shown ? <Conversation chat={shown} /> : <Home />
 }
 
 /**
@@ -136,12 +205,18 @@ function Home(): JSX.Element {
         }
       />
       <AsciiField className="home__field" />
+      {/* The mark, the title and the box together in the middle of the page, the chips under the box.
+          Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
           <h1 className="home__title">{temporary ? 'You’re in a temporary chat' : isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
           {temporary && <TemporaryHint />}
-          {showSuggestions && !temporary && (
+        </div>
+        <div className="home__dock">
+          <Composer variant="home" />
+        </div>
+        {showSuggestions && !temporary && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
                 <button
@@ -157,10 +232,6 @@ function Home(): JSX.Element {
               ))}
             </div>
           )}
-        </div>
-        <div className="home__dock">
-          <Composer variant="home" />
-        </div>
       </div>
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
