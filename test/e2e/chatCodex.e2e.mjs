@@ -51,7 +51,7 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
 
   // Codex's own tab in the model picker, with its logo.
   await page.click('.chip--model')
-  assert.ok(await page.eval(() => Boolean(document.querySelector('.mp__tab[aria-label="Codex"] img'))), 'the Codex tab shows its logo')
+  await page.find('.mp__tab[aria-label="Codex"] img', { timeout: 10_000 })
   // The picker pops open with a spring: clicked mid-animation (a slow CI
   // runner), the tab was missed and Starred stayed open. Click once it has
   // landed, and again if the tab still isn't the open one.
