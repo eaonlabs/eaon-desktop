@@ -174,13 +174,13 @@ if (fs.existsSync('.eaon/review-task.md')) {
     const page = app.page
     assert.equal(realpathSync(s.homeDir), home)
 
-    // The ADE's Pull requests page: the PR asked of us, and Review.
+    // The ADE's Pull requests page: the PR asked of us, and Start review.
     await page.click('.mode-switch__option', { text: 'ADE' })
     await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
     await page.click('.pr-row__title', { text: 'Retry the login three times', timeout: 20_000 })
     await page.find('.pr-review', { text: /Agent review/ })
     await s.shot(page, 'pr-review-offered')
-    await page.click('.pr-review button', { text: /^Review$/ })
+    await page.click('.pr-review button', { text: /^Start review$/ })
 
     // Checked out in a worktree of its own, and Claude Code started there on the brief.
     const worktree = join(home, 'Eaon', 'worktrees', 'widget', 'review-pr-7')

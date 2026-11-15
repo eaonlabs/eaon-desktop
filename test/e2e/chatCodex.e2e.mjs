@@ -67,13 +67,14 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
     if (open) break
     if (attempt === 2) assert.fail('the Codex tab never opened')
   }
+  // Codex's models, under the rows every tab starts with (Adaptive).
   const rows = await page.waitFor(() => {
-    const r = [...document.querySelectorAll('.mp__list .mp__row')].map((row) => row.querySelector('.mp__row-name')?.textContent ?? '')
+    const r = [...document.querySelectorAll('.mp__list .mp__row:not(.mp__row--follow)')].map((row) => row.querySelector('.mp__row-name')?.textContent ?? '')
     return r.length ? r : null
   }, { message: 'Codex’s models' })
   s.t.diagnostic(`Codex tab: ${JSON.stringify(rows)}`)
   await s.shot(page, 'picker-codex-tab')
-  await page.click('.mp__list .mp__row', { text: rows[0] })
+  await page.click('.mp__list .mp__row:not(.mp__row--follow)', { text: rows[0] })
   await page.waitFor((want) => document.querySelector('.chip--model .chip__model')?.textContent === want, {
     args: [`Codex · ${rows[0]}`],
     message: 'the chip to show the Codex model by name'
