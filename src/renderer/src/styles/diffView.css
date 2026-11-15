@@ -1020,6 +1020,18 @@ button.dv__fold-label:hover {
   font-weight: 500;
   line-height: 16px;
 }
+.cfiles__new--gone {
+  background: color-mix(in srgb, var(--diff-del-fg) 15%, transparent);
+  color: var(--diff-del-fg);
+}
+.cfiles__more {
+  padding-left: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.cfiles__more:hover {
+  color: var(--text);
+}
 .cfiles__stat {
   margin-left: auto;
   padding-left: 8px;
