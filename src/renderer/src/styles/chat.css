@@ -591,6 +591,42 @@
   margin-left: 0;
 }
 
+/* In a conversation the box is one slim pill (Composer.tsx): + at one end, the
+   mic and send at the other, the text between them, and what it goes out with
+   on a plain line under it rather than a tray. Once the text wraps it takes
+   the whole width, the buttons a row under it. */
+.composer[data-variant='chat'] {
+  padding: 4px;
+  border-radius: 22px;
+}
+.composer[data-variant='chat'] .composer__row {
+  align-items: flex-end;
+}
+.composer[data-variant='chat'] .composer__row .composer__input {
+  min-height: 32px;
+  padding: 6px 4px 5px;
+}
+.composer[data-variant='chat'] .composer__row > .composer__round,
+.composer[data-variant='chat'] .composer__row > .send {
+  width: 32px;
+  height: 32px;
+}
+.composer[data-variant='chat'] .composer__row > .composer__mic {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 1px;
+}
+.composer[data-variant='chat'][data-stacked] .composer__row .composer__input {
+  padding: 8px 10px 2px;
+}
+.composer[data-variant='chat'] + .composer__tray {
+  margin: 4px 6px 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
 .composer__tray {
   position: relative;
   z-index: 1;
