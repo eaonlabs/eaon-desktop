@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
-import { Check, CircleAlert, Info, Plus, Search, Star } from 'lucide-react'
+import { Check, CircleAlert, Info, Plus, Search, Sparkles, Star } from 'lucide-react'
 import { FREE_PROVIDER_ID } from '@shared/freeCredits'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
@@ -118,7 +118,9 @@ export function ModelPicker({
   const options = useMemo(() => nativeOptions(providers), [providers])
   const groups = useMemo(() => groupOptions(options, prefs), [options, prefs])
   const favorites = useMemo(() => new Set(prefs.favorites ?? []), [prefs.favorites])
-  const currentKey = engineChoice ? engineChoice.key : current ? modelKey(current.providerId, current.id) : null
+  // Adaptive picks per message, so no one model is the current one.
+  const adaptive = !onPick && Boolean(settings?.adaptiveModel)
+  const currentKey = adaptive ? null : engineChoice ? engineChoice.key : current ? modelKey(current.providerId, current.id) : null
 
   /** Providers with models to offer, in the providers list's order. */
   const linked = useMemo(() => {
@@ -181,7 +183,8 @@ export function ModelPicker({
       // An engine's model: Chat runs on that engine from the next message.
       void patchSettings({
         selectedEngine: option.engine,
-        selectedEngineModel: option.modelId
+        selectedEngineModel: option.modelId,
+        adaptiveModel: false
       })
       onClose()
       return
@@ -394,6 +397,26 @@ export function ModelPicker({
         )}
 
         <div className="mp__list" ref={list} role="listbox" aria-label="Models">
+          {!onPick && !q && (
+            <div
+              className="mp__row mp__row--follow mp__row--adaptive"
+              role="option"
+              aria-selected={adaptive}
+              data-current={adaptive || undefined}
+              title="Each message goes to the model that suits it: a fast one for quick questions, a strong one for coding, the most capable for hard problems. Your chosen model comes back when you turn it off."
+              onClick={() => {
+                void patchSettings({ adaptiveModel: !adaptive })
+                onClose()
+              }}
+            >
+              <Sparkles size={13} strokeWidth={1.9} className="mp__adaptive-icon" />
+              <span className="mp__row-name">
+                Adaptive
+                <span className="mp__row-hint">Picks a model for each message</span>
+              </span>
+              {adaptive && <Check size={13} strokeWidth={2.2} className="mp__check" />}
+            </div>
+          )}
           {follow && !q && (
             <div
               className="mp__row mp__row--follow"
@@ -494,7 +517,7 @@ export function ModelPicker({
           )}
         </div>
 
-        {!onPick && (current || engineChoice) && effort && efforts.length >= 2 && (
+        {!onPick && !adaptive && (current || engineChoice) && effort && efforts.length >= 2 && (
           <div className="mp__foot">
             <ReasoningEffort
               labels={efforts.map((level) => EFFORT_LABEL[level])}

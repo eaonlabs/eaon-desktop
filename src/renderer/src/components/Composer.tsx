@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ArrowUp,
@@ -67,7 +67,8 @@ import { dropStashed, stashPrompt, stashTitle, takeStashed, useStash } from '../
 import { Bookmark } from 'lucide-react'
 import { PromptLibrary } from './composer/PromptLibrary'
 import { savedPromptItems } from './composer/promptItems'
-import { ago } from '@shared/modelSelection'
+import { ago, nativeOptions } from '@shared/modelSelection'
+import { candidates } from '@shared/adaptive'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
@@ -212,15 +213,21 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const model = engineChoice ? null : selection.model
   // Nothing connected, or the chosen model can't be used: the notice above
   // says why before anything is typed, and sending waits with the draft kept.
-  const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
+  const chosenUnusable = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
+  // Adaptive picks a model per message: it waits only when none it could pick, nor the chosen one, can run.
+  const adaptive = Boolean(settings?.adaptiveModel)
+  const providers = useApp((s) => s.providers)
+  const adaptiveReady = useMemo(() => adaptive && candidates(nativeOptions(providers), providers).length > 0, [adaptive, providers])
+  const noModel = adaptive ? !adaptiveReady && chosenUnusable : chosenUnusable
   // Nothing connected at all (not a connected one that needs fixing, which says so above the box):
   // the model button reads Connect a model, and sending opens the ways to connect one, keeping the draft.
-  const needsConnect = !engineChoice && selection.status === 'none' && !(selection.provider && selection.action && selection.action !== 'connect')
+  const needsConnect =
+    !engineChoice && !adaptiveReady && selection.status === 'none' && !(selection.provider && selection.action && selection.action !== 'connect')
   const [connecting, setConnecting] = useState(false)
   // A coding agent already signed in here (Codex, Claude Code): the button offers it instead, one click.
   const signedIn = useSignedInEngine(needsConnect)
-  // What the request will actually use: the chosen effort, clamped to the model.
-  const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
+  // What the request will actually use: the chosen effort, clamped to the model; Adaptive sets its own.
+  const effort = adaptive ? undefined : clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
   // The highest level the model takes (Extra high or Max): its name lights up on the model button.
   const efforts = orderEfforts((engineChoice ? engineChoice.efforts : model?.efforts) ?? [])
   const topEffort = efforts.length >= 2 && effort === efforts[efforts.length - 1]
@@ -725,10 +732,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ref={modelAnchor}
       className="chip chip--model"
       data-open={modelMenu.open || undefined}
-      data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
+      data-unavailable={(adaptive ? noModel : engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
       onClick={modelMenu.toggle}
       title={
-        engineChoice
+        adaptive
+          ? 'Adaptive: each message goes to the model that suits it, at the effort it needs'
+          : engineChoice
           ? engineChoice.ready
             ? `${engineChoice.label}. Runs on ${ENGINE_LABEL[engineChoice.engine]}, with your ${ENGINE_LABEL[engineChoice.engine]} sign-in and plan`
             : `Unavailable — ${engineChoice.reason ?? ''}`
@@ -737,14 +746,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             : model?.label
       }
     >
-      {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
-      <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
+      {adaptive ? (
+        <Sparkles size={14} strokeWidth={1.9} className="chip__adaptive" />
+      ) : engineChoice ? (
+        <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} />
+      ) : (
+        model && <ProviderMark providerId={model.providerId} size={15} />
+      )}
+      <span className="chip__model">{adaptive ? 'Adaptive' : engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
       {effort && (
         <span key={effort} className="chip__effort" data-top={topEffort || undefined}>
           {EFFORT_LABEL[effort]}
         </span>
       )}
-      {variant === 'chat' && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
+      {variant === 'chat' && !adaptive && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
       <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
     </button>
   )
@@ -819,7 +834,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
-      {engineChoice ? (
+      {/* Adaptive with models to pick from: what the chosen model needs doesn't hold anything up. */}
+      {adaptiveReady ? null : engineChoice ? (
         !engineChoice.ready && <EngineNotice choice={engineChoice} onChooseModel={() => modelMenu.setOpen(true)} />
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />

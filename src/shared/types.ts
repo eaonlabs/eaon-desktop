@@ -216,6 +216,18 @@ export interface MessageFeedback {
   reaction?: string | null
 }
 
+/** What Adaptive chose for a reply (shared/adaptive.ts): the model, the kind of task it read, and why. */
+export interface RouteRecord {
+  /** The picker's key: `providerId:modelId`, or `engine:<id>:<model>`. */
+  key: string
+  label: string
+  kind: 'quick' | 'write' | 'code' | 'hard'
+  /** 1 fast, 2 all-rounder, 3 most capable. */
+  tier: 1 | 2 | 3
+  /** "coding, medium effort". */
+  reason: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -240,6 +252,8 @@ export interface ChatMessage {
   /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */
   errorIssue?: ProviderIssue
   model?: string
+  /** Set when Adaptive chose the model: which, and why. */
+  routed?: RouteRecord
   /** Tokens this turn spent, including cache reads and writes. */
   usage?: TokenUsage
   /** Plan proposed in this turn (plan mode). */
@@ -722,6 +736,11 @@ export interface Settings {
    */
   selectedEngine?: Exclude<EngineId, 'native'> | null
   selectedEngineModel?: string | null
+  /**
+   * Adaptive: each message goes to the model that suits it (shared/adaptive.ts)
+   * instead of the selected one, which stays as it was for when it's turned off.
+   */
+  adaptiveModel?: boolean
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
   /** Models picked lately, newest first, as `providerId:modelId`. */

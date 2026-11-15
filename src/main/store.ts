@@ -318,6 +318,7 @@ export const defaultSettings: Settings = {
   selectedProviderId: null,
   selectedEngine: null,
   selectedEngineModel: null,
+  adaptiveModel: false,
   favoriteModels: [],
   recentModels: [],
   effort: 'light',

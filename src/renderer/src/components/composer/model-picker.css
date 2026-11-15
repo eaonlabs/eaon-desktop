@@ -649,3 +649,16 @@
   font-size: var(--fs-sm);
   text-align: center;
 }
+/* Adaptive, above the models: it picks one of them for each message. */
+.mp__adaptive-icon {
+  flex: none;
+  color: var(--mp-text-2);
+}
+.mp__row--adaptive[data-current] .mp__adaptive-icon {
+  color: var(--mp-text);
+}
+.mp__row-hint {
+  margin-left: 8px;
+  color: var(--mp-text-3);
+  font-size: 12px;
+}

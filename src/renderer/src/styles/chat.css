@@ -1486,3 +1486,14 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
 :root[data-composer-glide]::view-transition-new(root) {
   animation-duration: 280ms;
 }
+
+/* Adaptive's pick for a reply, before its tokens. */
+.routed-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chip--model .chip__adaptive {
+  flex: none;
+  color: var(--text-2);
+}

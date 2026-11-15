@@ -24,6 +24,7 @@ import {
   MoreHorizontal,
   PanelRight,
   PencilLine,
+  Sparkles,
   Target,
   Terminal,
   Trash2,
@@ -85,7 +86,7 @@ import { QuoteSelection } from './chat/QuoteSelection'
 import { modelName, modelSwitches } from './chat/modelSwitch'
 import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
-import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
+import type { Chat, ChatMessage, ChatToolPart, RouteRecord } from '@shared/types'
 import { isKey } from '../lib/bindings'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
@@ -370,6 +371,16 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
 
   const streaming = streamingMessageId !== null
   const switches = useMemo(() => modelSwitches(chat.messages), [chat.messages])
+  // The replies Adaptive chose a model for, by the message they answer: its switches say so.
+  const routedAt = useMemo(() => {
+    const at = new Map<string, RouteRecord>()
+    let asked: string | null = null
+    for (const m of chat.messages) {
+      if (m.role === 'user') asked = m.id
+      else if (m.role === 'assistant' && m.routed && asked) at.set(asked, m.routed)
+    }
+    return at
+  }, [chat.messages])
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -563,7 +574,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
               {/* The conversation moved to another model here. */}
-              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} />}
+              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} routed={routedAt.get(message.id)} />}
               {/* Compacting before this reply: said where the reply is about to appear. */}
               {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
@@ -1088,6 +1099,12 @@ function ReplyActions({
           }
         : {})}
     >
+      {message.routed && (
+        <span className="usage-line routed-line" title={`Adaptive chose ${message.routed.label} for this reply: ${message.routed.reason}`}>
+          <Sparkles size={11} strokeWidth={2} aria-hidden="true" />
+          {message.routed.label} · {message.routed.reason}
+        </span>
+      )}
       {message.usage && <UsageLine usage={message.usage} />}
     </MessageActions>
   )
@@ -1343,12 +1360,14 @@ function MailEvent({ event, text }: { event: NonNullable<WorkerMail['event']>; t
   )
 }
 
-/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5". */
-function ModelSwitchLine({ model }: { model: string }): JSX.Element {
+const FOR_KIND: Record<RouteRecord['kind'], string> = { quick: 'a quick question', write: 'writing', code: 'coding', hard: 'a hard problem' }
+
+/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5", or "Adaptive: Opus 5.5 for a hard problem". */
+function ModelSwitchLine({ model, routed }: { model: string; routed?: RouteRecord }): JSX.Element {
   const name = useApp((s) => modelName(s.providers, model))
   return (
     <div className="model-switch" role="note">
-      <span className="model-switch__text">Switched to {name}</span>
+      <span className="model-switch__text">{routed ? `Adaptive switched to ${routed.label} for ${FOR_KIND[routed.kind]}` : `Switched to ${name}`}</span>
     </div>
   )
 }
