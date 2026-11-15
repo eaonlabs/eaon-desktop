@@ -85,6 +85,7 @@ const SETTINGS_RANGES: Record<string, [number, number]> = {
   'codeIndex.maxToolRounds': [0, 1_000],
   'context.compactAt': [0.05, 0.99],
   'context.keepFullToolTurns': [0, 100],
+  'ade.autoSleepMinutes': [0, 1_440],
   'work.goalMaxIterations': [1, 10_000],
   'work.goalMaxMinutes': [1, 100_000],
   'work.goalMaxTokens': [1, 1e12]

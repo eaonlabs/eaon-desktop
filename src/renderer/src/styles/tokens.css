@@ -26,7 +26,7 @@
   --window-controls-left: 89px;
   --window-controls-right: 0px;
   --titlebar-h: 36px;
-  --nav-row-h: 27px;
+  --nav-row-h: 28px;
   --composer-w: 552px;
   --composer-chat-w: 640px;
 
@@ -211,11 +211,15 @@ body {
   /* Shadows fall in the background's own darkest shade rather than neutral
      black, so on a blue or plum theme they read as depth, not as dirt. */
   --shadow-ink: color-mix(in srgb, var(--bg), #000000 80%);
-  --shadow-menu: 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 50%, transparent),
-    0 10px 32px color-mix(in srgb, var(--shadow-ink) 44%, transparent),
-    0 2px 8px color-mix(in srgb, var(--shadow-ink) 30%, transparent);
-  --shadow-modal: 0 24px 64px color-mix(in srgb, var(--shadow-ink) 55%, transparent),
-    0 2px 12px color-mix(in srgb, var(--shadow-ink) 40%, transparent);
+  /* A raised surface catches light along its top edge (the inset line), and
+     casts two shadows: a tight one that seats it and a wide soft one that
+     lifts it. One flat shadow is what made menus read as grey slabs. */
+  --edge-light: inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent);
+  --shadow-menu: var(--edge-light), 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 60%, transparent),
+    0 18px 44px -10px color-mix(in srgb, var(--shadow-ink) 55%, transparent),
+    0 4px 12px -3px color-mix(in srgb, var(--shadow-ink) 32%, transparent);
+  --shadow-modal: var(--edge-light), 0 28px 72px -12px color-mix(in srgb, var(--shadow-ink) 62%, transparent),
+    0 4px 14px -2px color-mix(in srgb, var(--shadow-ink) 38%, transparent);
   color-scheme: dark;
 }
 
@@ -283,11 +287,12 @@ body {
   --git-added: #1a7f37;
   --git-removed: #cf222e;
   --shadow-ink: color-mix(in srgb, var(--fg), #000000 45%);
-  --shadow-menu: 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 11%, transparent),
-    0 10px 32px color-mix(in srgb, var(--shadow-ink) 15%, transparent),
-    0 2px 8px color-mix(in srgb, var(--shadow-ink) 9%, transparent);
-  --shadow-modal: 0 24px 64px color-mix(in srgb, var(--shadow-ink) 24%, transparent),
-    0 2px 12px color-mix(in srgb, var(--shadow-ink) 13%, transparent);
+  --edge-light: inset 0 1px 0 color-mix(in srgb, #fff 85%, transparent);
+  --shadow-menu: var(--edge-light), 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 13%, transparent),
+    0 18px 44px -10px color-mix(in srgb, var(--shadow-ink) 18%, transparent),
+    0 4px 12px -3px color-mix(in srgb, var(--shadow-ink) 10%, transparent);
+  --shadow-modal: var(--edge-light), 0 28px 72px -12px color-mix(in srgb, var(--shadow-ink) 26%, transparent),
+    0 4px 14px -2px color-mix(in srgb, var(--shadow-ink) 12%, transparent);
   color-scheme: light;
 }
 

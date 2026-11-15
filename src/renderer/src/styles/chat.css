@@ -387,11 +387,13 @@
 
 .composer {
   box-shadow:
+    var(--edge-light),
     0 0 0 1px var(--border-soft),
     0 10px 30px -18px rgb(0 0 0 / 0.55);
 }
 .composer:focus-within {
   box-shadow:
+    var(--edge-light),
     0 0 0 1px var(--border-strong),
     0 10px 30px -18px rgb(0 0 0 / 0.55);
 }
@@ -1004,9 +1006,19 @@
      by as much, so the first message still starts where it did. */
   margin-top: var(--sidebar-gap);
   padding: calc(24px - var(--sidebar-gap)) 0 24px;
-  /* The reply fades into the composer rather than being cut off by it. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  /* The reply fades into the composer rather than being cut off by it: a
+     short fade at the end, a longer one (with the blur over it, below) once
+     there is more beyond the edge. */
+  --veil-foot: 0;
+  --foot-len: calc(24px + 32px * var(--veil-foot));
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--foot-len)), rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--foot-len)), rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45), transparent);
+  transition: --veil-foot 320ms cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+@property --veil-foot {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
 }
 
 .thread__inner {
@@ -1208,7 +1220,7 @@
      its own edge, and right at the top of the window that read as a dark
      rim. Offscreen, the rim never shows. */
   --veil-over: 40px;
-  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 40px + var(--veil-over));
+  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 64px + var(--veil-over));
   position: absolute;
   top: calc(-1 * var(--veil-over));
   right: 0;
@@ -1268,13 +1280,51 @@ body[data-see-through='on'] .scroll-veil {
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) .scroll-veil {
   display: none;
 }
+/* Under a translucent window the foot fades further instead of blurring. */
+body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) .thread {
+  --foot-len: calc(24px + 48px * var(--veil-foot));
+}
+
+/* The foot's veil: the top's, turned over, standing on the message box's dock
+   over the last of the thread. Built as the reader scrolls up from the end. */
+.scroll-veil--foot {
+  --veil-h: 76px;
+  top: auto;
+  bottom: 100%;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--canvas) calc(55% * var(--veil)), transparent) 0%,
+    color-mix(in srgb, var(--canvas) calc(22% * var(--veil)), transparent) 45%,
+    transparent 100%
+  );
+}
+.scroll-veil--foot > span {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+}
+.scroll-veil--foot > span:last-child {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+  mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+}
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   .main:has(> .chat-header--float)
   > .thread {
   /* Hidden down to the bar's foot, then shown along a smoothstep curve so the
      fade has no line where it starts or ends. Scaled by --veil, so nothing
      fades until the thread scrolls. */
-  --fade-len: 48px;
+  --fade-len: 72px;
   --thread-mask: linear-gradient(
     to bottom,
     rgb(0 0 0 / calc(1 - var(--veil))) var(--veil-fade-from),
@@ -1286,7 +1336,8 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
     rgb(0 0 0 / calc(1 - 0.156 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.75),
     rgb(0 0 0 / calc(1 - 0.043 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.875),
     #000 calc(var(--veil-fade-from) + var(--fade-len)),
-    #000 calc(100% - 24px),
+    #000 calc(100% - var(--foot-len)),
+    rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45),
     transparent
   );
   -webkit-mask-image: var(--thread-mask);

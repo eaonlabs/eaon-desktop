@@ -615,6 +615,11 @@ export interface Settings {
      * app follows the terminal theme), put back when `eaon` is picked again.
      */
     appBefore: { mode: ThemeMode; light: ThemePalette; dark: ThemePalette } | null
+    /**
+     * Put a session to sleep (its terminals ended, shared/adeSleep.ts) once
+     * nothing in it has printed for this many minutes; 0 never does.
+     */
+    autoSleepMinutes: number
     /** Hold a key to dictate into the terminal last typed in (code/terminal/AdeDictation.tsx). */
     dictation: {
       enabled: boolean

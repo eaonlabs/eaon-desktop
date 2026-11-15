@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Archive, ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, Moon, PencilLine, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { ContextMenu } from '../Sidebar'
 import { useCode } from './codeStore'
-import { orderedGroups, useAdeSessions } from './sessionsStore'
+import { orderedGroups, paneLife, useAdeSessions } from './sessionsStore'
+import { isAsleep } from '@shared/adeSleep'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
@@ -230,23 +231,29 @@ function ArchivedRow({ session }: { session: AdeSession }): JSX.Element {
 const EMPTY_PANES: TerminalPaneSpec[] = []
 const EMPTY_CONVERSATIONS: AdeConversation[] = []
 
-/** Where a session stands, from its terminals: something is printing, something is open, or nothing runs. */
-type SessionState = 'working' | 'live' | 'idle' | 'missing'
+/**
+ * Where a session stands, from its terminals: something is printing,
+ * something is open, it's asleep (it has panes, none running: they start
+ * when it's shown), or there's nothing in it.
+ */
+type SessionState = 'working' | 'live' | 'asleep' | 'idle' | 'missing'
 
-function useSessionPanes(session: AdeSession): { panes: TerminalPaneSpec[]; state: SessionState } {
+function useSessionPanes(session: AdeSession, active = false): { panes: TerminalPaneSpec[]; state: SessionState } {
   const panes = useTerminals((s) => s.layout[session.cwd] ?? EMPTY_PANES)
   useSyncExternalStore(terminals.subscribe, terminals.getVersion)
   if (session.missing) return { panes, state: 'missing' }
   const infos = panes.map((p) => terminals.infoOf(p.id))
   if (infos.some((i) => i.status === 'working')) return { panes, state: 'working' }
-  // A pane this window hasn't shown since launch has no shell yet: it starts when shown.
   if (infos.some((i) => i.known && i.status !== 'exited')) return { panes, state: 'live' }
+  // The open session's panes are starting, not asleep.
+  if (!active && isAsleep(panes.map((p) => paneLife(p.id)))) return { panes, state: 'asleep' }
   return { panes, state: 'idle' }
 }
 
 const STATE_LABEL: Record<SessionState, string> = {
   working: 'An agent is working',
   live: 'Open, waiting for you',
+  asleep: 'Asleep: nothing running. Open it to start its terminals again',
   idle: 'Nothing running',
   missing: 'Its folder is gone'
 }
@@ -272,6 +279,12 @@ function useChanges(session: AdeSession, state: SessionState): AdeChanges | null
       )
     }
     look()
+    // Asleep, nothing in it is editing files: one look, no git every quarter minute.
+    if (state === 'asleep') {
+      return () => {
+        live = false
+      }
+    }
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') look()
     }, CHANGES_EVERY_MS)
@@ -297,6 +310,12 @@ function ChangeCount({ changes }: { changes: AdeChanges | null }): JSX.Element |
 }
 
 function StateMark({ state }: { state: SessionState }): JSX.Element {
+  if (state === 'asleep')
+    return (
+      <span className="ade-state" data-state="asleep" role="img" aria-label={STATE_LABEL.asleep} title={STATE_LABEL.asleep}>
+        <Moon size={10} strokeWidth={2.2} />
+      </span>
+    )
   return <span className="ade-state" data-state={state} role="img" aria-label={STATE_LABEL[state]} title={STATE_LABEL[state]} />
 }
 
@@ -306,8 +325,8 @@ function StateMark({ state }: { state: SessionState }): JSX.Element {
  * session itself when the project is a repository.
  */
 function SessionRow({ session, active, solo = false, onNewSession }: { session: AdeSession; active: boolean; solo?: boolean; onNewSession?: () => void }): JSX.Element {
-  const show = useAdeSessions((s) => s.show)
-  const { state } = useSessionPanes(session)
+  const { show, sleep, sleepOthers } = useAdeSessions(useShallow((s) => ({ show: s.show, sleep: s.sleep, sleepOthers: s.sleepOthers })))
+  const { state } = useSessionPanes(session, active)
   const changes = useChanges(session, state)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | null>(null)
@@ -376,6 +395,23 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
             ...(session.host ? [] : [{ icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) }]),
             // Only a folder that is here, and not one that has gone.
             ...(session.missing ? [] : editors),
+            ...(state === 'live' || state === 'working'
+              ? [
+                  {
+                    icon: <Moon size={15} strokeWidth={1.9} />,
+                    label: 'Sleep session',
+                    action: () =>
+                      void sleep(session).then(() =>
+                        notify(`${title} is asleep. Its terminals closed to free memory; open it to start them again${state === 'working' ? ' (the agent that was working stopped)' : ''}.`, 'done')
+                      )
+                  }
+                ]
+              : []),
+            {
+              icon: <Moon size={15} strokeWidth={1.9} />,
+              label: 'Sleep other sessions',
+              action: () => void sleepOthers().then((n) => notify(n === 0 ? 'No other session is running.' : `${n === 1 ? '1 session' : `${n} sessions`} asleep.`, 'done'))
+            },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive session…', action: () => setDialog('archive') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
           ]}

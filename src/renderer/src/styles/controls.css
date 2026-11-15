@@ -122,9 +122,11 @@
   color: var(--text-2);
 }
 .menu__label {
-  padding: 6px 9px 4px;
-  font-size: var(--fs-sm);
+  padding: 7px 9px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--text-3);
+  letter-spacing: 0.01em;
 }
 .menu__sep {
   height: 1px;
@@ -140,7 +142,8 @@
   min-height: 30px;
   padding: 0 9px;
   border-radius: var(--r-sm);
-  font-size: var(--fs-base);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.006em;
   color: var(--text);
   text-align: left;
   transition: background 90ms var(--ease);
@@ -171,8 +174,13 @@
   flex: none;
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: var(--text-3);
   width: 18px;
+  transition: color 90ms var(--ease);
+}
+.menu__item:hover:not(:disabled) .menu__item-icon,
+.menu__item[data-highlight='true'] .menu__item-icon {
+  color: var(--text);
 }
 .menu__item--tall .menu__item-icon {
   margin-top: 1px;
@@ -206,8 +214,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   color: var(--text-3);
+}
+/* The label is what the row is: it takes its own width, and the hint beside
+   it gives way first ("Take a scree…" read as a broken menu). */
+.menu__item:has(.menu__item-hint) > .menu__item-body {
+  flex: 1 0 auto;
+  max-width: 100%;
 }
 .menu__item-check {
   flex: none;
@@ -685,23 +699,48 @@ textarea.input::-webkit-resizer {
 /* ---------------- Downloads panel ---------------- */
 
 .downloads-panel {
-  width: 320px;
+  width: 300px;
   max-height: min(420px, calc(100vh - 24px));
 }
+.downloads-head {
+  padding: 7px 9px 3px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.006em;
+}
 
+/* Nothing downloading: a small tile and two short lines, not a poster. */
 .downloads-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 40px 20px 34px;
-  color: var(--text-3);
+  padding: 18px 16px 20px;
   text-align: center;
 }
-.downloads-empty p {
-  margin: 0;
-  font-size: var(--fs-base);
+.downloads-empty__icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 0.5px var(--border-strong), var(--edge-light);
+  color: var(--text-2);
+}
+.downloads-empty__title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.downloads-empty__hint {
+  max-width: 220px;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
+  color: var(--text-3);
+  text-wrap: balance;
 }
 
 .downloads-list {

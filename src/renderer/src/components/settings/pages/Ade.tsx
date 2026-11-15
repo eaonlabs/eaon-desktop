@@ -12,6 +12,7 @@ import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../cod
 import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 import { HoldToTalkRows } from './HoldToTalk'
+import { AUTO_SLEEP_CHOICES, autoSleepLabel } from '@shared/adeSleep'
 import { WorktreeCopySection } from './AdeWorktreeCopy'
 import { importedLine, useAgentAppsImport } from '../../AgentAppsImport'
 import { ImportSources } from '../../ImportSources'
@@ -269,10 +270,39 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <SleepSection />
       <WorktreeCopySection />
       <DictationSection />
       <TerminalThemeSection />
     </>
+  )
+}
+
+/**
+ * Sessions asleep (shared/adeSleep.ts): what a session left running costs, and
+ * when Eaon puts one to sleep on its own. A session's menu in the sidebar
+ * puts it (or every other one) to sleep by hand.
+ */
+function SleepSection(): JSX.Element {
+  const minutes = useApp((s) => s.settings?.ade.autoSleepMinutes ?? 0)
+  const patchSettings = useApp((s) => s.patchSettings)
+  return (
+    <Section label="Memory">
+      <Card>
+        <Row
+          title="Sleep idle sessions"
+          description="A session you leave keeps its terminals and agents running. Asleep, they close and give their memory back; open the session and they start again, Claude Code and Codex on the same conversations. Never the session that’s open, one with an agent working, or one running a local server."
+        >
+          <Select
+            value={String(minutes)}
+            options={AUTO_SLEEP_CHOICES.map((m) => ({ value: String(m), label: autoSleepLabel(m) }))}
+            width={190}
+            onChange={(next) => void patchSettings({ ade: { autoSleepMinutes: Number(next) } })}
+          />
+        </Row>
+        <Row title="By hand" description="Right-click a session in the ADE’s sidebar: Sleep session, or Sleep other sessions. Asleep sessions show a moon." />
+      </Card>
+    </Section>
   )
 }
 

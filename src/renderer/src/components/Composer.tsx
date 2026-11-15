@@ -1170,7 +1170,7 @@ function AddMenu({
   }
 
   return (
-    <Popover anchor={anchor} open={open} onClose={close} placement="bottom-start" width={isAgent ? 280 : 240} className="menu--tall">
+    <Popover anchor={anchor} open={open} onClose={close} placement="bottom-start" width={isAgent ? 304 : 240} className="menu--tall">
       <MenuItem
         icon={<Paperclip size={16} strokeWidth={1.8} />}
         title="Add photos and files"
@@ -1230,7 +1230,7 @@ function AddMenu({
           <MenuItem
             icon={<MessageCircleQuestion size={16} strokeWidth={1.8} />}
             title="Ask only"
-            hint={settings?.askMode ? undefined : 'Read, answer, change nothing'}
+            hint={settings?.askMode ? undefined : 'Just answers'}
             checked={settings?.askMode}
             onMouseEnter={() => setSub(null)}
             onClick={() => {

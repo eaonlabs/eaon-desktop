@@ -446,19 +446,25 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   // The thread gets one too: under a translucent window it fades its own top
   // instead of the blur (chat.css), and sooner, since a short scroll already
   // takes the first message under the bar.
+  // The same at the foot, over what passes under the message box, as far as
+  // the reader is from the end: at the end, the last line is left clear.
   const veil = useRef<HTMLDivElement>(null)
-  const showVeil = (top: number): void => {
+  const footVeil = useRef<HTMLDivElement>(null)
+  const showVeil = (top: number, gap = 0): void => {
     // Smoothstep: eases in from nothing and settles, rather than a straight ramp.
-    const over = (distance: number): string => {
-      const t = Math.min(1, Math.max(0, top / distance))
+    const ease = (value: number, distance: number): string => {
+      const t = Math.min(1, Math.max(0, value / distance))
       return (t * t * (3 - 2 * t)).toFixed(3)
     }
-    veil.current?.style.setProperty('--veil', over(140))
-    thread.current?.style.setProperty('--veil', over(48))
+    veil.current?.style.setProperty('--veil', ease(top, 140))
+    thread.current?.style.setProperty('--veil', ease(top, 48))
+    footVeil.current?.style.setProperty('--veil', ease(gap, 140))
+    thread.current?.style.setProperty('--veil-foot', ease(gap, 48))
   }
+  const gapOf = (node: HTMLElement | null): number => (node ? Math.max(0, node.scrollHeight - node.scrollTop - node.clientHeight) : 0)
   useEffect(() => {
     setAway(false)
-    showVeil(thread.current?.scrollTop ?? 0)
+    showVeil(thread.current?.scrollTop ?? 0, gapOf(thread.current))
   }, [chat.id])
   const toEnd = (): void => {
     const node = thread.current
@@ -553,7 +559,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           if (gap < 8) following.current = true
           // Past a screenful's edge, not a nudge: the button is for finding the way back.
           setAway(!following.current && gap > 160)
-          showVeil(node.scrollTop)
+          showVeil(node.scrollTop, gap)
         }}
         onKeyDown={(e) => {
           if (['ArrowUp', 'PageUp', 'Home'].includes(e.key) || (e.key === ' ' && e.shiftKey)) following.current = false
@@ -596,6 +602,11 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
 
       <div className="composer-dock" data-card={cardInline || undefined}>
+        <div ref={footVeil} className="scroll-veil scroll-veil--foot" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span key={i} style={{ '--i': i } as React.CSSProperties} />
+          ))}
+        </div>
         <button className="thread-jump" data-shown={away || undefined} onClick={toEnd} tabIndex={away ? 0 : -1} aria-hidden={!away} aria-label="Scroll to latest" title="Scroll to latest">
           <ArrowDown size={15} strokeWidth={2} />
         </button>

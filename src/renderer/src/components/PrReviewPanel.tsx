@@ -97,28 +97,25 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
   return (
     <section className="pr-review">
       <div className="pr-review__head">
-        <Sparkles size={15} strokeWidth={1.9} />
-        <span className="pr-review__title">Agent review</span>
-        {state && (
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => void openSession()}>
+        <span className="pr-review__mark" aria-hidden>
+          <Sparkles size={14} strokeWidth={1.9} />
+        </span>
+        <div className="pr-review__intro">
+          <span className="pr-review__title">Agent review</span>
+          <span className="pr-review__sub">Claude Code or Codex reviews it in its own ADE session. Nothing reaches GitHub until you post it.</span>
+        </div>
+        {state ? (
+          <button type="button" className="btn btn--sm" onClick={() => void openSession()}>
             <SquareTerminal size={13} strokeWidth={1.9} />
             Open session
           </button>
+        ) : (
+          <button type="button" className="btn btn--sm" disabled={starting} onClick={() => void start()}>
+            {starting && <Loader2 size={13} strokeWidth={2} className="spinner" />}
+            {starting ? 'Checking it out…' : 'Start review'}
+          </button>
         )}
       </div>
-
-      {!state && (
-        <>
-          <p className="pr-review__text">
-            Claude Code (or Codex) checks this pull request out in an ADE session of its own, reviews it, and writes a review you can edit here. Nothing is posted to GitHub until you
-            choose to.
-          </p>
-          <button type="button" className="btn btn--accent" disabled={starting} onClick={() => void start()}>
-            {starting ? <Loader2 size={14} strokeWidth={2} className="spinner" /> : <Sparkles size={14} strokeWidth={1.9} />}
-            {starting ? 'Checking it out…' : 'Review'}
-          </button>
-        </>
-      )}
 
       {state && !state.review && !state.postedUrl && (
         <p className="pr-review__text pr-review__waiting">
@@ -181,11 +178,11 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
             </div>
           ))}
           <div className="pr-review__actions">
-            <button type="button" className="btn btn--accent" disabled={posting} onClick={() => void post()}>
+            <button type="button" className="btn btn--primary btn--sm" disabled={posting} onClick={() => void post()}>
               {posting ? <Loader2 size={14} strokeWidth={2} className="spinner" /> : null}
               Post review to GitHub
             </button>
-            <button type="button" className="btn btn--ghost" disabled={posting} onClick={() => void start()}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={posting} onClick={() => void start()}>
               Review again
             </button>
           </div>

@@ -277,6 +277,7 @@ a:hover {
   background: var(--surface-1);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-panel);
+  box-shadow: var(--edge-light);
   /* Rounded corners only clip children that are actually painted inside; the
      menus anchored in here portal to the body, so nothing gets cut off. */
   overflow: hidden;
@@ -371,11 +372,14 @@ a:hover {
   color: var(--text-3);
   flex: none;
   -webkit-app-region: no-drag;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), scale 120ms var(--ease);
 }
 .icon-btn:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
+}
+.icon-btn:active:not(:disabled) {
+  scale: 0.96;
 }
 .icon-btn:disabled {
   color: var(--text-4);
@@ -662,13 +666,14 @@ a:hover {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   width: 100%;
   height: var(--nav-row-h);
-  padding: 0 8px 0 6px;
+  padding: 0 8px 0 7px;
   border-radius: var(--r-sm);
   color: var(--text);
-  font-size: var(--fs-base);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.006em;
   text-align: left;
   transition: background var(--dur) var(--ease);
 }
@@ -682,9 +687,11 @@ a:hover {
   flex: none;
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
   width: 16px;
 }
+.nav-item:hover .nav-item__icon,
 .nav-item[data-active='true'] .nav-item__icon {
   color: var(--text);
 }
@@ -709,10 +716,11 @@ a:hover {
 
 .sidebar__section {
   padding: 0 8px;
-  margin: 18px 0 4px;
-  font-size: var(--fs-sm);
+  margin: 20px 0 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--text-3);
-  letter-spacing: -0.005em;
+  letter-spacing: 0.01em;
 }
 
 .sidebar__section--action {
@@ -1001,9 +1009,10 @@ a:hover {
   height: var(--nav-row-h);
   display: flex;
   align-items: center;
-  font-size: var(--fs-base);
+  font-size: var(--fs-xs);
   color: var(--text-4);
 }
+
 
 .footer-item {
   display: flex;

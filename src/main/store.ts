@@ -236,6 +236,7 @@ export const defaultSettings: Settings = {
     blur: false,
     blurAmount: 10,
     appBefore: null,
+    autoSleepMinutes: 0,
     dictation: {
       enabled: true,
       key: 'AltRight',
