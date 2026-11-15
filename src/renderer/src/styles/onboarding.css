@@ -2,12 +2,13 @@
 
 /* ---- The setup: over the whole window, under dialogs (the model sign-ins open over it) ---- */
 
-/* Laid out like the app: a floating panel where the sidebar goes, the page beside it. */
+/* One column in the middle of the window, a bar above it and the dots below. */
 .onboarding {
   position: fixed;
   inset: 0;
   z-index: 90;
   display: flex;
+  flex-direction: column;
   background: var(--canvas);
   color: var(--text);
   /* clip, not hidden: a hidden box can still be scrolled; focusing a button
@@ -15,250 +16,113 @@
   overflow: clip;
   animation: fade 320ms var(--ease) both;
 }
-.onboarding[data-leaving='fade'] {
-  animation: onboarding-out var(--exit-slow) var(--ease-exit) both;
+/* A faint light from above the column: the only decoration. */
+.onboarding::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(56% 42% at 50% 30%, color-mix(in srgb, var(--text) 4.5%, transparent), transparent 72%);
+}
+/* Leaving: the column steps back and the setup fades off the app under it. */
+.onboarding[data-leaving] {
+  animation: onboarding-out 380ms var(--ease) both;
+}
+.onboarding[data-leaving] .onboarding__column {
+  animation: onboarding-recede 300ms var(--ease-exit) both;
 }
 @keyframes onboarding-out {
   to {
     opacity: 0;
   }
 }
-/* Finishing: everything but the little window steps back while it grows (Onboarding.tsx). */
-.onboarding[data-leaving='zoom'] .onboarding__nav,
-.onboarding[data-leaving='zoom'] .onboarding__step,
-.onboarding[data-leaving='zoom'] .onboarding__titlebar {
-  animation: onboarding-recede 220ms var(--ease-exit) both;
-}
 @keyframes onboarding-recede {
   to {
     opacity: 0;
-    transform: scale(0.98);
-    filter: blur(3px);
+    transform: scale(0.97);
+    filter: blur(4px);
   }
 }
 
-/* The steps: the same floating card as `.sidebar__panel` and Settings' navigation. */
-.onboarding__nav {
-  width: var(--sidebar-w);
-  flex: 0 0 var(--sidebar-w);
-  display: flex;
-  padding: var(--sidebar-gap);
-  user-select: none;
-  animation: onboarding-panel-in 560ms var(--spring-slow) 40ms both;
-}
-@keyframes onboarding-panel-in {
-  from {
-    opacity: 0;
-    transform: translateX(-14px);
-  }
-}
-.onboarding__panel {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-1);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-panel);
-  overflow: hidden;
-}
-/* The traffic lights' row; it drags the window, as the sidebar's does. */
-.onboarding__drag {
-  height: var(--titlebar-h);
+/* The top: Back and Skip, level with the traffic lights; the rest drags the window. */
+.onboarding__bar {
+  position: relative;
+  z-index: 1;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 14px;
   -webkit-app-region: drag;
 }
-.onboarding__brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 15px 16px;
+/* The traffic lights end at x = 79 (main/index.ts). */
+body[data-platform='darwin'] .onboarding__bar {
+  padding-left: 90px;
 }
-.onboarding__symbol {
-  flex: none;
-  color: var(--accent);
-}
-.onboarding__brand-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-.onboarding__brand-name {
-  font-size: var(--fs-base);
-  font-weight: 600;
-}
-.onboarding__brand-sub {
-  font-size: var(--fs-xs);
-  color: var(--text-3);
+.onboarding__bar button {
+  -webkit-app-region: no-drag;
 }
 
-/* 30px rows, 2px apart: the highlight slides to row `--at`. */
-.onboarding__steps {
-  --row: 30px;
-  --gap: 2px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap);
-  margin: 0;
-  padding: 0 7px;
-  list-style: none;
-}
-.onboarding__indicator {
-  position: absolute;
-  top: 0;
-  left: 7px;
-  right: 7px;
-  height: var(--row);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  transform: translateY(calc(var(--at) * (var(--row) + var(--gap))));
-  transition: transform 420ms var(--spring-slow);
-}
-.onboarding__stepnav {
-  position: relative;
-  display: flex;
+/* A text button: Back, Skip setup, the event code, Profile. */
+.onboarding__quiet {
+  display: inline-flex;
   align-items: center;
-  gap: 9px;
-  width: 100%;
-  height: var(--row);
-  padding: 0 8px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
   border-radius: var(--r-sm);
-  font-size: var(--fs-base);
-  color: var(--text-2);
-  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
   transition:
     color var(--dur) var(--ease),
     background var(--dur) var(--ease);
 }
-.onboarding__stepnav[data-state='current'] {
+.onboarding__quiet:hover:not(:disabled) {
   color: var(--text);
-  font-weight: 500;
-}
-.onboarding__stepnav[data-state='todo'] {
-  color: var(--text-3);
-}
-.onboarding__stepnav:not([data-state='current']):not(:disabled):hover {
   background: var(--hover);
-  color: var(--text);
+}
+.onboarding__quiet:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
-/* A step's mark: a ring; the current one gets a dot; a finished one fills and draws a check. */
-.onboarding__mark {
-  flex: none;
-  overflow: visible;
-}
-.onboarding__mark-ring {
-  fill: none;
-  stroke: var(--text-4);
-  stroke-width: 1.5;
-  transition: stroke var(--dur) var(--ease);
-}
-.onboarding__mark[data-state='current'] .onboarding__mark-ring {
-  stroke: var(--text);
-}
-.onboarding__mark-fill {
-  fill: var(--text);
-  transform-box: fill-box;
-  transform-origin: center;
-  transform: scale(0);
-  transition: transform 360ms var(--spring-slow);
-}
-.onboarding__mark[data-state='current'] .onboarding__mark-fill {
-  transform: scale(0.36);
-}
-.onboarding__mark[data-state='done'] .onboarding__mark-fill {
-  transform: scale(1);
-  fill: var(--text-2);
-}
-.onboarding__mark-check {
-  fill: none;
-  stroke: var(--surface-1);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  transition: stroke-dashoffset 280ms var(--ease) 140ms;
-}
-.onboarding__mark[data-state='done'] .onboarding__mark-check {
-  stroke-dashoffset: 0;
-}
-
-.onboarding__panel-foot {
-  margin-top: auto;
-  padding: 10px 7px;
-}
-.onboarding__skip {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: var(--nav-row-h);
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-base);
-  color: var(--text-3);
-  text-align: left;
-  transition:
-    color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
-}
-.onboarding__skip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-/* The page. */
-.onboarding__main {
+/* The column, in the middle of whatever height there is; it scrolls when there isn't enough. */
+.onboarding__scroll {
   position: relative;
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  container: onboarding / inline-size;
-}
-.onboarding__titlebar {
-  position: absolute;
-  inset: 0 0 auto;
-  height: calc(var(--titlebar-h) + var(--sidebar-gap));
-  -webkit-app-region: drag;
-}
-/* Shown only when the window is too narrow for the panel. */
-.onboarding__progress {
-  display: none;
-}
-.onboarding__layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 360px) minmax(0, 620px);
-  justify-content: center;
-  align-content: center;
   align-items: center;
-  gap: 56px;
-  padding: 56px 48px 48px;
+  padding: 0 24px;
   overflow-x: hidden;
   overflow-y: auto;
 }
+.onboarding__column {
+  width: min(400px, 100%);
+  margin: auto 0;
+  padding: 8px 0 28px;
+}
 
 .onboarding__step {
-  --dx: 10px;
+  --dx: 8px;
   display: flex;
   flex-direction: column;
   gap: 22px;
 }
 .onboarding__step[data-direction='-1'] {
-  --dx: -10px;
+  --dx: -8px;
 }
 /* Each part of a step arrives a beat after the one before, coming into focus. */
 .onboarding__step [style*='--i'] {
   animation: onboarding-rise 560ms var(--spring-slow) both;
-  animation-delay: calc(40ms + var(--i) * 45ms);
+  animation-delay: calc(30ms + var(--i) * 45ms);
 }
 @keyframes onboarding-rise {
   from {
     opacity: 0;
-    transform: translate(var(--dx), 4px);
+    transform: translate(var(--dx), 6px);
     filter: blur(4px);
   }
 }
@@ -266,90 +130,271 @@
 .onboarding__header {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  text-align: center;
+}
+.onboarding__hero {
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
 }
 .onboarding__title {
   margin: 0;
-  font-size: 26px;
-  line-height: 1.15;
+  font-size: 22px;
+  line-height: 1.2;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 .onboarding__lede {
-  margin: 0;
+  max-width: 36ch;
+  margin: 8px 0 0;
   font-size: var(--fs-base);
   line-height: 1.55;
-  color: var(--text-2);
+  color: var(--text-3);
   text-wrap: pretty;
 }
 
-/* Welcome: the three places, the one playing beside them highlighted. */
-.onboarding__places {
-  --row: 56px;
-  --gap: 2px;
+/* The welcome's mark: it settles in out of a blur, over a slow, faint light in Eaon's blue. */
+.onboarding__mark {
   position: relative;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  color: var(--text);
+}
+.onboarding__mark .onboarding__symbol {
+  position: relative;
+  animation: onboarding-mark 900ms var(--spring-slow) 80ms both;
+}
+@keyframes onboarding-mark {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+    filter: blur(10px);
+  }
+}
+.onboarding__glow {
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 34%, transparent), transparent);
+  filter: blur(14px);
+  animation:
+    fade 1200ms var(--ease) 300ms both,
+    onboarding-breathe 5s ease-in-out 1500ms infinite;
+}
+@keyframes onboarding-breathe {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+}
+
+/* Every other step's picture: its icon on a raised tile. */
+.onboarding__tile {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    inset 0 1px 0 color-mix(in srgb, var(--text) 7%, transparent),
+    0 10px 28px -14px color-mix(in srgb, var(--shadow-ink) 70%, transparent);
+  color: var(--text);
+}
+
+/* The welcome's three places, as a quiet line under the words. */
+.onboarding__places {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: -6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.onboarding__places li {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/* The buttons: full width and stacked, the white one first. */
+.onboarding__actions {
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
-  margin: 0 -10px;
+  gap: 8px;
 }
-.onboarding__places-indicator {
-  position: absolute;
-  inset: 0 0 auto;
-  height: var(--row);
-  border-radius: var(--r-lg);
-  background: var(--surface-2);
-  box-shadow: 0 0 0 1px var(--border-soft);
-  transform: translateY(calc(var(--at) * (var(--row) + var(--gap))));
-  transition: transform 460ms var(--spring-slow);
-}
-.onboarding__place {
+.onboarding__btn {
   position: relative;
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    opacity var(--dur) var(--ease),
+    transform var(--dur-spring) var(--spring-fast);
+}
+.onboarding__btn:active:not(:disabled) {
+  transform: scale(0.985);
+}
+.onboarding__btn:disabled {
+  opacity: 0.6;
+}
+.onboarding__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.onboarding__btn--primary {
+  background: var(--text);
+  color: var(--canvas);
+  box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--text) 45%, transparent);
+}
+.onboarding__btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 88%, var(--canvas));
+}
+.onboarding__btn--secondary {
+  background: var(--surface-1);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.onboarding__btn--secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+/* The ↵ on the white button: Enter presses it. */
+.onboarding__enter {
+  flex: none;
+  opacity: 0.45;
+}
+
+.onboarding__fine {
+  margin: -8px 0 0;
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/*
+ * A step's choices: a row each, on its own raised card. Connect a model's ways
+ * in (each opens Link accounts on just its providers, and says which of them
+ * are connected), Tokn's account and its switch.
+ */
+.onboarding__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.onboarding__row {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: var(--row);
-  padding: 0 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 14px 10px 12px;
   border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
   text-align: left;
-  overflow: hidden;
-  transition: background var(--dur) var(--ease);
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.onboarding__place:not([data-on]):hover {
-  background: var(--hover);
+button.onboarding__row:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-.onboarding__place-icon {
+button.onboarding__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.onboarding__row-icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--r-sm);
   background: var(--surface-3);
-  color: var(--text-3);
-  transition: color var(--dur) var(--ease);
+  /* A raised tile: in light mode --surface-3 is the page's own white, so the edge and shadow are what show it. */
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 1px 2px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
+  color: var(--text-2);
 }
-.onboarding__place[data-on] .onboarding__place-icon {
-  color: var(--text);
+.onboarding__row-icon--eaon {
+  color: var(--accent);
 }
-.onboarding__place-body {
+.onboarding__row-body {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
 }
-.onboarding__place-title {
+.onboarding__row-title {
   font-size: var(--fs-base);
   font-weight: 500;
-  color: var(--text-2);
-  transition: color var(--dur) var(--ease);
-}
-.onboarding__place[data-on] .onboarding__place-title {
   color: var(--text);
 }
-.onboarding__place-text {
+.onboarding__row-text {
   font-size: var(--fs-sm);
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.onboarding__row-text--wrap,
+.onboarding__row[data-waiting] .onboarding__row-text {
+  /* Why it's waiting is a sentence or two; it wraps rather than trailing off. */
+  white-space: normal;
+}
+.onboarding__row-chevron {
+  flex: none;
+  color: var(--text-4);
+  transition:
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+button.onboarding__row:hover .onboarding__row-chevron {
+  color: var(--text-2);
+  transform: translateX(2px);
+}
+.onboarding__row-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 45%;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.onboarding__row-state svg {
+  flex: none;
+  color: var(--diff-add-fg);
+}
+.onboarding__row[data-waiting] .onboarding__row-state svg {
+  color: #d69a3a;
+}
+.onboarding__row-names {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -357,10 +402,220 @@
 .onboarding__option {
   cursor: default;
 }
-/* Rows here are spans (a label can't hold divs); the card's parts stack as they do in Settings. */
-.onboarding .card__row-title,
-.onboarding .card__row-desc {
-  display: block;
+
+/*
+ * Connect a model: a few provider logos fanned out above the title; Eaon's
+ * free models on a card of their own when they're on; then the providers by
+ * logo, each a tile that opens just that one.
+ */
+.onboarding__fan {
+  display: flex;
+  align-items: center;
+  height: 56px;
+}
+.onboarding__fan-card {
+  display: grid;
+  border-radius: 13px;
+  /* A faint edge, so a dark tile (Gemini's) still reads against the page, then the page cut out around it. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent),
+    0 0 0 4px var(--canvas),
+    0 10px 24px -12px color-mix(in srgb, var(--shadow-ink) 80%, transparent);
+  animation: onboarding-fan 760ms var(--spring-slow) both;
+}
+.onboarding__fan-card:nth-child(1) {
+  --turn: -10deg;
+  --x: 8px;
+  animation-delay: 60ms;
+}
+.onboarding__fan-card:nth-child(2) {
+  --turn: 0deg;
+  --x: 0px;
+  position: relative;
+  z-index: 1;
+  margin: 0 -10px;
+  translate: 0 -5px;
+  animation-delay: 0ms;
+}
+.onboarding__fan-card:nth-child(3) {
+  --turn: 10deg;
+  --x: -8px;
+  animation-delay: 120ms;
+}
+.onboarding__fan-card:not(:nth-child(2)) {
+  rotate: var(--turn);
+}
+@keyframes onboarding-fan {
+  from {
+    opacity: 0;
+    rotate: 0deg;
+    transform: translateX(var(--x)) scale(0.9);
+  }
+}
+.onboarding__column:has(.onboarding__connect) {
+  width: min(460px, 100%);
+}
+.onboarding__connect {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.onboarding__free {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 12px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 11%, var(--surface-1)), var(--surface-1) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+.onboarding__free-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.onboarding__free-name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.onboarding__free-text {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.onboarding__pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--diff-add-fg) 15%, transparent);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--diff-add-fg);
+}
+/* The providers: three to a row, each its logo over its name and how it connects. */
+.onboarding__tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.onboarding__tile-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 16px 8px 13px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  text-align: center;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-spring) var(--spring-fast);
+}
+.onboarding__tile-btn:hover {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.onboarding__tile-btn:active {
+  transform: scale(0.97);
+}
+.onboarding__tile-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.onboarding__tile-btn[data-on] {
+  background: color-mix(in srgb, var(--diff-add-fg) 6%, var(--surface-1));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diff-add-fg) 45%, var(--border));
+}
+.onboarding__tile-logo {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+}
+.onboarding__tile-logo--more {
+  border-radius: 9px;
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-2);
+}
+/* Connected: a green tick on the logo's corner, cut out of the tile. */
+.onboarding__tile-check {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--diff-add-fg);
+  box-shadow: 0 0 0 2px var(--surface-1);
+  color: #fff;
+}
+.onboarding__tile-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.onboarding__tile-how {
+  margin-top: 1px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.onboarding__tile-btn[data-on] .onboarding__tile-how {
+  color: var(--diff-add-fg);
+}
+
+/* The event code: a quiet link until it's asked for, then its field in the link's place. */
+.onboarding__code {
+  display: flex;
+  justify-content: center;
+  min-height: 32px;
+  margin-top: -12px;
+}
+.onboarding__code .free-code {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  animation: fade 200ms var(--ease);
+}
+.onboarding__code .fallback-row .input {
+  flex: 1;
+}
+
+/*
+ * Import: a row per app (ImportSources.tsx), in one card. What scrolls is
+ * inside it (.edge-fade), so the faded edges are the list's, not the card's
+ * border.
+ */
+.onboarding__column:has(.onboarding__import) {
+  width: min(480px, 100%);
+}
+.onboarding__import {
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+.onboarding__import-scroll {
+  max-height: min(400px, 48vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* Appearance: three small windows. */
@@ -372,25 +627,30 @@
 .onboarding__theme {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 6px 6px 9px;
+  gap: 9px;
+  padding: 6px 6px 10px;
   border-radius: var(--r-lg);
-  border: 1px solid var(--border);
   background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
   transition:
-    border-color var(--dur) var(--ease),
     box-shadow var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+    background var(--dur) var(--ease),
+    transform var(--dur-spring) var(--spring-fast);
 }
 .onboarding__theme:hover {
   background: var(--surface-2);
 }
 .onboarding__theme[data-on] {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .onboarding__theme:active {
   transform: scale(0.98);
+}
+.onboarding__theme:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .onboarding__swatch {
   --win-bg: #f4f4f5;
@@ -398,7 +658,7 @@
   --win-line: #d4d4d8;
   display: grid;
   grid-template-columns: 30% 1fr;
-  height: 58px;
+  height: 64px;
   border-radius: var(--r-sm);
   overflow: hidden;
   background: var(--win-bg);
@@ -459,10 +719,50 @@
   z-index: 1;
 }
 
-/* Finish: the shortcuts, as rows with their keys. */
-.onboarding__keys .card__row {
-  min-height: 40px;
-  padding: 8px 14px;
+/* Finish: a check that draws itself in a ring, then the shortcuts two by two. */
+.onboarding__done {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--diff-add-fg) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diff-add-fg) 35%, transparent);
+  color: var(--diff-add-fg);
+  animation: onboarding-mark 700ms var(--spring-slow) 60ms both;
+}
+.onboarding__done path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: onboarding-check 460ms var(--ease) 380ms forwards;
+}
+@keyframes onboarding-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.onboarding__keys {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.onboarding__key {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 .onboarding__kbd {
   display: flex;
@@ -483,43 +783,12 @@
   color: var(--text-2);
 }
 
-/* Every step's buttons. */
-.onboarding__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 2px;
-}
-.onboarding__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.onboarding__btn {
-  height: 32px;
-  padding: 0 14px;
-  gap: 7px;
-  transition:
-    background var(--dur) var(--ease),
-    transform var(--dur-spring) var(--spring-fast);
-}
-.onboarding__btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.onboarding__back {
-  margin-left: -8px;
-  padding: 0 10px 0 8px;
-}
-/* The Tokn account signed in to: the card's first row, over the option. */
+/* The Tokn account signed in to: the list's first row, over the switch. */
 .onboarding__account {
   display: grid;
   grid-template-rows: 1fr;
 }
-.onboarding__account + .card__row {
-  border-top: 1px solid var(--border);
-}
-/* Signed in while the step shows: the row opens in, pushing the option down. */
+/* Signed in while the step shows: the row opens in, pushing the switch down. */
 .onboarding__account[data-arrives] {
   animation: onboarding-account-in 520ms var(--spring-slow) both;
 }
@@ -569,15 +838,11 @@
 }
 .onboarding__profile {
   flex: none;
-  gap: 5px;
-  color: var(--text-2);
 }
-.onboarding__profile:hover {
-  color: var(--text);
-}
+
 .onboarding__note {
-  margin: -12px 0 0;
-  text-align: right;
+  margin: -10px 0 0;
+  text-align: center;
   font-size: var(--fs-xs);
   color: var(--text-3);
   animation: fade 200ms var(--ease);
@@ -586,691 +851,71 @@
   color: var(--danger);
 }
 
-/* The little window, which arrives once and then stays while its scenes change. */
-.onboarding__stage {
-  min-width: 0;
-  animation: onboarding-stage-in 820ms var(--spring-slow) 120ms both;
-}
-@keyframes onboarding-stage-in {
-  from {
-    opacity: 0;
-    transform: translateY(18px) scale(0.97);
-  }
-}
-
-/* Too narrow for the window beside the words: the words alone. */
-@container onboarding (max-width: 860px) {
-  .onboarding__layout {
-    grid-template-columns: minmax(0, 440px);
-  }
-  .onboarding__stage {
-    display: none;
-  }
-}
-.onboarding__skip--narrow {
-  display: none;
-}
-/* Too narrow for the panel too: a line saying how far along the setup is. */
-@media (max-width: 760px) {
-  .onboarding__nav {
-    display: none;
-  }
-  .onboarding__progress {
-    display: block;
-    position: absolute;
-    top: calc(var(--titlebar-h) / 2);
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: var(--fs-sm);
-    color: var(--text-3);
-  }
-  .onboarding__skip--narrow {
-    display: flex;
-    width: auto;
-    position: absolute;
-    top: calc(var(--titlebar-h) / 2);
-    right: 16px;
-    transform: translateY(-50%);
-    -webkit-app-region: no-drag;
-    z-index: 1;
-  }
-}
-
-/* ---- The little window (MiniApp.tsx). Drawn at 840 × 540 and scaled to fit. ---- */
-
-.mini {
+/* The foot: a dot a step (the current one long, the ones seen go back), and who made it. */
+.onboarding__foot {
   position: relative;
-  width: 100%;
-  aspect-ratio: 840 / 540;
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--canvas);
-  box-shadow:
-    0 0 0 0.5px var(--border-strong),
-    var(--shadow-modal);
-  pointer-events: none;
-  user-select: none;
-  transform-origin: center;
-}
-.mini__screen {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  transform-origin: 0 0;
-  font-size: var(--fs-base);
-}
-.mini__side {
-  width: 200px;
   flex: none;
-  display: flex;
-  padding: 8px;
-}
-.mini__panel {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--surface-1);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-panel);
-  overflow: hidden;
-}
-.mini__chrome {
-  position: relative;
-  height: 36px;
-  flex: none;
-}
-.mini__lights {
-  position: absolute;
-  top: 12px;
-  left: 11px;
-  display: flex;
-  gap: 8px;
-}
-.mini__lights span {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #ff5f57;
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
-}
-.mini__lights span:nth-child(2) {
-  background: #febc2e;
-}
-.mini__lights span:nth-child(3) {
-  background: #28c840;
-}
-.mini__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 2px 7px;
-  animation: mini-in 300ms var(--ease) both;
-}
-.mini__group {
-  padding: 14px 8px 4px;
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-.mini__recent {
-  display: block;
-  height: var(--nav-row-h);
-  line-height: var(--nav-row-h);
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mini__recent--new {
-  background: var(--surface-2);
-  animation: mini-recent-in 460ms var(--spring-slow) both;
-}
-@keyframes mini-recent-in {
-  from {
-    height: 0;
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-}
-.mini__dot {
-  display: inline-block;
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-4);
-}
-.mini__dot[data-state='busy'] {
-  background: var(--accent);
-  animation: mini-pulse 1.4s ease-in-out infinite;
-}
-.mini__dot[data-state='new'] {
-  background: var(--accent);
-}
-.mini__dot[data-state='done'] {
-  background: var(--diff-add-fg);
-}
-@keyframes mini-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-.mini__caret {
-  display: inline-block;
-  width: 1.5px;
-  height: 1.1em;
-  margin-left: 1px;
-  vertical-align: -0.18em;
-  background: var(--text);
-  animation: mini-blink 1s steps(1) infinite;
-}
-@keyframes mini-blink {
-  50% {
-    opacity: 0;
-  }
-}
-.mini__spinner {
-  flex: none;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
-  border-top-color: var(--text);
-  animation: mini-spin 0.8s linear infinite;
-}
-@keyframes mini-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.mini__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.mini__top {
-  flex: none;
-  display: flex;
   align-items: center;
-  justify-content: center;
-  height: 52px;
+  gap: 10px;
+  padding: 0 0 20px;
 }
-.mini__view {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  animation: mini-view-in 380ms var(--ease) both;
+.onboarding__dots {
+  display: flex;
 }
-@keyframes mini-view-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-    filter: blur(4px);
-  }
+.onboarding__dot {
+  display: grid;
+  place-items: center;
+  padding: 6px 3px;
+  border-radius: var(--r-pill);
 }
-@keyframes mini-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes mini-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-}
-
-/* Chat: the home page, then the conversation once the message is sent. */
-.mini-chat {
-  position: absolute;
-  inset: 0;
-}
-.mini .mini-chat__title {
-  position: absolute;
-  top: 118px;
-  left: 0;
-  right: 0;
+.onboarding__dot span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--text-4);
+  opacity: 0.6;
   transition:
-    opacity 200ms var(--ease),
-    transform 420ms var(--ease);
+    width 420ms var(--spring-slow),
+    background var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
 }
-.mini .mini-chat[data-sent] .mini-chat__title {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-.mini .mini-composer {
-  position: absolute;
-  top: 172px;
-  left: 50%;
-  width: 520px;
-  translate: -50% 0;
-  transition: top 640ms var(--ease);
-}
-.mini .mini-chat[data-sent] .mini-composer,
-.mini .mini-chat[data-low] .mini-composer {
-  top: 376px;
-}
-.mini-composer__input {
-  min-height: 46px;
-  padding: 13px 11px 8px;
-  line-height: 1.45;
-  color: var(--text);
-  white-space: pre-wrap;
-}
-.mini-composer__input[data-empty] {
-  color: var(--text-3);
-}
-.mini-composer .send {
-  opacity: 0.45;
-}
-.mini-composer .send[data-ready] {
+.onboarding__dot[data-state='done'] span {
+  background: var(--text-3);
   opacity: 1;
 }
-.mini-chat__chips {
-  position: absolute;
-  top: 282px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  transition: opacity 180ms var(--ease);
+.onboarding__dot[data-state='current'] span {
+  width: 20px;
+  background: var(--text);
+  opacity: 1;
 }
-.mini-chat__chips[data-hidden],
-.mini-chat[data-low] .mini-chat__chips {
-  opacity: 0;
+.onboarding__dot:not(:disabled):hover span {
+  background: var(--text-2);
 }
-.mini-chat__thread {
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  width: 520px;
-  translate: -50% 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.onboarding__dot:focus-visible {
+  outline: 2px solid var(--accent);
 }
-.mini-chat__bubble {
-  transform-origin: bottom right;
-  animation: mini-bubble-in 520ms var(--spring-slow) both;
-}
-@keyframes mini-bubble-in {
-  from {
-    opacity: 0;
-    transform: translateY(90px) scale(0.96);
-  }
-}
-.mini-chat__step {
+.onboarding__made {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-  animation: mini-rise 300ms var(--ease) both;
-}
-/* Still searching: a light sweeps along the words. */
-.mini-chat__step:not([data-done]) span {
-  background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 40%, var(--text) 50%, var(--text-3) 60%, var(--text-3) 100%) 0 0 / 250% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: mini-sweep 1.6s linear infinite;
-}
-@keyframes mini-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -150% 0;
-  }
-}
-.mini .mini-chat__answer {
-  white-space: normal;
-}
-.mini-chat__answer p {
-  margin: 0 0 2px;
-}
-
-/* The model list, open over the composer. */
-.mini-menu {
-  position: absolute;
-  right: 44px;
-  bottom: 40px;
-  width: 240px;
-  padding: 5px;
-  background: var(--menu-bg);
-  backdrop-filter: var(--frost);
-  -webkit-backdrop-filter: var(--frost);
-  border: 0.5px solid var(--border-strong);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-menu);
-  transform-origin: bottom right;
-  animation: mini-pop 300ms var(--spring-slow) 360ms both;
-}
-@keyframes mini-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-}
-.mini-menu .menu__item {
-  transition: background 120ms var(--ease);
-}
-.mini-menu__name {
-  flex: 1;
-}
-.mini-menu__ready {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--fs-sm);
-  color: var(--diff-add-fg);
-}
-.mini-menu__hint {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-
-/* Workers. */
-.mini-workers {
-  position: absolute;
-  inset: 0;
-  padding: 12px 40px;
-}
-.mini-page__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.mini-page__title {
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.mini-page__sub {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-.mini-worker {
-  margin-bottom: 10px;
-  padding: 12px 14px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  animation: mini-rise 500ms var(--spring-slow) both;
-  animation-delay: calc(80ms + var(--i) * 70ms);
-}
-.mini-worker__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.mini-worker__name {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-weight: 500;
-}
-.mini-worker__when {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-.mini-worker__status {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 6px;
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-.mini-worker__status svg {
-  color: var(--diff-add-fg);
-}
-.mini-worker__status--quiet {
-  color: var(--text-3);
-}
-.mini-worker__text {
-  animation: mini-rise 280ms var(--ease) both;
-}
-.mini-worker__bar {
-  height: 3px;
-  margin-top: 10px;
-  border-radius: var(--r-pill);
-  background: var(--surface-3);
-  overflow: hidden;
-}
-.mini-worker__bar span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transform-origin: left;
-  transition:
-    transform 900ms var(--ease),
-    background 300ms var(--ease);
-}
-.mini-worker[data-state='done'] .mini-worker__bar span {
-  background: var(--diff-add-fg);
-}
-
-/* The ADE: two coding agents side by side. */
-.mini-ade {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 0 12px 12px 4px;
-}
-.mini-ade__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  flex: none;
-}
-.mini-ade__repo {
-  font-weight: 500;
-}
-.mini-ade__branch {
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-  background: var(--surface-2);
+  gap: 6px;
+  margin: 0;
   font-size: var(--fs-xs);
-  color: var(--text-3);
-}
-.mini-ade__panes {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.mini-term {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--code-bg);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  animation: mini-rise 500ms var(--spring-slow) both;
-}
-.mini-term + .mini-term {
-  animation-delay: 80ms;
-}
-.mini-term__title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 32px;
-  flex: none;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border-soft);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-.mini-term__body {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 12px;
-  font: 12px/1.7 var(--font-mono);
-  white-space: pre;
-  overflow: hidden;
-}
-.mini-term__prompt {
-  margin-bottom: 6px;
-}
-.mini-term__chevron {
-  color: var(--text-3);
-}
-.mini-term__line {
-  animation: mini-line-in 220ms var(--ease) both;
-}
-@keyframes mini-line-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-}
-.mini-term__line[data-tone='dim'] {
-  color: var(--text-3);
-}
-.mini-term__line[data-tone='add'] {
-  color: var(--diff-add-fg);
-}
-.mini-term__line[data-tone='ok'] {
-  margin-top: 4px;
-  color: var(--text);
-}
-.mini-term__working {
-  color: var(--text-3);
-  animation: mini-pulse 1.4s ease-in-out infinite;
+  color: var(--text-4);
 }
 
-/* Tokn: a profile, filling in. */
-.mini-tokn {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding-bottom: 28px;
-}
-.mini-tokn__card {
-  width: 430px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow-menu);
-  animation: mini-rise 560ms var(--spring-slow) both;
-}
-.mini-tokn__who {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.mini-tokn__avatar {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-md);
-  background: var(--surface-3);
-  font-size: 17px;
-  font-weight: 600;
-}
-.mini-tokn__names {
-  display: flex;
-  flex-direction: column;
-}
-.mini-tokn__name {
-  font-size: 15px;
-  font-weight: 600;
-}
-.mini-tokn__handle,
-.mini-tokn__label {
-  font-size: var(--fs-xs);
-  color: var(--text-3);
-}
-.mini-tokn__stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-}
-.mini-tokn__stat {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.mini-tokn__value {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-}
-.mini-tokn__grid {
-  display: grid;
-  grid-template-rows: repeat(7, 9px);
-  grid-auto-flow: column;
-  gap: 3px;
-}
-.mini-tokn__grid span {
-  width: 9px;
-  height: 9px;
-  border-radius: 2.5px;
-  background: var(--surface-3);
-  animation: mini-dot-in 420ms var(--ease) both;
-  animation-delay: var(--d);
-}
-.mini-tokn__grid[data-filled] span[data-level='1'] {
-  background: color-mix(in srgb, var(--accent) 30%, var(--surface-3));
-}
-.mini-tokn__grid[data-filled] span[data-level='2'] {
-  background: color-mix(in srgb, var(--accent) 55%, var(--surface-3));
-}
-.mini-tokn__grid[data-filled] span[data-level='3'] {
-  background: color-mix(in srgb, var(--accent) 80%, var(--surface-3));
-}
-.mini-tokn__grid[data-filled] span[data-level='4'] {
-  background: var(--accent);
-}
-@keyframes mini-dot-in {
-  from {
-    opacity: 0;
-    transform: scale(0.3);
+/* A short window: less air around the column. */
+@media (max-height: 640px) {
+  .onboarding__hero {
+    margin-bottom: 14px;
   }
-}
-.mini-tokn__chart {
-  width: 100%;
-  height: 56px;
-}
-.mini-tokn__line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.6;
-  vector-effect: non-scaling-stroke;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: mini-draw 1400ms var(--ease) 500ms forwards;
-}
-.mini-tokn__area {
-  fill: color-mix(in srgb, var(--accent) 14%, transparent);
-  opacity: 0;
-  animation: mini-show 800ms var(--ease) 1000ms forwards;
-}
-@keyframes mini-draw {
-  to {
-    stroke-dashoffset: 0;
+  .onboarding__step {
+    gap: 16px;
   }
-}
-@keyframes mini-show {
-  to {
-    opacity: 1;
+  .onboarding__made {
+    display: none;
   }
 }
 
@@ -1420,135 +1065,4 @@
 .tour__buttons {
   display: flex;
   gap: 6px;
-}
-
-/*
- * Connect a model: what's already on (Eaon's own models), then a row for each
- * way in, laid out like the welcome's places. A row opens Link accounts on
- * just its providers, and says which of them are connected.
- */
-.onboarding__ways {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0 -10px;
-}
-.onboarding__way {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 56px;
-  padding: 8px 12px;
-  border-radius: var(--r-lg);
-  text-align: left;
-  transition: background var(--dur) var(--ease);
-}
-button.onboarding__way:hover {
-  background: var(--hover);
-}
-.onboarding__way-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--r-sm);
-  background: var(--surface-3);
-  /* A raised tile: in light mode --surface-3 is the page's own white, so the edge and shadow are what show it. */
-  box-shadow:
-    0 0 0 1px var(--border-soft),
-    0 1px 2px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
-  color: var(--text-2);
-}
-.onboarding__way-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.onboarding__way-title {
-  font-size: var(--fs-base);
-  font-weight: 500;
-  color: var(--text);
-}
-.onboarding__way-text {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.onboarding__way-chevron {
-  flex: none;
-  color: var(--text-4);
-  transition:
-    color var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
-}
-button.onboarding__way:hover .onboarding__way-chevron {
-  color: var(--text-2);
-  transform: translateX(2px);
-}
-.onboarding__way-state {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 45%;
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-.onboarding__way-state svg {
-  flex: none;
-  color: var(--diff-add-fg);
-}
-.onboarding__way[data-waiting] .onboarding__way-state svg {
-  color: #d69a3a;
-}
-/* Why it's waiting is a sentence or two; it wraps rather than trailing off. */
-.onboarding__way[data-waiting] .onboarding__way-text {
-  white-space: normal;
-}
-.onboarding__way-names {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.onboarding__ways-rule {
-  height: 1px;
-  margin: 3px 12px;
-  background: var(--border-soft);
-}
-
-/* The event code: a quiet link until it's asked for, then its field in the link's place. */
-.onboarding__code {
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  margin-top: -6px;
-}
-.onboarding__link {
-  margin-left: -8px;
-  padding: 6px 8px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-  transition:
-    color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
-}
-.onboarding__link:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.onboarding__code .free-code {
-  flex: 1;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  animation: fade 200ms var(--ease);
-}
-.onboarding__code .fallback-row .input {
-  flex: 1;
 }

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, memo, useMemo } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
@@ -24,6 +24,7 @@ import {
   MoreHorizontal,
   PanelRight,
   PencilLine,
+  Sparkles,
   Target,
   Terminal,
   Trash2,
@@ -85,19 +86,88 @@ import { QuoteSelection } from './chat/QuoteSelection'
 import { modelName, modelSwitches } from './chat/modelSwitch'
 import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
-import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
+import type { Chat, ChatMessage, ChatToolPart, RouteRecord } from '@shared/types'
 import { isKey } from '../lib/bindings'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
+type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => { finished: Promise<void>; skipTransition?: () => void } }
+
+/** How long the switch may wait for the glide to start before it is made anyway. */
+const GLIDE_WAIT_MS = 150
+
+/**
+ * The box can glide: the browser has view transitions, motion is on, and the
+ * window is on screen (a hidden one draws no frames, so a transition there
+ * would never get to make the switch).
+ */
+const canGlide = (): boolean =>
+  typeof (document as ViewTransitionDocument).startViewTransition === 'function' &&
+  document.visibilityState === 'visible' &&
+  document.body.dataset.reduceMotion !== 'on' &&
+  !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
+  const id = chat?.id ?? null
+  // The page on screen follows the active chat, except when a new chat takes
+  // over from the start page: then the switch is made inside a view
+  // transition, so the message box glides from the middle of the page to the
+  // foot of the conversation while the rest crossfades (chat.css,
+  // [data-composer-glide]). For that one frame the start page stays.
+  const [onScreen, setOnScreen] = useState<string | null>(id)
+  const gliding = useRef(false)
+  // The chat to land on is whichever is active when the switch is made: a New chat
+  // followed at once by a message mustn't land back on the start page.
+  const latest = useRef(id)
+  latest.current = id
+  // Only into a conversation: going back to the start page is immediate, so a New chat
+  // followed at once by typing types into the new box, never the old one.
+  const glide = onScreen !== id && onScreen === null && chat !== null && chat.messages.length <= 2 && canGlide()
+  useLayoutEffect(() => {
+    if (onScreen === id) return
+    if (!glide) {
+      setOnScreen(id)
+      return
+    }
+    if (gliding.current) return
+    gliding.current = true
+    const root = document.documentElement
+    root.dataset.composerGlide = ''
+    let switched = false
+    const show = (): void => {
+      if (switched) return
+      switched = true
+      flushSync(() => setOnScreen(latest.current))
+    }
+    // While it glides the box is drawn as a picture and can't be clicked: a click lands on the
+    // page itself. It mustn't take the focus from the box, or what is typed next goes nowhere.
+    const keepFocus = (event: MouseEvent): void => {
+      if (event.target === document.documentElement || event.target === document.body) event.preventDefault()
+    }
+    document.addEventListener('mousedown', keepFocus, true)
+    const transition = (document as ViewTransitionDocument).startViewTransition!(show)
+    // Frames that never come (the window hidden as it starts) don't keep the conversation away.
+    const late = window.setTimeout(() => {
+      transition.skipTransition?.()
+      show()
+    }, GLIDE_WAIT_MS)
+    void transition.finished.finally(() => {
+      window.clearTimeout(late)
+      document.removeEventListener('mousedown', keepFocus, true)
+      delete root.dataset.composerGlide
+      gliding.current = false
+      // The active chat changed again while it glided: catch up, without another glide.
+      setOnScreen(latest.current)
+    })
+  }, [id, onScreen, glide])
+  const shown = glide ? (onScreen === null ? null : useApp.getState().chats.find((c) => c.id === onScreen) ?? null) : chat
   // The overlay approval card is mounted once, at the app's root (App.tsx),
   // not here: a run that asked while Settings or another tab was open waited
   // on a card nobody could see. The open conversation asks in its transcript
   // (see ApprovalPrompt and MessageRow).
-  return chat ? <Conversation chat={chat} /> : <Home />
+  return shown ? <Conversation chat={shown} /> : <Home />
 }
 
 /**
@@ -136,12 +206,18 @@ function Home(): JSX.Element {
         }
       />
       <AsciiField className="home__field" />
+      {/* The mark, the title and the box together in the middle of the page, the chips under the box.
+          Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
           <EaonSymbol className="home__mark" />
           <h1 className="home__title">{temporary ? 'You’re in a temporary chat' : isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
           {temporary && <TemporaryHint />}
-          {showSuggestions && !temporary && (
+        </div>
+        <div className="home__dock">
+          <Composer variant="home" />
+        </div>
+        {showSuggestions && !temporary && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
                 <button
@@ -157,10 +233,6 @@ function Home(): JSX.Element {
               ))}
             </div>
           )}
-        </div>
-        <div className="home__dock">
-          <Composer variant="home" />
-        </div>
       </div>
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
@@ -299,6 +371,16 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
 
   const streaming = streamingMessageId !== null
   const switches = useMemo(() => modelSwitches(chat.messages), [chat.messages])
+  // The replies Adaptive chose a model for, by the message they answer: its switches say so.
+  const routedAt = useMemo(() => {
+    const at = new Map<string, RouteRecord>()
+    let asked: string | null = null
+    for (const m of chat.messages) {
+      if (m.role === 'user') asked = m.id
+      else if (m.role === 'assistant' && m.routed && asked) at.set(asked, m.routed)
+    }
+    return at
+  }, [chat.messages])
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -364,19 +446,25 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   // The thread gets one too: under a translucent window it fades its own top
   // instead of the blur (chat.css), and sooner, since a short scroll already
   // takes the first message under the bar.
+  // The same at the foot, over what passes under the message box, as far as
+  // the reader is from the end: at the end, the last line is left clear.
   const veil = useRef<HTMLDivElement>(null)
-  const showVeil = (top: number): void => {
+  const footVeil = useRef<HTMLDivElement>(null)
+  const showVeil = (top: number, gap = 0): void => {
     // Smoothstep: eases in from nothing and settles, rather than a straight ramp.
-    const over = (distance: number): string => {
-      const t = Math.min(1, Math.max(0, top / distance))
+    const ease = (value: number, distance: number): string => {
+      const t = Math.min(1, Math.max(0, value / distance))
       return (t * t * (3 - 2 * t)).toFixed(3)
     }
-    veil.current?.style.setProperty('--veil', over(140))
-    thread.current?.style.setProperty('--veil', over(48))
+    veil.current?.style.setProperty('--veil', ease(top, 140))
+    thread.current?.style.setProperty('--veil', ease(top, 48))
+    footVeil.current?.style.setProperty('--veil', ease(gap, 140))
+    thread.current?.style.setProperty('--veil-foot', ease(gap, 48))
   }
+  const gapOf = (node: HTMLElement | null): number => (node ? Math.max(0, node.scrollHeight - node.scrollTop - node.clientHeight) : 0)
   useEffect(() => {
     setAway(false)
-    showVeil(thread.current?.scrollTop ?? 0)
+    showVeil(thread.current?.scrollTop ?? 0, gapOf(thread.current))
   }, [chat.id])
   const toEnd = (): void => {
     const node = thread.current
@@ -471,7 +559,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           if (gap < 8) following.current = true
           // Past a screenful's edge, not a nudge: the button is for finding the way back.
           setAway(!following.current && gap > 160)
-          showVeil(node.scrollTop)
+          showVeil(node.scrollTop, gap)
         }}
         onKeyDown={(e) => {
           if (['ArrowUp', 'PageUp', 'Home'].includes(e.key) || (e.key === ' ' && e.shiftKey)) following.current = false
@@ -492,7 +580,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
               {/* The conversation moved to another model here. */}
-              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} />}
+              {switches.has(message.id) && <ModelSwitchLine model={switches.get(message.id)!} routed={routedAt.get(message.id)} />}
               {/* Compacting before this reply: said where the reply is about to appear. */}
               {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
@@ -514,6 +602,11 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
 
       <div className="composer-dock" data-card={cardInline || undefined}>
+        <div ref={footVeil} className="scroll-veil scroll-veil--foot" aria-hidden="true">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span key={i} style={{ '--i': i } as React.CSSProperties} />
+          ))}
+        </div>
         <button className="thread-jump" data-shown={away || undefined} onClick={toEnd} tabIndex={away ? 0 : -1} aria-hidden={!away} aria-label="Scroll to latest" title="Scroll to latest">
           <ArrowDown size={15} strokeWidth={2} />
         </button>
@@ -1017,6 +1110,12 @@ function ReplyActions({
           }
         : {})}
     >
+      {message.routed && (
+        <span className="usage-line routed-line" title={`Adaptive chose ${message.routed.label} for this reply: ${message.routed.reason}`}>
+          <Sparkles size={11} strokeWidth={2} aria-hidden="true" />
+          {message.routed.label} · {message.routed.reason}
+        </span>
+      )}
       {message.usage && <UsageLine usage={message.usage} />}
     </MessageActions>
   )
@@ -1272,12 +1371,14 @@ function MailEvent({ event, text }: { event: NonNullable<WorkerMail['event']>; t
   )
 }
 
-/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5". */
-function ModelSwitchLine({ model }: { model: string }): JSX.Element {
+const FOR_KIND: Record<RouteRecord['kind'], string> = { quick: 'a quick question', write: 'writing', code: 'coding', hard: 'a hard problem' }
+
+/** A quiet rule where the conversation moved to another model: "Switched to Opus 5.5", or "Adaptive: Opus 5.5 for a hard problem". */
+function ModelSwitchLine({ model, routed }: { model: string; routed?: RouteRecord }): JSX.Element {
   const name = useApp((s) => modelName(s.providers, model))
   return (
     <div className="model-switch" role="note">
-      <span className="model-switch__text">Switched to {name}</span>
+      <span className="model-switch__text">{routed ? `Adaptive switched to ${routed.label} for ${FOR_KIND[routed.kind]}` : `Switched to ${name}`}</span>
     </div>
   )
 }

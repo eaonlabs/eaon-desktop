@@ -22,7 +22,20 @@ import type {
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
 import { isLastingIssue, isLongLimit, type ProviderIssue } from '@shared/providers'
-import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
+import {
+  engineModelKey,
+  engineOptions,
+  isProviderUsable,
+  modelKey,
+  nativeOptions,
+  resolveSelection,
+  toggleFavorite,
+  withRecent,
+  type ModelOption,
+  type ResolvedSelection
+} from '@shared/modelSelection'
+import { CLI_ENGINES } from '@shared/engines'
+import { classifyTask, pickModel, routeRecord, type AdaptiveRoute } from '@shared/adaptive'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
 import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
@@ -749,6 +762,39 @@ export interface AppearancePreview {
   dark: ThemePalette
 }
 
+const IMAGE = /\.(png|jpe?g|gif|webp)$/i
+
+/** The agent CLIs' models as pickers list them, for Adaptive; none if main doesn't answer at once. */
+async function cliOptions(): Promise<ModelOption[]> {
+  if (!window.api.engines) return []
+  const engines = CLI_ENGINES.filter((id) => id !== 'claude')
+  const ask = Promise.all([window.api.engines.status(), ...engines.map((id) => window.api.engines.models(id))]).then(([statuses, ...lists]) =>
+    engines.flatMap((id, i) => engineOptions(id, lists[i] ?? null, statuses.find((s) => s.id === id) ?? null))
+  )
+  return Promise.race([ask.catch((): ModelOption[] => []), new Promise<ModelOption[]>((resolve) => setTimeout(() => resolve([]), 1500))])
+}
+
+/**
+ * Adaptive's model for a message into `chat` (null: a new chat), from what
+ * the message asks and where the chat is: a chat the agent has worked in only
+ * moves up. Ties go to the model selected before, then starred and recent ones.
+ */
+function adaptiveRoute(text: string, attachments: string[], chat: Chat | null, state: AppState, cli: ModelOption[]): AdaptiveRoute | null {
+  const settings = state.settings!
+  const messages = chat?.messages ?? []
+  const last = messages.findLast((m) => m.role === 'assistant' && m.routed)?.routed ?? null
+  const toolWork = messages.some((m) => m.role === 'assistant' && m.parts.some((p) => p.type === 'tool'))
+  const inProject = Boolean(chat ? chat.projectId : !state.pendingTemporary && state.pendingProjectId)
+  const task = classifyTask(text, { images: attachments.some((path) => IMAGE.test(path)), inProject, toolWork, previous: last?.kind ?? null })
+  const selected = settings.selectedEngine
+    ? engineModelKey(settings.selectedEngine, settings.selectedEngineModel ?? '')
+    : settings.selectedProviderId && settings.selectedModelId
+      ? modelKey(settings.selectedProviderId, settings.selectedModelId)
+      : null
+  const prefer = [...(selected ? [selected] : []), ...(settings.favoriteModels ?? []), ...(settings.recentModels ?? [])]
+  return pickModel({ task, options: [...nativeOptions(state.providers), ...cli], providers: state.providers, stay: toolWork ? last : null, prefer })
+}
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
   initError: null,
@@ -1045,6 +1091,8 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   async send(text, options = {}) {
+    // Adaptive weighs the agent CLIs' models too, whose sign-ins main knows.
+    const cli = get().settings?.adaptiveModel ? await cliOptions() : []
     const state = get()
     const settings = state.settings
     if (!settings || (!text.trim() && !options.attachments?.length)) return
@@ -1059,11 +1107,15 @@ export const useApp = create<AppState>((set, get) => ({
     const background = Boolean(options.chatId && options.chatId !== state.activeChatId)
 
     const selection = state.modelSelection()
+    // Adaptive: the model and effort this message needs (shared/adaptive.ts); the selected model when nothing fits.
+    const route = settings.adaptiveModel ? adaptiveRoute(text, options.attachments ?? [], into, state, cli) : null
     // Chat on an agent engine (a Codex model): the engine's own model, not a provider's.
-    const engine = settings.selectedEngine ?? null
-    const engineModel = settings.selectedEngineModel ?? ''
-    const model = engine ? null : selection.model
-    if (model) {
+    const engine = route ? (route.option.engine === 'native' ? null : route.option.engine) : (settings.selectedEngine ?? null)
+    const engineModel = route ? route.option.modelId : (settings.selectedEngineModel ?? '')
+    const model = route ? route.option.model : engine ? null : selection.model
+    const effort = route?.effort ?? settings.effort
+    // Adaptive's picks are its own, not the user's: they don't become the selected or a recent model.
+    if (model && !route) {
       // A default the user never picked becomes their choice once they use it,
       // so connecting another provider later doesn't move the chat to its model.
       // Whatever runs counts as a recent pick, newest first.
@@ -1087,7 +1139,8 @@ export const useApp = create<AppState>((set, get) => ({
       role: 'assistant',
       parts: [],
       createdAt: now + 1,
-      model: engine ? engineModel || engine : model?.id
+      model: engine ? engineModel || engine : model?.id,
+      ...(route ? { routed: routeRecord(route) } : {})
     }
     const goal = options.goal
       ? { text: text.trim(), status: 'active' as const, iterations: 0, ...(options.until && options.until > now ? { until: options.until } : {}) }
@@ -1108,7 +1161,7 @@ export const useApp = create<AppState>((set, get) => ({
         pinned: false,
         unread: false,
         modelId: engine ? engineModel || engine : (model?.id ?? null),
-        effort: settings.effort,
+        effort,
         ...(state.pendingTemporary ? { temporary: true } : {}),
         ...(goal ? { goal } : {})
       }
@@ -1187,7 +1240,7 @@ export const useApp = create<AppState>((set, get) => ({
       providerId: engine ?? model!.providerId,
       modelId: engine ? engineModel : model!.id,
       ...(engine ? { engine } : {}),
-      effort: settings.effort,
+      effort,
       mode,
       history,
       summary: summary?.text ?? null,
@@ -1454,8 +1507,9 @@ export const useApp = create<AppState>((set, get) => ({
     void get().patchSettings({
       selectedModelId: modelId,
       selectedProviderId: chosenProvider,
-      // A provider's model: Chat no longer runs on an engine.
+      // A provider's model: Chat no longer runs on an engine, nor picks for itself.
       selectedEngine: null,
+      adaptiveModel: false,
       ...(chosenProvider ? { recentModels: withRecent(get().settings?.recentModels, modelKey(chosenProvider, modelId)) } : {})
     })
   },

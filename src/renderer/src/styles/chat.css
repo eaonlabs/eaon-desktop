@@ -1,5 +1,8 @@
 /* Home hero, composer, tray and the conversation view. */
 
+/* The mark, the title, the box and the chips, as one group in the middle of
+   the page (a little above it, where the eye rests). Sending the first
+   message glides the box down to the conversation's foot ([data-composer-glide]). */
 .home {
   position: relative;
   z-index: 1;
@@ -8,6 +11,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  padding: 0 0 7vh;
+  overflow-y: auto;
 }
 /* Behind the whole page, top bar included; it never takes the pointer. */
 .home__field {
@@ -32,17 +38,16 @@
   z-index: 2;
 }
 .home__hero {
-  flex: 1;
-  min-height: 0;
-  /* Its own width, not its widest child's: the chips and title below size
-     against the column and wrap inside it, rather than spilling over the
-     sidebar or a panel beside a narrow chat. */
+  flex: none;
+  /* Its own width, not its widest child's: the title sizes against the
+     column and wraps inside it, rather than spilling over the sidebar or a
+     panel beside a narrow chat. */
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 24px 24px;
+  padding: 0 24px 28px;
 }
 .home__mark {
   width: 44px;
@@ -52,10 +57,10 @@
   animation: hero-in 520ms var(--ease) both;
 }
 .home__dock {
+  flex: none;
   display: flex;
   justify-content: center;
   width: 100%;
-  padding: 0 0 16px;
   animation: hero-in 520ms var(--ease) 120ms both;
 }
 @keyframes hero-in {
@@ -91,7 +96,7 @@
   gap: 8px;
   width: var(--composer-chat-w);
   max-width: calc(100% - 48px);
-  margin: 26px 0 0;
+  margin: 20px 0 0;
 }
 .suggestion-chip {
   display: inline-flex;
@@ -382,11 +387,13 @@
 
 .composer {
   box-shadow:
+    var(--edge-light),
     0 0 0 1px var(--border-soft),
     0 10px 30px -18px rgb(0 0 0 / 0.55);
 }
 .composer:focus-within {
   box-shadow:
+    var(--edge-light),
     0 0 0 1px var(--border-strong),
     0 10px 30px -18px rgb(0 0 0 / 0.55);
 }
@@ -494,6 +501,266 @@
 }
 .composer__meta > .composer-pill {
   font-size: var(--fs-base);
+}
+
+/* ---- The box and its tray ----
+   The box: the text, then + at one end and the mic and send at the other.
+   Under it, a little narrower and tucked behind its bottom edge, a tray of
+   what the message goes out with: what Eaon may do, the project and its
+   branch, what's switched on, and the model. The same on the start page and
+   in a conversation (Composer.tsx). */
+.composer-stack {
+  container-type: inline-size;
+}
+.composer[data-variant] {
+  padding: 0 10px 10px;
+  border-radius: 20px;
+}
+.composer[data-variant] .composer__input {
+  min-height: 50px;
+  padding: 15px 8px 4px;
+}
+.composer[data-variant='home'] .composer__input {
+  min-height: 62px;
+}
+.composer[data-variant] .composer__toolbar {
+  height: 38px;
+  gap: 6px;
+}
+/* + an outlined disc, the mic a bare icon, send the solid disc. */
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon) {
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon):hover,
+.composer[data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon)[data-open='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* A conversation outside a project: no tray. What Eaon may do is an icon by
+   +, the model and how full the context is sit by the mic. */
+.composer__toolbar > .composer__round.composer-permission-icon {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+  color: var(--text-3);
+}
+.composer__toolbar > .composer__round.composer-permission-icon:hover,
+.composer__toolbar > .composer__round.composer-permission-icon[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer__toolbar > .composer__round.composer-permission-icon[data-tone='warn'] {
+  color: var(--warn);
+}
+.composer[data-compact] .composer__toolbar > .chip--model {
+  height: 32px;
+  min-width: 52px;
+  padding: 0 8px 0 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.composer[data-compact] .composer__toolbar > .chip--model:hover,
+.composer[data-compact] .composer__toolbar > .chip--model[data-open='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer[data-compact] .chip--model .chip__effort,
+.composer[data-compact] .chip--model .chip__chevron {
+  color: var(--text-3);
+}
+/* The window size is the context meter's to show, beside it. */
+.composer[data-compact] .chip--model .chip__window {
+  display: none;
+}
+.composer[data-compact] .composer__toolbar > .context-meter {
+  margin: 0 4px 0 -2px;
+}
+.composer[data-variant] .composer__toolbar > .composer__mic {
+  width: 34px;
+  height: 34px;
+  background: transparent;
+}
+.composer[data-variant] .composer__toolbar > .composer__mic:hover {
+  background: var(--hover);
+}
+.composer[data-variant] .composer__toolbar > .send {
+  width: 36px;
+  height: 36px;
+  margin-left: 0;
+}
+
+/* In a conversation the box is one slim pill (Composer.tsx): + at one end, the
+   mic and send at the other, the text between them, and what it goes out with
+   on a plain line under it rather than a tray. Once the text wraps it takes
+   the whole width, the buttons a row under it. */
+.composer[data-variant='chat'] {
+  padding: 4px;
+  border-radius: 22px;
+}
+.composer[data-variant='chat'] .composer__row {
+  align-items: flex-end;
+}
+.composer[data-variant='chat'] .composer__row .composer__input {
+  min-height: 32px;
+  padding: 6px 4px 5px;
+}
+.composer[data-variant='chat'] .composer__row > .composer__round,
+.composer[data-variant='chat'] .composer__row > .send {
+  width: 32px;
+  height: 32px;
+}
+.composer[data-variant='chat'] .composer__row > .composer__mic {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 1px;
+}
+.composer[data-variant='chat'][data-stacked] .composer__row .composer__input {
+  padding: 8px 10px 2px;
+}
+.composer[data-variant='chat'] + .composer__tray {
+  margin: 4px 6px 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.composer__tray {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: -18px 16px 0;
+  padding: 22px 8px 5px;
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--canvas));
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.composer__tray .composer-pill {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px 0 9px;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.composer__tray .composer-pill:hover,
+.composer__tray .composer-pill[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+/* The project and branch give way first when the tray is short of room. */
+.composer__tray .composer-pill--project,
+.composer__tray .composer-pill--branch {
+  flex-shrink: 1;
+  max-width: 220px;
+}
+.composer__tray .composer-pill--permission .composer-pill__chevron {
+  display: none;
+}
+/* In the tray the branch reads like the rest, not as code. */
+.composer__tray .composer-pill--branch .composer-pill__label {
+  font-family: inherit;
+  font-size: inherit;
+}
+.composer__tray .chip--model {
+  height: 30px;
+  min-width: 52px;
+  padding: 0 8px 0 10px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.composer__tray .chip--model .chip__effort,
+.composer__tray .chip--model .chip__window,
+.composer__tray .chip--model .chip__chevron {
+  color: var(--text-3);
+}
+.composer__tray > .context-meter {
+  margin-left: 4px;
+}
+/* The model's highest reasoning level lights up on the model button, as it
+   does in the picker's slider (ReasoningEffort.module.css): a brief flare
+   when it's chosen, then a band of light through the word every few
+   seconds, with a soft glow of the accent. */
+.chip--model .chip__effort[data-top],
+.composer__tray .chip--model .chip__effort[data-top] {
+  --lit-base: color-mix(in srgb, var(--text) 70%, transparent);
+  --lit: #ffffff;
+  --lit-glow: color-mix(in srgb, color-mix(in srgb, var(--accent) 55%, #ffffff) 40%, transparent);
+  font-weight: 600;
+  background: linear-gradient(100deg, var(--lit-base) 0%, var(--lit-base) 36%, var(--lit) 50%, var(--lit-base) 64%, var(--lit-base) 100%);
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 3px var(--lit-glow));
+  animation:
+    effort-ignite 700ms ease-out,
+    effort-lit 3.6s linear 0.7s infinite;
+}
+[data-theme='light'] .chip--model .chip__effort[data-top],
+[data-theme='light'] .composer__tray .chip--model .chip__effort[data-top] {
+  --lit-base: var(--text-2);
+  --lit: color-mix(in srgb, var(--accent) 85%, #ffffff);
+  --lit-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+@keyframes effort-ignite {
+  0% {
+    opacity: 0.3;
+    filter: blur(1.5px) drop-shadow(0 0 0 transparent);
+  }
+  40% {
+    opacity: 1;
+    filter: blur(0) drop-shadow(0 0 7px var(--lit-glow));
+  }
+}
+@keyframes effort-lit {
+  0% {
+    background-position: 130% 0;
+  }
+  55%,
+  100% {
+    background-position: -30% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip--model .chip__effort[data-top] {
+    animation: none;
+  }
+}
+
+/* Nothing connected yet: the model button asks for one, in the accent, quietly. */
+.chip--model.chip--connect,
+.composer__tray .chip--model.chip--connect,
+.composer[data-compact] .composer__toolbar > .chip--model.chip--connect {
+  gap: 6px;
+  padding: 0 12px 0 10px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+.chip--model.chip--connect:hover,
+.composer__tray .chip--model.chip--connect:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+}
+
+/* A narrow box: the tray keeps its icons and drops the words before the model's. */
+@container (max-width: 560px) {
+  .composer__tray .composer-pill--permission .composer-pill__label,
+  .composer__tray .composer-pill--branch .composer-pill__label {
+    display: none;
+  }
+  .composer__tray .composer-pill--permission,
+  .composer__tray .composer-pill--branch {
+    padding: 0 8px;
+  }
 }
 
 /* Over the box: the project, and the chat's changes. */
@@ -739,9 +1006,19 @@
      by as much, so the first message still starts where it did. */
   margin-top: var(--sidebar-gap);
   padding: calc(24px - var(--sidebar-gap)) 0 24px;
-  /* The reply fades into the composer rather than being cut off by it. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  /* The reply fades into the composer rather than being cut off by it: a
+     short fade at the end, a longer one (with the blur over it, below) once
+     there is more beyond the edge. */
+  --veil-foot: 0;
+  --foot-len: calc(24px + 32px * var(--veil-foot));
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--foot-len)), rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--foot-len)), rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45), transparent);
+  transition: --veil-foot 320ms cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+@property --veil-foot {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
 }
 
 .thread__inner {
@@ -943,7 +1220,7 @@
      its own edge, and right at the top of the window that read as a dark
      rim. Offscreen, the rim never shows. */
   --veil-over: 40px;
-  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 40px + var(--veil-over));
+  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 64px + var(--veil-over));
   position: absolute;
   top: calc(-1 * var(--veil-over));
   right: 0;
@@ -1003,13 +1280,51 @@ body[data-see-through='on'] .scroll-veil {
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) .scroll-veil {
   display: none;
 }
+/* Under a translucent window the foot fades further instead of blurring. */
+body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) .thread {
+  --foot-len: calc(24px + 48px * var(--veil-foot));
+}
+
+/* The foot's veil: the top's, turned over, standing on the message box's dock
+   over the last of the thread. Built as the reader scrolls up from the end. */
+.scroll-veil--foot {
+  --veil-h: 76px;
+  top: auto;
+  bottom: 100%;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--canvas) calc(55% * var(--veil)), transparent) 0%,
+    color-mix(in srgb, var(--canvas) calc(22% * var(--veil)), transparent) 45%,
+    transparent 100%
+  );
+}
+.scroll-veil--foot > span {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+}
+.scroll-veil--foot > span:last-child {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+  mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+}
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   .main:has(> .chat-header--float)
   > .thread {
   /* Hidden down to the bar's foot, then shown along a smoothstep curve so the
      fade has no line where it starts or ends. Scaled by --veil, so nothing
      fades until the thread scrolls. */
-  --fade-len: 48px;
+  --fade-len: 72px;
   --thread-mask: linear-gradient(
     to bottom,
     rgb(0 0 0 / calc(1 - var(--veil))) var(--veil-fade-from),
@@ -1021,7 +1336,8 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
     rgb(0 0 0 / calc(1 - 0.156 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.75),
     rgb(0 0 0 / calc(1 - 0.043 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.875),
     #000 calc(var(--veil-fade-from) + var(--fade-len)),
-    #000 calc(100% - 24px),
+    #000 calc(100% - var(--foot-len)),
+    rgb(0 0 0 / 0.55) calc(100% - var(--foot-len) * 0.45),
     transparent
   );
   -webkit-mask-image: var(--thread-mask);
@@ -1177,4 +1493,58 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   margin: 0 -2px;
   color: var(--text-4, var(--text-3));
   font-size: var(--fs-base);
+}
+
+/* ---- The box gliding between the start page and a conversation (ChatView) ----
+   For the length of the switch the box is its own layer, which the browser
+   moves and resizes from where it was to where it lands; the rest of the
+   page crossfades under it. Only then, so it never lifts out of anything
+   else that uses a view transition (the theme reveal). */
+:root[data-composer-glide] .composer-stack {
+  view-transition-name: composer;
+}
+/* The model and what Eaon may do fly on their own, from the tray into the box (and back). */
+:root[data-composer-glide] .composer-stack .chip--model {
+  view-transition-name: composer-model;
+}
+:root[data-composer-glide] .composer-stack :is(.composer-pill--permission, .composer-permission-icon) {
+  view-transition-name: composer-permission;
+}
+:root[data-composer-glide]::view-transition-group(composer),
+:root[data-composer-glide]::view-transition-group(composer-model),
+:root[data-composer-glide]::view-transition-group(composer-permission) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+:root[data-composer-glide]::view-transition-old(composer-model),
+:root[data-composer-glide]::view-transition-new(composer-model),
+:root[data-composer-glide]::view-transition-old(composer-permission),
+:root[data-composer-glide]::view-transition-new(composer-permission) {
+  height: 100%;
+  object-fit: none;
+  object-position: left center;
+  animation-duration: 300ms;
+}
+:root[data-composer-glide]::view-transition-old(composer),
+:root[data-composer-glide]::view-transition-new(composer) {
+  /* The two boxes differ in height; each keeps its shape and the taller one is cut, not squashed. */
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  animation-duration: 260ms;
+}
+:root[data-composer-glide]::view-transition-old(root),
+:root[data-composer-glide]::view-transition-new(root) {
+  animation-duration: 280ms;
+}
+
+/* Adaptive's pick for a reply, before its tokens. */
+.routed-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chip--model .chip__adaptive {
+  flex: none;
+  color: var(--text-2);
 }

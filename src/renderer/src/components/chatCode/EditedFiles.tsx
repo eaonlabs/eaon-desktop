@@ -37,6 +37,8 @@ interface EditedFile {
 
 /** Folders start open while the tree is this small; a bigger one starts folded. */
 const OPEN_UP_TO = 8
+/** Rows shown before "Show more": a reply that merged a branch can change hundreds of files. */
+const ROWS_SHOWN = 12
 
 /** Which reply of the chat this is, counting from 1: the turn the Changes pane scopes to. */
 function turnOf(messageId: string): number | null {
@@ -92,7 +94,11 @@ export const EditedFiles = memo(function EditedFiles({
   }, [disk, changes, folder, root])
   const tree = useMemo(() => fileTree(files), [files])
   const hasFolders = tree.some((n) => !n.file)
-  const [allOpen, setAllOpen] = useState(() => files.length <= OPEN_UP_TO)
+  // Decided by the size of the list until the reader chooses: the files the
+  // checkpoints saw arrive after the card first shows, often many more of them.
+  const [openChoice, setAllOpen] = useState<boolean | null>(null)
+  const allOpen = openChoice ?? files.length <= OPEN_UP_TO
+  const [showAll, setShowAll] = useState(false)
   // A folder the reader opened or closed by itself, until the next open-all or fold-all.
   const [chosen, setChosen] = useState<Record<string, boolean>>({})
   const [inline, setInline] = useState<string | null>(null)
@@ -156,7 +162,7 @@ export const EditedFiles = memo(function EditedFiles({
             </span>
             <span className="cfiles__name cfiles__name--file">{node.name}</span>
             {file.created && <span className="cfiles__new">New</span>}
-            {file.deleted && <span className="cfiles__new">Deleted</span>}
+            {file.deleted && <span className="cfiles__new cfiles__new--gone">Deleted</span>}
             <DiffStat added={file.added} removed={file.removed} className="cfiles__stat" />
           </button>
           {inline === file.path && (
@@ -169,6 +175,7 @@ export const EditedFiles = memo(function EditedFiles({
     }
   }
   walk(tree, 0)
+  const hidden = showAll ? 0 : Math.max(0, rows.length - ROWS_SHOWN)
 
   return (
     <div className="cfiles" data-undone={undone || undefined}>
@@ -245,7 +252,14 @@ export const EditedFiles = memo(function EditedFiles({
           <span>Changes undone. The files are back as they were before this reply.</span>
         </div>
       )}
-      <div className="cfiles__body">{rows}</div>
+      <div className="cfiles__body">
+        {hidden > 0 ? rows.slice(0, ROWS_SHOWN) : rows}
+        {(hidden > 0 || (showAll && rows.length > ROWS_SHOWN)) && (
+          <button type="button" className="cfiles__row cfiles__more" onClick={() => setShowAll(!showAll)}>
+            {hidden > 0 ? `Show ${hidden} more` : 'Show less'}
+          </button>
+        )}
+      </div>
     </div>
   )
 })

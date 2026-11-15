@@ -14,6 +14,7 @@ import {
   needsConfirmation,
   normalizeComputerInput,
   parseAction,
+  irreversibleReason,
   riskReason,
   type Action
 } from './actions'
@@ -672,8 +673,9 @@ export const computerTool: AgentTool = {
   // Every check sees the call as it will run, aliases resolved.
   mutating: (input) => !changesNothing(normalizeComputerInput(input)),
   risky: (input) => riskReason(normalizeComputerInput(input), process.platform) !== null,
-  // Destructive key combos and destructive commands typed into a terminal.
-  catastrophic: (input) => riskReason(normalizeComputerInput(input), process.platform) !== null,
+  // What can't be taken back (emptying the Trash, logging out, sudo typed into a terminal):
+  // asks even with Full access. The rest of what's risky asks only in Ask and Auto.
+  catastrophic: (input) => irreversibleReason(normalizeComputerInput(input), process.platform) !== null,
   describe: (input) => describeAction(normalizeComputerInput(input)),
   run: (input, ctx) => run(normalizeComputerInput(input), ctx)
 }

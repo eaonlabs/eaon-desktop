@@ -56,21 +56,35 @@ body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
   /* Read from the theme's own surfaces before they turn translucent below.
      How much of the picture each lets through, and how soft, follows
      Appearance → Glass (--glass-clear-k and --glass-blur-k, tokens.css). */
-  --glass: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 48% * var(--glass-clear-k), 100%), transparent);
-  --glass-strong: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 38% * var(--glass-clear-k), 100%), transparent);
-  /* What floats over everything — dialogs, menus, cards, toasts — stays
-     near opaque: it is read, not looked through. */
-  --glass-float: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 16% * var(--glass-clear-k), 100%), transparent);
+  /* Glass is tinted from the page's colour lifted a little toward its text:
+     on a near-black theme (Vantablack) the canvas itself made every panel a
+     black smear, where glass should read as a smoky pane with depth. */
+  --glass-base: color-mix(in srgb, var(--canvas), var(--fg) 7%);
+  --glass: color-mix(in srgb, var(--glass-base) clamp(0%, 100% - 50% * var(--glass-clear-k), 100%), transparent);
+  --glass-strong: color-mix(in srgb, var(--glass-base) clamp(0%, 100% - 42% * var(--glass-clear-k), 100%), transparent);
+  /* What floats over everything — dialogs, menus, toasts — lets less
+     through: it is read, not looked through. The heavier blur keeps the
+     picture under it to soft colour. */
+  --glass-float: color-mix(in srgb, var(--glass-base) clamp(0%, 100% - 26% * var(--glass-clear-k), 100%), transparent);
   /* Lists and cards on a page, fields, and the boxes code sits in. */
-  --glass-card: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 42% * var(--glass-clear-k), 100%), transparent);
-  --glass-field: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 50% * var(--glass-clear-k), 100%), transparent);
-  --glass-code: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 45% * var(--glass-clear-k), 100%), transparent);
+  --glass-card: color-mix(in srgb, var(--glass-base) clamp(0%, 100% - 42% * var(--glass-clear-k), 100%), transparent);
+  --glass-field: color-mix(in srgb, var(--glass-base) clamp(0%, 100% - 50% * var(--glass-clear-k), 100%), transparent);
+  --glass-code: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 40% * var(--glass-clear-k), 100%), transparent);
+  /* The pane's edges: a hairline all round, light catching the top rim, and
+     for what floats a shadow underneath. These are what make glass read as a
+     pane rather than a smudge. */
+  --glass-edge: color-mix(in srgb, #fff 11%, transparent);
+  --glass-rim: color-mix(in srgb, #fff 16%, transparent);
+  --glass-drop: 0 16px 40px -14px rgb(0 0 0 / 0.55), 0 3px 10px -4px rgb(0 0 0 / 0.3);
+  /* Frost is grain as well as blur: a faint, fine noise over the pane, which
+     also keeps a smooth blurred gradient from banding. */
+  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.09 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   /* Blur alone only softens the picture and greys it under the panel's tone.
      What makes glass look like glass (the lift other apps' vibrancy has) is
      the backdrop pushed brighter and more saturated before that tone goes on. */
-  --glass-lift: 1.2;
-  --glass-blur: blur(calc(32px * var(--glass-blur-k))) saturate(200%) brightness(var(--glass-lift));
-  --glass-blur-float: blur(calc(36px * var(--glass-blur-k))) saturate(210%) brightness(var(--glass-lift));
+  --glass-lift: 1.15;
+  --glass-blur: blur(calc(36px * var(--glass-blur-k))) saturate(190%) brightness(var(--glass-lift));
+  --glass-blur-float: blur(calc(48px * var(--glass-blur-k))) saturate(200%) brightness(var(--glass-lift));
   background: transparent;
 
   /* The app's solid surfaces become tints of the text colour, so a selected
@@ -125,6 +139,13 @@ body[data-see-through='on'] :is(pre, code, kbd, .xterm, .cm-editor, .monaco-edit
   --glass-lift: 1.06;
   --sunken: color-mix(in srgb, #fff 40%, transparent);
   --halo-split: 0.9;
+  /* Light glass is milky: the page's colour lifted toward white, a darker
+     hairline, a bright rim, a lighter shadow and darker grain. */
+  --glass-base: color-mix(in srgb, var(--canvas), #fff 35%);
+  --glass-edge: color-mix(in srgb, #000 9%, transparent);
+  --glass-rim: color-mix(in srgb, #fff 80%, transparent);
+  --glass-drop: 0 16px 40px -16px rgb(0 0 0 / 0.22), 0 3px 10px -4px rgb(0 0 0 / 0.1);
+  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.07 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Text that sits straight on the picture — page titles, section labels,
@@ -244,6 +265,7 @@ body[data-see-through='on'] .queued,
 body[data-see-through='on'] .elsewhere-ask,
 body[data-see-through='on'] .approval[data-variant='dock'],
 body[data-see-through='on'] .composer__above .composer-pill,
+body[data-see-through='on'] .composer__tray,
 body[data-see-through='on'] .suggestion-chip {
   background: var(--glass-strong);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -377,7 +399,50 @@ body[data-see-through='on'] .ask-card {
   background: var(--glass-float);
 }
 
-/* A faint sheen across the top of the big panels, as light catches the edge of glass. */
-body[data-see-through='on'] :is(.sidebar__panel, .settings__nav-panel, .dock, .composer) {
-  background-image: linear-gradient(180deg, color-mix(in srgb, #fff 9%, transparent), transparent 38%);
+/* ---- the glass itself ----
+   Every frosted pane gets the same finish: grain over its tint, a hairline
+   edge in place of its border, and light along the top rim. What floats
+   over the page (the sidebars, the message box, menus, dialogs) also casts
+   a shadow; what sits in the page (cards, code) doesn't. */
+body[data-see-through='on']
+  :is(
+    .sidebar__panel, .settings__nav-panel, .composer, .queued, .elsewhere-ask, .mode-switch, .thread-jump,
+    .menu, .modal, .approval, .usage-card, .update-toast, .peek, .star-card, .usage-pill, .suggestion-chip,
+    .composer__above .composer-pill
+  ) {
+  background-image: var(--glass-grain);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 0 0 0.5px var(--glass-edge),
+    var(--glass-drop);
+}
+body[data-see-through='on'] .composer:focus-within {
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 0 0 1px var(--border-strong),
+    var(--glass-drop);
+}
+/* Small controls in a bar: the rim and hairline without a shadow to float them off it. */
+body[data-see-through='on'] :is(.mode-switch, .suggestion-chip, .usage-pill, .composer__above .composer-pill, .thread-jump) {
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 0 0 0.5px var(--glass-edge);
+}
+body[data-see-through='on']
+  :is(
+    .code-block, .cfiles, .step-card__box, .card, .plugin-list, .skills__list, .worker-card, .model-card, .provider-detail__section,
+    .usage-hero, .usage-tile, .usage-chart, .usage-table, .template-card, .credits-hero, .model-notice, .mlib-card, .plan-card
+  ) {
+  background-image: var(--glass-grain);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-rim) 60%, transparent),
+    0 0 0 0.5px var(--glass-edge);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body[data-see-through='on'] {
+    --glass-grain: none;
+  }
 }

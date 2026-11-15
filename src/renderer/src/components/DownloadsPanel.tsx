@@ -103,15 +103,14 @@ function DownloadsPanel({
 
   return (
     <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-start" width={320} className="downloads-panel">
-      <div className="menu__label">Downloads</div>
+      <div className="downloads-head">Downloads</div>
       {empty ? (
         <div className="downloads-empty">
-          <Download size={26} strokeWidth={1.6} />
-          <p>
-            Your download progress
-            <br />
-            will appear here
-          </p>
+          <span className="downloads-empty__icon">
+            <Download size={16} strokeWidth={1.6} />
+          </span>
+          <span className="downloads-empty__title">Nothing downloading</span>
+          <span className="downloads-empty__hint">Models you download and app updates show their progress here.</span>
         </div>
       ) : (
         <div className="downloads-list">

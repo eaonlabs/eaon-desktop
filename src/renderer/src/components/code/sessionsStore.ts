@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { create } from 'zustand'
 import { groupSessions, keepOrder, splitArchived, type AdeConversation, type AdeSession, type NewSessionExtras, type NewSessionRequest, type ParallelRun, type ProjectGroup } from '@shared/adeSessions'
 import { copiedSummary } from '@shared/worktreeCopy'
@@ -8,6 +9,7 @@ import { useCode } from './codeStore'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
 import { notify } from '../Notice'
+import { shouldSleep, type PaneLife } from '@shared/adeSleep'
 
 /**
  * The ADE's sessions in the window (see `shared/adeSessions.ts`). The session
@@ -56,6 +58,15 @@ interface SessionsState {
   archive: (session: AdeSession) => Promise<string | null>
   /** Brings an archived session back and shows it, its terminals starting again on their conversations. An error, or null. */
   restore: (session: AdeSession) => Promise<string | null>
+  /**
+   * Puts a session to sleep (shared/adeSleep.ts): its terminals end and give
+   * their memory back, each pane keeping its place and conversation, and it
+   * stays in the list. Showing it starts them again. The session open in the
+   * ADE is left first, for one that's awake, as showing it would wake it.
+   */
+  sleep: (session: AdeSession) => Promise<void>
+  /** Every session but the one open, asleep; how many were. */
+  sleepOthers: () => Promise<number>
   /** Takes a project and all its sessions off the sidebar; nothing on disk is deleted. An error, or null. */
   removeProject: (project: string) => Promise<string | null>
   loadConversations: (cwd: string) => Promise<void>
@@ -238,6 +249,31 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     return null
   },
 
+  async sleep(session) {
+    await useTerminals.getState().load()
+    const panes = useTerminals.getState().layout[session.cwd] ?? []
+    if (panes.length === 0) return
+    const held: Record<string, string | null> = await window.api.terminals.conversations(panes.map((p) => p.id)).catch(() => ({}))
+    if (useCode.getState().cwd === session.cwd) {
+      const awake = splitArchived(get().sessions).live.find((x) => x.id !== session.id && (useTerminals.getState().layout[x.cwd] ?? []).some((p) => terminals.infoOf(p.id).known))
+      if (awake) await get().open(awake)
+      else useCode.setState({ cwd: null })
+    }
+    useTerminals.getState().park(session.cwd, held)
+  },
+
+  async sleepOthers() {
+    const current = useCode.getState().cwd
+    let slept = 0
+    for (const session of splitArchived(get().sessions).live) {
+      if (session.cwd === current) continue
+      if (!(useTerminals.getState().layout[session.cwd] ?? []).some((p) => terminals.infoOf(p.id).known)) continue
+      await get().sleep(session)
+      slept++
+    }
+    return slept
+  },
+
   async restore(session) {
     let restored: AdeSession | null
     try {
@@ -388,6 +424,38 @@ export function orderedGroups(sessions: AdeSession[], recents: string[]): Projec
 }
 
 /** "New session" from the sidebar or the collapsed rail: the dialog, for the project on screen. */
+/** A pane as the sleep rules see it (shared/adeSleep.ts). */
+export function paneLife(paneId: string): PaneLife {
+  const info = terminals.infoOf(paneId)
+  return { known: info.known, status: info.status, lastData: info.lastData, serving: terminals.devServers([paneId]).length > 0 }
+}
+
+/** How often auto-sleep looks for sessions gone quiet. */
+const AUTO_SLEEP_EVERY_MS = 60_000
+
+/**
+ * Settings → ADE → "Sleep idle sessions": once a minute, any session that has
+ * been quiet that long goes to sleep (never the open one, one with an agent
+ * working, or one serving a local site). Mounted once, for the whole window.
+ */
+export function useAdeAutoSleep(): void {
+  const minutes = useApp((s) => s.settings?.ade.autoSleepMinutes ?? 0)
+  useEffect(() => {
+    if (!minutes) return
+    const look = (): void => {
+      const { sessions, sleep } = useAdeSessions.getState()
+      const current = useCode.getState().cwd
+      const now = Date.now()
+      for (const session of splitArchived(sessions).live) {
+        const panes = useTerminals.getState().layout[session.cwd] ?? []
+        if (shouldSleep(panes.map((p) => paneLife(p.id)), { current: session.cwd === current, minutes, now })) void sleep(session)
+      }
+    }
+    const timer = window.setInterval(look, AUTO_SLEEP_EVERY_MS)
+    return () => window.clearInterval(timer)
+  }, [minutes])
+}
+
 export async function openNewSession(): Promise<void> {
   await useCode.getState().init()
   if (!useAdeSessions.getState().loaded) await useAdeSessions.getState().load()

@@ -31,8 +31,10 @@ export interface AdeSession {
   /** Eaon made `cwd` as a git worktree for this session (removing the session can remove it). */
   worktree: boolean
   createdAt: number
-  /** Brought in from Claude Code or Codex (Settings → ADE). */
+  /** Brought in from Claude Code or Codex, or from another app (Settings → ADE). */
   imported?: boolean
+  /** The app it was brought in from (Conductor, Orca…), by name; absent for Claude Code's and Codex's own. */
+  importedFrom?: string
   /** `cwd` was not there when last looked at (deleted or on a disk that isn't mounted). */
   missing?: boolean
   /** On another machine over SSH (`cwd` is `ssh://…`, see adeRemote.ts): the host as the picker names it. */

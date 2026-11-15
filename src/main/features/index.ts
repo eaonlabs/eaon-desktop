@@ -40,6 +40,7 @@ import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
 import { importAppsFeature } from './importApps'
+import { agentAppsFeature } from './agentApps'
 import { providerLogosFeature } from './providerLogos'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
@@ -112,6 +113,8 @@ export const FEATURES: Feature[] = [
   connectAppsFeature,
   linkAccountsFeature,
   importAppsFeature,
+  // Brings other apps' sessions into the ADE's.
+  agentAppsFeature,
   providerLogosFeature,
   usageFeature,
   starRepoFeature,

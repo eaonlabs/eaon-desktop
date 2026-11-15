@@ -1,6 +1,6 @@
-import { isRiskyCommand } from '../../agent/approvals'
+import { isCatastrophicCommand, isRiskyCommand } from '../../agent/approvals'
 import type { MouseButton } from './input'
-import { dangerousCombo, parseCombo, type Combo } from './keys'
+import { dangerousCombo, irreversibleCombo, parseCombo, type Combo } from './keys'
 
 /**
  * The `computer` tool's input, parsed and validated. Pure — no Electron, no
@@ -288,6 +288,29 @@ export function riskReason(input: Record<string, unknown>, platform: NodeJS.Plat
   }
   if (action === 'type' && typeof input.text === 'string' && isRiskyCommand(input.text)) {
     return 'types what looks like a destructive command'
+  }
+  return null
+}
+
+/**
+ * Why a call can't be taken back, so it asks even with Full access, or null:
+ * the shortcuts that empty the Trash, delete past it or log out, and typing a
+ * command that run_command would also always ask about (sudo, erasing a
+ * disk, force-pushing). Narrower than riskReason, which Auto still asks about.
+ */
+export function irreversibleReason(input: Record<string, unknown>, platform: NodeJS.Platform): string | null {
+  const action = actionName(input)
+  const os = platform === 'darwin' || platform === 'win32' ? platform : 'linux'
+  if (action === 'key') {
+    const keys = typeof input.keys === 'string' ? input.keys : typeof input.key === 'string' ? input.key : ''
+    try {
+      return irreversibleCombo(parseCombo(keys), os)
+    } catch {
+      return null
+    }
+  }
+  if (action === 'type' && typeof input.text === 'string' && isCatastrophicCommand(input.text)) {
+    return 'types a command that can’t be undone'
   }
   return null
 }

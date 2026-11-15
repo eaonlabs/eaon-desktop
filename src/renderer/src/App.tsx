@@ -24,6 +24,7 @@ import { StoreNotice } from './components/StoreNotice'
 import { ComputerLeaseIndicator } from './components/computer/ComputerLeaseIndicator'
 import { Notice } from './components/Notice'
 import { CodeView } from './components/code/CodeView'
+import { useAdeAutoSleep } from './components/code/sessionsStore'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
 import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
@@ -58,6 +59,7 @@ import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
   const { on: tradingOn } = useTradingOn()
+  useAdeAutoSleep()
   const { ready, initError, view, settingsPage, activeChatId, browserOpen, init, setView, setSettingsPage } = useApp(
     useShallow((s) => ({
       ready: s.ready,

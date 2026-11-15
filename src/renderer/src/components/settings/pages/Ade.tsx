@@ -12,11 +12,69 @@ import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../cod
 import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 import { HoldToTalkRows } from './HoldToTalk'
+import { AUTO_SLEEP_CHOICES, autoSleepLabel } from '@shared/adeSleep'
 import { WorktreeCopySection } from './AdeWorktreeCopy'
+import { importedLine, useAgentAppsImport } from '../../AgentAppsImport'
+import { ImportSources } from '../../ImportSources'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 
+
+/**
+ * From other apps: the sessions and project scripts Conductor, Orca,
+ * Paradev (Superset), Claude Squad, T3 Code, Synara and Crystal have on
+ * this computer, picked and brought in (components/AgentAppsImport.tsx).
+ */
+function OtherApps({ onOpen }: { onOpen: () => void }): JSX.Element {
+  const state = useAgentAppsImport()
+  const { apps, count, working, done, error } = state
+  return (
+    <Section label="From other apps">
+      <Card>
+        <Row
+          title="Bring your sessions over"
+          description="Your sessions and their chats from Conductor, Orca, Paradev, Claude Squad, T3 Code, Synara and Crystal, picked up where you left off. Nothing in those apps changes."
+        >
+          <button type="button" className="btn btn--sm" onClick={state.rescan} disabled={apps === null || working}>
+            {apps === null ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : <FolderSearch size={13} strokeWidth={1.9} />}
+            {apps === null ? 'Looking…' : 'Look again'}
+          </button>
+        </Row>
+        <div className="ade-apps">
+          <ImportSources work={state} />
+        </div>
+        {error && (
+          <div className="row">
+            <div className="row__body">
+              <div className="row__desc ade-import__error" role="alert">
+                {error}
+              </div>
+            </div>
+          </div>
+        )}
+        {(state.total > 0 || done) && (
+          <div className="ade-import__foot ade-apps__foot">
+            {done && (
+              <span className="ade-import__done" role="status">
+                {importedLine(done)}
+                {done.sessions > 0 && (
+                  <button type="button" className="ade-import__toggle" onClick={onOpen}>
+                    Open the ADE
+                  </button>
+                )}
+              </span>
+            )}
+            <button type="button" className="btn btn--primary btn--sm" disabled={count === 0 || working} onClick={() => void state.run()}>
+              <Download size={13} strokeWidth={2} />
+              {working ? 'Importing…' : 'Import'}
+            </button>
+          </div>
+        )}
+      </Card>
+    </Section>
+  )
+}
 
 /**
  * Settings → ADE: bringing in the sessions Claude Code and Codex already have
@@ -201,6 +259,8 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <OtherApps onOpen={openAde} />
+
       <Section label="New sessions">
         <Card>
           <Row
@@ -210,10 +270,39 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <SleepSection />
       <WorktreeCopySection />
       <DictationSection />
       <TerminalThemeSection />
     </>
+  )
+}
+
+/**
+ * Sessions asleep (shared/adeSleep.ts): what a session left running costs, and
+ * when Eaon puts one to sleep on its own. A session's menu in the sidebar
+ * puts it (or every other one) to sleep by hand.
+ */
+function SleepSection(): JSX.Element {
+  const minutes = useApp((s) => s.settings?.ade.autoSleepMinutes ?? 0)
+  const patchSettings = useApp((s) => s.patchSettings)
+  return (
+    <Section label="Memory">
+      <Card>
+        <Row
+          title="Sleep idle sessions"
+          description="A session you leave keeps its terminals and agents running. Asleep, they close and give their memory back; open the session and they start again, Claude Code and Codex on the same conversations. Never the session that’s open, one with an agent working, or one running a local server."
+        >
+          <Select
+            value={String(minutes)}
+            options={AUTO_SLEEP_CHOICES.map((m) => ({ value: String(m), label: autoSleepLabel(m) }))}
+            width={190}
+            onChange={(next) => void patchSettings({ ade: { autoSleepMinutes: Number(next) } })}
+          />
+        </Row>
+        <Row title="By hand" description="Right-click a session in the ADE’s sidebar: Sleep session, or Sleep other sessions. Asleep sessions show a moon." />
+      </Card>
+    </Section>
   )
 }
 

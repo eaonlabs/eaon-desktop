@@ -1255,6 +1255,14 @@ body[data-reduce-motion='on'] .ade-spinner {
 .ade-import {
   border-top: 1px solid var(--border-soft);
 }
+/* From other apps (Settings → ADE): their sessions and scripts, under the card's first row. */
+.ade-apps {
+  padding: 4px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.ade-apps__foot .ade-import__done {
+  margin-right: auto;
+}
 .ade-import__bar,
 .ade-import__foot {
   display: flex;
@@ -1982,4 +1990,20 @@ body[data-reduce-motion='on'] .ade-spinner {
   font-size: var(--fs-sm);
   color: var(--text-2);
   overflow-wrap: anywhere;
+}
+
+/* Asleep: its terminals ended to free memory (shared/adeSleep.ts); a quiet moon in place of the dot. */
+.ade-state[data-state='asleep'] {
+  display: grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  margin-left: -1px;
+  margin-right: -1px;
+  background: none;
+  color: var(--text-3);
+}
+.ade-session[data-state='asleep'] .ade-session__title {
+  color: var(--text-2);
 }

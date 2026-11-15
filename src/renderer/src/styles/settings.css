@@ -1842,13 +1842,14 @@ body[data-reduce-motion='on'] .star-card {
 
 /* Import from another app (components/ImportServers.tsx): in the setup and in Settings → MCP Servers. */
 .import {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: block;
   max-height: min(380px, 52vh);
   overflow-y: auto;
   margin: 0 -10px;
   padding: 0 10px;
+}
+.import__app + .import__app {
+  margin-top: 14px;
 }
 .import__app-name {
   margin: 0 0 4px;
@@ -1913,6 +1914,147 @@ body[data-reduce-motion='on'] .star-card {
 }
 .import__empty {
   margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+/*
+ * Import from other apps, plainly (components/ImportSources.tsx): a row per
+ * app (logo, name, what it has, a box for all of it), and under it, when
+ * Choose is open, its things by name, each with a box in the same column.
+ */
+.sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sources__app + .sources__app {
+  border-top: 1px solid var(--border-soft);
+}
+.sources__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.sources__logo {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--border-soft);
+  user-select: none;
+}
+.sources__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sources__name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.sources__summary {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.sources__choose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.sources__choose:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.sources__choose svg {
+  transition: transform var(--dur) var(--ease);
+}
+.sources__choose[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.sources__box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.sources__box:disabled {
+  cursor: default;
+}
+.sources__done {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  color: var(--diff-add-fg);
+}
+/* The app's things, indented under its name; a long list scrolls with soft edges. */
+.sources__items {
+  max-height: 224px;
+  margin: -4px 0 0;
+  padding: 0 16px 10px 64px;
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  animation: fade 180ms var(--ease);
+}
+.sources__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 0 0 10px;
+  margin-left: -10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.sources__item:hover {
+  background: var(--hover);
+}
+.sources__item[data-done] {
+  cursor: default;
+}
+.sources__item[data-done]:hover {
+  background: transparent;
+}
+.sources__item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.sources__item[data-done] .sources__item-label {
+  color: var(--text-3);
+}
+.sources__item-note {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.sources__empty {
+  margin: 0;
+  padding: 18px 16px;
+  text-align: center;
   font-size: var(--fs-sm);
   color: var(--text-3);
 }

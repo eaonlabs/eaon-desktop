@@ -30,7 +30,7 @@ test('the pages and rows people look for are there', () => {
   assert.ok(SETTINGS_PAGES.some((page) => page.id === 'appearance' && page.label === 'Appearance'))
   assert.ok(SETTINGS_PAGES.some((page) => page.id === 'payments' && page.parent === 'workers'), 'a Workers tab is listed with its page')
   assert.ok(SETTINGS_ROWS.some((row) => row.page === 'appearance' && row.title === 'Font smoothing' && /anti-aliasing/.test(row.description)))
-  assert.ok(SETTINGS_ROWS.some((row) => row.page === 'general' && row.title === 'Suggested prompts' && row.section === 'General'))
+  assert.ok(SETTINGS_ROWS.some((row) => row.page === 'general' && row.title === 'Suggested prompts' && row.section === 'Chat'))
   assert.ok(SETTINGS_ROWS.some((row) => row.page === 'email' && row.title === 'Tell me about new mail'), 'a row on a Workers tab is on that tab’s page')
 })
 

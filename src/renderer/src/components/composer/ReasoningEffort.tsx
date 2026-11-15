@@ -168,6 +168,88 @@ function shellPath(cx: number, open: number, plateauW: number) {
 }
 
 
+/** Motion is off: the system setting or Eaon's own (Settings → Appearance). */
+function stillMotion() {
+  return (
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+    document.body.dataset.reduceMotion === "on"
+  );
+}
+
+/** The dot grid's pitch and each dot's radius, in track units. */
+const PITCH = 4;
+const DOT = 0.8;
+/** The dots fill in from the left this fast when the top level is reached. */
+const FILL_IN_S = 0.45;
+/** A wave crosses toward the thumb every this often, taking this long. */
+const WAVE_EVERY_S = 3;
+const WAVE_TAKES_S = 2;
+
+/**
+ * The fill at the top level: Eaon's dot matrix (the sidebar's status dots,
+ * the home page's field) laid over the accent, faint, with a slow wave of
+ * brighter dots travelling toward the thumb every few seconds and a few
+ * single dots lighting up in between, as if something were being thought
+ * through. Reaching the level fills the dots in from the left. Drawn on a
+ * canvas the width of the whole track, clipped by the fill, at about 30
+ * frames a second and only while the level is chosen. With motion off the
+ * dots are drawn once, still.
+ */
+function Overdrive() {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = TRACK * dpr;
+    canvas.height = HEIGHT * dpr;
+    ctx.scale(dpr, dpr);
+    const still = stillMotion();
+    const cols = Math.floor(TRACK / PITCH);
+    const rows = Math.floor(HEIGHT / PITCH);
+    // Each dot's own moment to light up, fixed for the dot so it doesn't flicker at random.
+    const phase = Array.from({ length: cols * rows }, (_, i) => (Math.sin(i * 12.9898) * 43758.5453) % 1);
+    const born = performance.now();
+    let raf = 0;
+    let last = -Infinity;
+
+    const draw = (now: number) => {
+      if (!still) raf = requestAnimationFrame(draw);
+      if (now - last < 33) return;
+      last = now;
+      const t = still ? 0 : (now - born) / 1000;
+      const filled = still ? cols : (Math.min(1, t / FILL_IN_S) * cols);
+      const cycle = t % WAVE_EVERY_S;
+      const wave = cycle < WAVE_TAKES_S ? (cycle / WAVE_TAKES_S) * (TRACK + 60) - 30 : -1e3;
+      ctx.clearRect(0, 0, TRACK, HEIGHT);
+      ctx.fillStyle = "#ffffff";
+      for (let c = 0; c < cols; c++) {
+        if (c > filled) break;
+        const x = c * PITCH + PITCH / 2;
+        const swell = Math.exp(-(((x - wave) / 16) ** 2));
+        for (let r = 0; r < rows; r++) {
+          const y = r * PITCH + PITCH / 2;
+          const p = Math.abs(phase[c * rows + r]);
+          // A dot now and then, each at its own time, slowly up and down.
+          const glow = still ? 0 : Math.max(0, Math.sin(t * 0.8 + p * Math.PI * 2)) ** 14 * 0.32;
+          const alpha = 0.1 + swell * 0.42 + glow;
+          ctx.globalAlpha = Math.min(0.62, alpha);
+          ctx.beginPath();
+          ctx.arc(x, y, DOT + swell * 0.35, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <canvas ref={ref} className={s.overdrive} aria-hidden />;
+}
+
 /**
  * A stepped slider for reasoning effort. `labels` are the levels the current
  * model takes, lowest first (two or more); `value` is the index of the chosen
@@ -379,6 +461,8 @@ export function ReasoningEffort({
   const fillW = Math.min(TRACK, thumbRight + EDGE_PAD);
   const active = Math.round(display);
   const level = labels[active];
+  // The highest level the model takes (Extra high or Max): the fill shows its dot matrix.
+  const overdrive = count >= 2 && active === count - 1;
   // 4.8 to 9.6px, rising with the level, however many levels there are.
   const tickHeights = labels.map((_, i) => Math.round((4.8 + (4.8 * i) / (count - 1)) * 100) / 100);
   const plateau = shellGeom(center, plateauW);
@@ -398,6 +482,7 @@ export function ReasoningEffort({
       ref={rootRef}
       className={s.root}
       data-dragging={dragging ? "true" : "false"}
+      data-overdrive={overdrive ? "true" : undefined}
     >
       <svg
         className={s.shell}
@@ -458,7 +543,9 @@ export function ReasoningEffort({
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
       >
-        <div className={s.fill} style={{ width: fillW }} />
+        <div className={s.fill} style={{ width: fillW }}>
+          {overdrive && <Overdrive />}
+        </div>
         <div
           className={s.thumb}
           style={{

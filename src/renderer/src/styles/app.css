@@ -162,6 +162,88 @@ a:hover {
   background: transparent;
 }
 
+/* ---- A list that scrolls: its edges fade (and soften) where there's more ----
+   An edge with more of the list beyond it fades out under a soft blur, so a
+   row cut off there reads as more to scroll to rather than as clipped. The
+   fades follow the scroll position (none at the top until it has scrolled,
+   none at the bottom once it reaches the end), and a list that fits has
+   none. The blur strips are this box's ::before and ::after, held to its
+   edges as it scrolls, so it has to be a block, not a flex or grid box. */
+.edge-fade {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--edge-top), #000 calc(100% - var(--edge-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--edge-top), #000 calc(100% - var(--edge-bottom)), transparent);
+  animation: edge-fade linear both;
+  animation-timeline: scroll(self);
+}
+.edge-fade::before,
+.edge-fade::after {
+  content: '';
+  position: sticky;
+  z-index: 2;
+  display: block;
+  height: 28px;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+}
+.edge-fade::before {
+  top: 0;
+  margin-bottom: -28px;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  opacity: var(--edge-top-shown);
+}
+.edge-fade::after {
+  bottom: 0;
+  margin-top: -28px;
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
+  opacity: var(--edge-bottom-shown);
+}
+@property --edge-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --edge-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+/* Inherited, for the strips (pseudo-elements) to read. */
+@property --edge-top-shown {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --edge-bottom-shown {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@keyframes edge-fade {
+  0% {
+    --edge-top: 0px;
+    --edge-top-shown: 0;
+    --edge-bottom: 36px;
+    --edge-bottom-shown: 1;
+  }
+  8% {
+    --edge-top: 36px;
+    --edge-top-shown: 1;
+  }
+  92% {
+    --edge-bottom: 36px;
+    --edge-bottom-shown: 1;
+  }
+  100% {
+    --edge-top: 36px;
+    --edge-top-shown: 1;
+    --edge-bottom: 0px;
+    --edge-bottom-shown: 0;
+  }
+}
+
 /* ---------------- Shell ---------------- */
 
 .app {
@@ -195,6 +277,7 @@ a:hover {
   background: var(--surface-1);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-panel);
+  box-shadow: var(--edge-light);
   /* Rounded corners only clip children that are actually painted inside; the
      menus anchored in here portal to the body, so nothing gets cut off. */
   overflow: hidden;
@@ -289,11 +372,14 @@ a:hover {
   color: var(--text-3);
   flex: none;
   -webkit-app-region: no-drag;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), scale 120ms var(--ease);
 }
 .icon-btn:hover:not(:disabled) {
   background: var(--hover);
   color: var(--text);
+}
+.icon-btn:active:not(:disabled) {
+  scale: 0.96;
 }
 .icon-btn:disabled {
   color: var(--text-4);
@@ -580,13 +666,14 @@ a:hover {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   width: 100%;
   height: var(--nav-row-h);
-  padding: 0 8px 0 6px;
+  padding: 0 8px 0 7px;
   border-radius: var(--r-sm);
   color: var(--text);
-  font-size: var(--fs-base);
+  font-size: var(--fs-sm);
+  letter-spacing: -0.006em;
   text-align: left;
   transition: background var(--dur) var(--ease);
 }
@@ -600,9 +687,11 @@ a:hover {
   flex: none;
   display: grid;
   place-items: center;
-  color: var(--text-2);
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
   width: 16px;
 }
+.nav-item:hover .nav-item__icon,
 .nav-item[data-active='true'] .nav-item__icon {
   color: var(--text);
 }
@@ -627,10 +716,11 @@ a:hover {
 
 .sidebar__section {
   padding: 0 8px;
-  margin: 18px 0 4px;
-  font-size: var(--fs-sm);
+  margin: 20px 0 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--text-3);
-  letter-spacing: -0.005em;
+  letter-spacing: 0.01em;
 }
 
 .sidebar__section--action {
@@ -919,9 +1009,10 @@ a:hover {
   height: var(--nav-row-h);
   display: flex;
   align-items: center;
-  font-size: var(--fs-base);
+  font-size: var(--fs-xs);
   color: var(--text-4);
 }
+
 
 .footer-item {
   display: flex;

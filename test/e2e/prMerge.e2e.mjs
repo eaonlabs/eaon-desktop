@@ -102,13 +102,13 @@ scenario('Pull requests: a pull request’s Overview, Files, Checks and Merge ta
   await page.click('.pr-row', { text: /Add the usage meter/, timeout: 20_000 })
 
   // Overview: the description, who opened it, the review.
-  await page.find('.pr-body', { text: /Shows plan usage in the header/, timeout: 15_000 })
-  await page.find('.pr-detail__branch', { text: 'feature/usage-meter → main' })
-  await page.find('.pr-reviewer', { text: /reviewer: approved/ })
+  await page.find('.pr-desc', { text: /Shows plan usage in the header/, timeout: 15_000 })
+  await page.find('.pr-head__sentence', { text: /alexrivera wants to merge feature\/usage-meter into main/ })
+  await page.find('.pr-reviewer', { text: /reviewer\s*Approved/ })
   await s.shot(page, 'overview')
 
   // Files: the diff, file by file, with real line numbers.
-  await page.click('.pr-tabs [role="tab"]', { text: /^Files/ })
+  await page.click('.pr-tabbar [role="tab"]', { text: /^Files/ })
   const files = await page.waitFor(
     () => {
       const rows = [...document.querySelectorAll('.pr-files .review-file__head')].map((r) => r.textContent?.replace(/\s+/g, ' ').trim())
@@ -120,7 +120,7 @@ scenario('Pull requests: a pull request’s Overview, Files, Checks and Merge ta
   await s.shot(page, 'files')
 
   // Checks: the failing one first.
-  await page.click('.pr-tabs [role="tab"]', { text: /^Checks/ })
+  await page.click('.pr-tabbar [role="tab"]', { text: /^Checks/ })
   const checks = await page.waitFor(() => {
     const rows = [...document.querySelectorAll('.pr-check')].map((r) => `${r.querySelector('.pr-check__name')?.textContent}:${r.getAttribute('data-status')}`)
     return rows.length ? rows : null
@@ -129,7 +129,7 @@ scenario('Pull requests: a pull request’s Overview, Files, Checks and Merge ta
   await s.shot(page, 'checks')
 
   // Merge: only what the repository allows; a failing check is said, not blocking.
-  await page.click('.pr-tabs [role="tab"]', { text: /^Merge$/ })
+  await page.click('.pr-tabbar [role="tab"]', { text: /^Merge$/ })
   await page.find('.pr-merge__status', { text: /1 check is failing, but it can still be merged/ })
   const methods = await page.eval(() => [...document.querySelectorAll('.pr-merge [role="tab"]')].map((b) => b.textContent))
   assert.deepEqual(methods, ['Squash and merge', 'Rebase and merge'])

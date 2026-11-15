@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 import type { AppInfo } from '@shared/appControl'
-import { riskReason } from '../computer/actions'
+import { irreversibleReason, riskReason } from '../computer/actions'
 import { failure } from './protocol'
 import type { RefSummary } from './refs'
 
@@ -85,5 +85,19 @@ export function commandRisk(command: string, args: Record<string, unknown>, appN
     return riskReason({ action: 'type', text }, platform) ?? (/\n|\r/.test(text) ? 'types a command into a terminal and runs it' : null)
   }
   if (command === 'quit-app' && args.force === true) return 'force-quits an app, losing unsaved work'
+  return null
+}
+
+/**
+ * What of commandRisk can't be taken back, so it asks even with Full access,
+ * or null: the shortcuts that empty the Trash or log out, and a command that
+ * can't be undone (sudo, erasing a disk) typed into a terminal.
+ */
+export function commandIrreversible(command: string, args: Record<string, unknown>, appName: string | null, platform: NodeJS.Platform): string | null {
+  if (command === 'press') return irreversibleReason({ action: 'key', keys: typeof args.keys === 'string' ? args.keys : '' }, platform)
+  if ((command === 'type' || command === 'set-value') && typeof (args.text ?? args.value) === 'string') {
+    if (!appName || !TERMINAL_APPS.test(appName)) return null
+    return irreversibleReason({ action: 'type', text: String(args.text ?? args.value) }, platform)
+  }
   return null
 }

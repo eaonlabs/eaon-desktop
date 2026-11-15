@@ -3,7 +3,7 @@ import type { AgentTool, ToolContext, ToolResult } from '../../agent/tools'
 import { leaseOwnerOf } from '../computer/tool'
 import { COMMANDS, findCommand } from './commands'
 import { looksLikeRef, parseRef, labelOf } from './refs'
-import { commandRisk } from './safety'
+import { commandIrreversible, commandRisk } from './safety'
 import type { AppControlService } from './service'
 
 /**
@@ -109,10 +109,8 @@ export function appControlTool(service: AppControlService): AgentTool {
     },
     mutating: (input) => stepsOf(input).some((step) => findCommand(stepCommand(step))?.acts ?? false),
     risky: (input) => stepsOf(input).some((step) => commandRisk(stepCommand(step).replace(/_/g, '-'), step, appNameOf(step), process.platform) !== null),
-    catastrophic: (input) => stepsOf(input).some((step) => {
-      const command = stepCommand(step).replace(/_/g, '-')
-      return command === 'press' && commandRisk(command, step, appNameOf(step), process.platform) !== null
-    }),
+    // What can't be taken back asks even with Full access; the rest of what's risky, only in Ask and Auto.
+    catastrophic: (input) => stepsOf(input).some((step) => commandIrreversible(stepCommand(step).replace(/_/g, '-'), step, appNameOf(step), process.platform) !== null),
     describe: (input) => {
       const command = commandOf(input).replace(/_/g, '-')
       if (command === 'batch') return `app control: ${stepsOf(input).length} steps`

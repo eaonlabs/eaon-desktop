@@ -7,7 +7,6 @@ import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   ExternalLink,
-  GitBranch,
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
@@ -20,6 +19,7 @@ import { TopBar } from './TopBar'
 import { SearchField, Segmented } from './ui'
 import { PrReviewPanel } from './PrReviewPanel'
 import { Code } from './agent/FileDiff'
+import { Markdown } from './agent/Markdown'
 import { notify } from './Notice'
 import { parseUnifiedDiff, type ReviewFile } from '@shared/adeReview'
 import type { PullRequestAction, PullRequestDetail, PullRequestsResult, PullRequestSummary } from '@shared/types'
@@ -38,6 +38,21 @@ const STATE: Record<PullRequestSummary['state'], { icon: LucideIcon; label: stri
   merged: { icon: GitMerge, label: 'Merged' },
   closed: { icon: GitPullRequestClosed, label: 'Closed' },
   draft: { icon: GitPullRequestDraft, label: 'Draft' }
+}
+
+/** A state as `gh` spelt it, whatever its case; one it has never sent reads as open rather than breaking the page. */
+function stateKey(state: string): PullRequestSummary['state'] {
+  const key = String(state).toLowerCase()
+  return key in STATE ? (key as PullRequestSummary['state']) : 'open'
+}
+
+/** The number on the end of a pull request's address. */
+const numberOf = (url: string): string => url.match(/\/pull\/(\d+)/)?.[1] ?? ''
+
+/** "REVIEW_REQUIRED" → "Review required". */
+const sentence = (word: string): string => {
+  const plain = word.replace(/_/g, ' ').toLowerCase()
+  return plain ? plain[0].toUpperCase() + plain.slice(1) : ''
 }
 
 function timeAgo(iso: string): string {
@@ -232,7 +247,6 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
  * (main/github.ts), as the signed-in GitHub user.
  */
 function PrDetail({ pr, onChanged }: { pr: PullRequestSummary; onChanged: () => void }): JSX.Element {
-  const { icon: Icon, label } = STATE[pr.state]
   const [tab, setTab] = useState<DetailTab>('overview')
   const [detail, setDetail] = useState<PullRequestDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -257,46 +271,68 @@ function PrDetail({ pr, onChanged }: { pr: PullRequestSummary; onChanged: () => 
   }
 
   const failing = detail?.checks.filter((c) => c.status === 'failed').length ?? 0
-  const state = detail?.state ?? pr.state
-  const shown = STATE[state] ?? { icon: Icon, label }
+  const state = stateKey(detail?.state ?? pr.state)
+  const shown = STATE[state]
   const ShownIcon = shown.icon
+  const head = detail?.head ?? pr.branch
+  // What the pull request is doing, in GitHub's own words.
+  const doing = state === 'merged' ? 'merged' : state === 'closed' ? 'wanted to merge' : 'wants to merge'
+  const count = (t: DetailTab): { text: string; tone?: 'bad' } | null => {
+    if (!detail) return null
+    if (t === 'files') return { text: String(detail.changedFiles) }
+    if (t === 'checks' && detail.checks.length) return failing ? { text: String(failing), tone: 'bad' } : { text: String(detail.checks.length) }
+    return null
+  }
 
   return (
     <div className="pr-detail__inner">
-      <div className="pr-detail__repo">{pr.repo}</div>
-      <h1 className="pr-detail__title">
-        {detail ? `${detail.title} ` : pr.title}
-        {detail && <span className="pr-detail__num">#{detail.number}</span>}
-      </h1>
-      <div className="pr-detail__meta">
-        <span className="pr-state" data-state={state}>
-          <ShownIcon size={13} strokeWidth={2.2} />
-          {shown.label}
-        </span>
-        <span className="pr-detail__branch">
-          <GitBranch size={13} strokeWidth={2} />
-          {detail ? `${detail.head} → ${detail.base}` : pr.branch}
-        </span>
-        <span className="pr-stats">
-          <span className="pr-stats__add">+{pr.additions.toLocaleString()}</span>
-          <span className="pr-stats__del">−{pr.deletions.toLocaleString()}</span>
-        </span>
-        <span className="pr-detail__time">Updated {timeAgo(pr.updatedAt)} ago</span>
-        <button className="btn btn--sm btn--ghost" onClick={() => void window.api.app.openExternal(pr.url)}>
-          <ExternalLink size={13} strokeWidth={1.9} />
-          GitHub
-        </button>
-      </div>
+      <header className="pr-head">
+        <div className="pr-head__eyebrow">
+          <span>{pr.repo}</span>
+          <span className="pr-head__dot" aria-hidden>
+            ·
+          </span>
+          <span>#{detail?.number ?? numberOf(pr.url)}</span>
+        </div>
+        <h1 className="pr-head__title">{detail?.title ?? pr.title}</h1>
+        <div className="pr-head__line">
+          <span className="pr-state" data-state={state}>
+            <ShownIcon size={13} strokeWidth={2} />
+            {shown.label}
+          </span>
+          <span className="pr-head__sentence">
+            {detail?.author && <strong>{detail.author}</strong>} {detail?.author ? doing : 'Merging'} <code className="pr-ref">{head}</code>
+            {detail && (
+              <>
+                {' '}
+                into <code className="pr-ref">{detail.base}</code>
+              </>
+            )}
+          </span>
+          <button className="icon-btn pr-head__open" aria-label="Open on GitHub" title="Open on GitHub" onClick={() => void window.api.app.openExternal(pr.url)}>
+            <ExternalLink size={15} strokeWidth={1.9} />
+          </button>
+        </div>
+      </header>
 
-      <div className="pr-tabs">
-        <Segmented
-          value={tab}
-          onChange={setTab}
-          options={DETAIL_TABS.map((t) => ({
-            ...t,
-            label: t.value === 'checks' && detail?.checks.length ? `Checks${failing ? ` · ${failing} failing` : ''}` : t.value === 'files' && detail ? `Files · ${detail.changedFiles}` : t.label
-          }))}
-        />
+      <div className="pr-tabbar" role="tablist" aria-label="Pull request">
+        {DETAIL_TABS.map((t) => {
+          const badge = count(t.value)
+          return (
+            <button key={t.value} type="button" role="tab" className="pr-tab" aria-selected={tab === t.value} data-active={tab === t.value || undefined} onClick={() => setTab(t.value)}>
+              {t.label}
+              {badge && (
+                <span className="pr-tab__count" data-tone={badge.tone}>
+                  {badge.text}
+                </span>
+              )}
+            </button>
+          )
+        })}
+        <span className="pr-tabbar__stats">
+          <span className="pr-stats__add">+{(detail?.additions ?? pr.additions).toLocaleString()}</span>
+          <span className="pr-stats__del">−{(detail?.deletions ?? pr.deletions).toLocaleString()}</span>
+        </span>
       </div>
 
       {error && <div className="pr-empty pr-empty--error">{error}</div>}
@@ -316,21 +352,54 @@ function PrDetail({ pr, onChanged }: { pr: PullRequestSummary; onChanged: () => 
 }
 
 function PrOverview({ detail }: { detail: PullRequestDetail }): JSX.Element {
-  const decision = detail.reviewDecision.replace(/_/g, ' ').toLowerCase()
+  const tally = (status: PullRequestDetail['checks'][number]['status']): number => detail.checks.filter((c) => c.status === status).length
+  const checks = [
+    { n: tally('failed'), word: 'failing', tone: 'bad' },
+    { n: tally('pending'), word: 'running', tone: 'wait' },
+    { n: tally('passed'), word: 'passed', tone: 'ok' },
+    { n: tally('skipped'), word: 'skipped', tone: 'quiet' }
+  ].filter((c) => c.n > 0)
+  const decision = sentence(detail.reviewDecision)
   return (
     <div className="pr-overview">
-      <div className="pr-facts">
-        <span>
-          By <strong>{detail.author}</strong>, opened {timeAgo(detail.createdAt)} ago
-        </span>
-        {decision && <span>Review: {decision}</span>}
-        {detail.reviews.map((r) => (
-          <span key={r.author} className="pr-reviewer" data-state={r.state}>
-            {r.author}: {r.state.replace(/_/g, ' ').toLowerCase()}
-          </span>
-        ))}
-      </div>
-      {detail.body.trim() ? <div className="pr-body">{detail.body}</div> : <p className="pr-muted">No description.</p>}
+      <dl className="pr-props">
+        <div className="pr-props__row">
+          <dt>Review</dt>
+          <dd data-tone={detail.reviewDecision === 'APPROVED' ? 'ok' : detail.reviewDecision === 'CHANGES_REQUESTED' ? 'bad' : undefined}>{decision || 'Not required'}</dd>
+        </div>
+        <div className="pr-props__row">
+          <dt>Checks</dt>
+          <dd>
+            {checks.length === 0
+              ? 'None'
+              : checks.map((c) => (
+                  <span key={c.word} className="pr-tally" data-tone={c.tone}>
+                    {c.n} {c.word}
+                  </span>
+                ))}
+          </dd>
+        </div>
+        <div className="pr-props__row">
+          <dt>Reviewers</dt>
+          <dd>
+            {detail.reviews.length === 0
+              ? 'None yet'
+              : detail.reviews.map((r) => (
+                  <span key={r.author} className="pr-reviewer" data-state={r.state}>
+                    {r.author}
+                    <span className="pr-reviewer__state">{sentence(r.state)}</span>
+                  </span>
+                ))}
+          </dd>
+        </div>
+        <div className="pr-props__row">
+          <dt>Opened</dt>
+          <dd>
+            {timeAgo(detail.createdAt)} ago by {detail.author}
+          </dd>
+        </div>
+      </dl>
+      <div className="pr-desc">{detail.body.trim() ? <Markdown text={detail.body} /> : <p className="pr-muted">No description.</p>}</div>
     </div>
   )
 }
@@ -566,7 +635,8 @@ function PrMerge({ detail, after }: { detail: PullRequestDetail; after: (result:
 }
 
 function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boolean; onSelect: () => void }): JSX.Element {
-  const { icon: Icon, label } = STATE[pr.state]
+  const state = stateKey(pr.state)
+  const { icon: Icon, label } = STATE[state]
   return (
     <div
       className="pr-row"
@@ -576,8 +646,8 @@ function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boole
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
     >
-      <span className="pr-row__icon" data-state={pr.state} title={label}>
-        <Icon size={16} strokeWidth={1.9} />
+      <span className="pr-row__icon" data-state={state} title={label}>
+        <Icon size={15} strokeWidth={1.9} />
       </span>
       <div className="pr-row__body">
         <div className="pr-row__top">
@@ -586,7 +656,7 @@ function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boole
         </div>
         <div className="pr-row__bottom">
           <span className="pr-row__repo">
-            {pr.repo} <span className="pr-row__branch">{pr.branch}</span>
+            {pr.repo} <span className="pr-row__num">#{numberOf(pr.url)}</span>
           </span>
           <span className="pr-stats">
             <span className="pr-stats__add">+{pr.additions.toLocaleString()}</span>

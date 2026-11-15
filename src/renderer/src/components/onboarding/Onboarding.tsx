@@ -1,34 +1,37 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleAlert, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Check, CornerDownLeft, FolderInput, Laptop, LayoutGrid, Loader2, Moon, Palette, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { LINK_TARGETS, type LinkMethod } from '@shared/linkAccounts'
-import { isProviderUsable, providerReadiness } from '@shared/modelSelection'
+import type { LinkMethod } from '@shared/linkAccounts'
+import { providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
 import type { ToknAccount } from '@shared/usage'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp } from '../../state/store'
 import { ToknMark, useToknAccount } from '../account/ToknAccount'
 import { LinkAccounts } from '../LinkAccounts'
-import { ImportList, useImportServers } from '../ImportServers'
-import { WorkersGlyph } from '../ModeSwitch'
+import { useImportServers } from '../ImportServers'
+import { useAgentAppsImport } from '../AgentAppsImport'
+import { ImportSources } from '../ImportSources'
 import { Switch } from '../ui'
-import { ADE_LENGTH, CHAT_LENGTH, MiniApp, WORKERS_LENGTH, reduceMotion, type Scene } from './MiniApp'
+import { BrandIcon } from '../../icons/brand'
 import { useOnboarding } from './onboardingStore'
 import { RedeemCode } from '../RedeemCode'
 import '../../styles/onboarding.css'
 
 /**
- * The first-run setup: a few steps over the whole window on a fresh install
- * (main/features/onboarding.ts decides which installs are fresh). Welcome,
- * the Tokn account that tracks usage, a model, light or dark, then an offer
- * of the tour. Every step can be skipped, and so can the whole setup; nothing
- * in it is needed to use Eaon, and all of it is in Settings afterwards.
+ * The first-run setup: a few short steps over the whole window on a fresh
+ * install (main/features/onboarding.ts decides which installs are fresh).
+ * Welcome, a model, light or dark, work from other apps (sessions, scripts
+ * and MCP servers, only when there are some), the Tokn account that tracks
+ * usage, then an offer of the tour. Every step can be skipped, and so can
+ * the whole setup; nothing in it is needed to use Eaon, and all of it is in
+ * Settings afterwards.
  *
- * It's laid out like the app: the steps in a floating panel where the sidebar
- * goes, and beside each step a small Eaon window (MiniApp) showing what the
- * step is about. Finishing grows that window to fill the screen, over the
- * real app, which is there when it fades.
+ * One quiet column in the middle of the window: a mark or an icon, a title,
+ * a line under it, the step's few choices, and full-width buttons. Enter
+ * presses the white one. The dots at the foot say how far along it is and go
+ * back to any step already seen.
  *
  * The step reached is kept in memory only: quitting halfway starts the setup
  * again next time, from the top, until it is finished or skipped.
@@ -40,44 +43,18 @@ import '../../styles/onboarding.css'
 
 const STEPS = [
   { id: 'welcome', label: 'Welcome' },
-  { id: 'tokn', label: 'Tokn profile' },
   { id: 'models', label: 'Models' },
-  { id: 'import', label: 'Import' },
   { id: 'look', label: 'Appearance' },
+  { id: 'import', label: 'Import' },
+  { id: 'tokn', label: 'Tokn profile' },
   { id: 'ready', label: 'Finish' }
 ] as const
 type Step = (typeof STEPS)[number]['id']
 
-/** The welcome's three places, each playing in the window in turn. `news` is what an updated install is told about each. */
-const PLACES: { scene: Scene; title: string; text: string; news: string; icon: JSX.Element; length: number }[] = [
-  {
-    scene: 'chat',
-    title: 'Chat',
-    text: 'Ask anything, or hand Eaon a task.',
-    news: 'Free models and a new message box.',
-    icon: <MessagesSquare size={16} strokeWidth={1.9} />,
-    length: CHAT_LENGTH
-  },
-  {
-    scene: 'workers',
-    title: 'Workers',
-    text: 'Agents that keep working on their own.',
-    news: 'Hours-long goals and Automations.',
-    icon: <WorkersGlyph size={16} strokeWidth={1.9} />,
-    length: WORKERS_LENGTH
-  },
-  {
-    scene: 'ade',
-    title: 'ADE',
-    text: 'Claude Code and Codex in real terminals.',
-    news: 'A browser, Design Mode and hand-offs.',
-    icon: <SquareTerminal size={16} strokeWidth={1.9} />,
-    length: ADE_LENGTH
-  }
-]
-
 /** The window's motion curve (--ease in tokens.css), for animations started from script. */
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)'
+
+const reduceMotion = (): boolean => document.body.dataset.reduceMotion === 'on'
 
 export function Onboarding(): JSX.Element | null {
   const status = useApp((s) => s.settings?.onboarding.setup)
@@ -88,26 +65,28 @@ function Setup(): JSX.Element {
   const patchSettings = useApp((s) => s.patchSettings)
   const startTour = useOnboarding((s) => s.startTour)
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))
-  const tokn = useToknAccount()
   // Read once: finishing changes `whatsNew`, and the last step shouldn't change its mind on the way out.
   const [updated] = useState(() => useApp.getState().settings?.onboarding.whatsNew === null)
   const [step, setStep] = useState<Step>('welcome')
-  // The furthest step seen: the panel lets you go back to any of them.
+  // The furthest step seen: the dots go back to any of them.
   const [reached, setReached] = useState(0)
   const [direction, setDirection] = useState<1 | -1>(1)
-  const [leaving, setLeaving] = useState<'zoom' | 'fade' | null>(null)
-  const [place, setPlace] = useState(0)
+  const [leaving, setLeaving] = useState(false)
   const root = useRef<HTMLDivElement>(null)
-  const mini = useRef<HTMLDivElement>(null)
 
-  // The import step is there only if another app has servers to bring over; the scan is quick, so it
-  // settles before the first step is read, and until then the step is counted in.
+  // The import step is there only if another app has sessions, scripts or servers to bring over; the
+  // scans are quick, so they settle before that step comes up, and until then the step is counted in.
   const [anyToImport, setAnyToImport] = useState<boolean | null>(null)
   useEffect(() => {
-    void window.api.importApps
+    const servers = window.api.importApps
       .scan()
-      .then((apps) => setAnyToImport(apps.some((app) => app.servers.some((server) => !server.duplicate))))
-      .catch(() => setAnyToImport(false))
+      .then((apps) => apps.some((app) => app.servers.some((server) => !server.duplicate)))
+      .catch(() => false)
+    const work = window.api.agentApps
+      .scan()
+      .then((apps) => apps.some((app) => app.scripts.length > 0 || app.sessions.some((session) => !session.already)))
+      .catch(() => false)
+    void Promise.all([servers, work]).then(([a, b]) => setAnyToImport(a || b))
   }, [])
   const steps = anyToImport === false ? STEPS.filter((s) => s.id !== 'import') : STEPS
 
@@ -121,59 +100,40 @@ function Setup(): JSX.Element {
   const next = (): void => go(steps[Math.min(index + 1, steps.length - 1)].id)
   const back = (): void => go(steps[Math.max(index - 1, 0)].id)
 
-  // The welcome plays its three places in turn; picking one starts it over from there.
-  useEffect(() => {
-    if (step !== 'welcome') return
-    const timer = window.setTimeout(() => setPlace((p) => (p + 1) % PLACES.length), PLACES[place].length)
-    return () => window.clearTimeout(timer)
-  }, [step, place])
-
   useEffect(() => {
     void refreshProviders()
   }, [refreshProviders])
   const ready = providers.filter((p) => providerReadiness(p).state === 'ready')
-  // Eaon Lite on a network that has used up its day: still shown, with why, rather than gone or "Ready".
-  const eaonWaiting = providers.find((p) => wayOf(p) === 'eaon' && isProviderUsable(p) && providerReadiness(p).state === 'attention') ?? null
 
-  const scene: Scene = step === 'welcome' ? PLACES[place].scene : step === 'tokn' ? 'tokn' : step === 'models' ? 'models' : 'home'
+  // Enter presses the step's white button, as its ↵ says, unless something
+  // else has the key: a field being typed in, a focused button (Enter
+  // presses that one), or a dialog open over the setup (a model sign-in).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="switch"]')) return
+      const overlay = root.current
+      if (!overlay || [...document.querySelectorAll('[role="dialog"]')].some((dialog) => dialog !== overlay)) return
+      const primary = overlay.querySelector<HTMLButtonElement>('.onboarding__step [data-primary]:not(:disabled)')
+      if (!primary) return
+      event.preventDefault()
+      primary.click()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   /**
-   * Closes the setup, then hands over to the tour or the app. Finishing grows
-   * the little window over the real one and lets it go; skipping just fades.
-   * An updated install's tour is the one of what's new; without it, what's
-   * new counts as seen, so it doesn't come up on its own afterwards.
+   * Closes the setup, then hands over to the tour or the app: the column
+   * steps back and the setup fades off the real app under it. An updated
+   * install's tour is the one of what's new; without it, what's new counts as
+   * seen, so it doesn't come up on its own afterwards.
    */
   const finish = async (how: 'done' | 'skipped', tour: boolean): Promise<void> => {
     if (leaving) return
-    const window_ = mini.current
-    const overlay = root.current
-    const zoom = how === 'done' && window_ && overlay && window_.getClientRects().length > 0 && !reduceMotion()
-    setLeaving(zoom ? 'zoom' : 'fade')
-    if (zoom) {
-      const rect = window_.getBoundingClientRect()
-      const scale = Math.max(window.innerWidth / rect.width, window.innerHeight / rect.height)
-      const dx = window.innerWidth / 2 - (rect.left + rect.width / 2)
-      const dy = window.innerHeight / 2 - (rect.top + rect.height / 2)
-      const grow = window_.animate(
-        // It's gone before it's full size: the real window under it is laid out a little differently.
-        [
-          { transform: 'none', opacity: 1, filter: 'blur(0px)' },
-          { opacity: 1, filter: 'blur(0px)', offset: 0.3 },
-          { opacity: 0, filter: 'blur(6px)', offset: 0.72 },
-          { transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0, filter: 'blur(6px)' }
-        ],
-        { duration: 720, easing: EASE, fill: 'forwards' }
-      )
-      const canvas = getComputedStyle(overlay).backgroundColor
-      overlay.animate([{ backgroundColor: canvas }, { backgroundColor: canvas, offset: 0.35 }, { backgroundColor: 'transparent' }], {
-        duration: 720,
-        easing: EASE,
-        fill: 'forwards'
-      })
-      await grow.finished.catch(() => undefined)
-    } else {
-      await new Promise((done) => window.setTimeout(done, 220))
-    }
+    setLeaving(true)
+    await new Promise((done) => window.setTimeout(done, reduceMotion() ? 0 : how === 'done' ? 380 : 240))
     try {
       await patchSettings({
         onboarding: updated
@@ -183,8 +143,7 @@ function Setup(): JSX.Element {
     } catch {
       // Not saved: the setup comes back as it was rather than frozen mid-exit
       // with every button refusing (`leaving` would stay set).
-      for (const animation of [...(window_?.getAnimations() ?? []), ...(overlay?.getAnimations() ?? [])]) animation.cancel()
-      setLeaving(null)
+      setLeaving(false)
       return
     }
     if (tour) startTour(updated ? 'whatsNew' : 'app')
@@ -193,69 +152,61 @@ function Setup(): JSX.Element {
   const name = updated ? `Set up Eaon ${WHATS_NEW_RELEASE}` : 'Set up Eaon'
   // On <body>, like the app's dialogs: nothing in the app around it can move or clip it.
   return createPortal(
-    <div ref={root} className="onboarding" data-leaving={leaving ?? undefined} role="dialog" aria-modal="true" aria-label={name}>
-      <nav className="onboarding__nav" aria-label="Setup steps">
-        <div className="onboarding__panel">
-          <div className="onboarding__drag" />
-          <div className="onboarding__brand">
-            <EaonSymbol size={18} />
-            <span className="onboarding__brand-text">
-              <span className="onboarding__brand-name">{name}</span>
-              <span className="onboarding__brand-sub">About a minute</span>
-            </span>
-          </div>
-          <ol className="onboarding__steps" style={{ '--at': index } as CSSProperties}>
-            <span className="onboarding__indicator" aria-hidden="true" />
-            {steps.map((s, i) => {
-              const state = i === index ? 'current' : i <= reached ? 'done' : 'todo'
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    className="onboarding__stepnav"
-                    data-state={state}
-                    aria-current={i === index ? 'step' : undefined}
-                    disabled={i > reached || Boolean(leaving)}
-                    onClick={() => go(s.id)}
-                  >
-                    <StepMark state={state} />
-                    {s.label}
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
-          <div className="onboarding__panel-foot">
-            <button type="button" className="onboarding__skip" onClick={() => void finish('skipped', false)}>
-              Skip setup
-            </button>
-          </div>
-        </div>
-      </nav>
+    <div ref={root} className="onboarding" data-leaving={leaving || undefined} role="dialog" aria-modal="true" aria-label={name}>
+      <header className="onboarding__bar">
+        {index > 0 && step !== 'ready' ? (
+          <button type="button" className="onboarding__quiet onboarding__back" onClick={back} disabled={leaving}>
+            <ArrowLeft size={14} strokeWidth={2} />
+            Back
+          </button>
+        ) : (
+          <span />
+        )}
+        {step !== 'ready' && (
+          <button type="button" className="onboarding__quiet onboarding__skip" onClick={() => void finish('skipped', false)} disabled={leaving}>
+            Skip setup
+          </button>
+        )}
+      </header>
 
-      <main className="onboarding__main">
-        <div className="onboarding__titlebar" />
-        <div className="onboarding__progress" aria-hidden="true">
-          Step {index + 1} of {steps.length}
-        </div>
-        {/* The panel with Skip is hidden in a narrow window; this one shows there instead. */}
-        <button type="button" className="onboarding__skip onboarding__skip--narrow" onClick={() => void finish('skipped', false)}>
-          Skip setup
-        </button>
-        <div className="onboarding__layout">
-          <section key={step} className="onboarding__step" data-direction={direction}>
-            {step === 'welcome' && <Welcome updated={updated} place={place} onPlace={setPlace} onNext={next} />}
-            {step === 'tokn' && <ToknStep onBack={back} onNext={next} />}
-            {step === 'models' && <ModelsStep ready={ready} eaonWaiting={eaonWaiting} refresh={() => void refreshProviders()} onBack={back} onNext={next} />}
-            {step === 'import' && <ImportStep onBack={back} onNext={next} />}
-            {step === 'look' && <LookStep onBack={back} onNext={next} />}
-            {step === 'ready' && <Ready updated={updated} onBack={back} onTour={() => void finish('done', true)} onStart={() => void finish('done', false)} />}
+      <main className="onboarding__scroll">
+        <div className="onboarding__column">
+          <section key={step} className="onboarding__step" data-direction={direction} aria-label={steps[index]?.label}>
+            {step === 'welcome' && <Welcome updated={updated} onNext={next} />}
+            {step === 'models' && <ModelsStep ready={ready} refresh={() => void refreshProviders()} onNext={next} />}
+            {step === 'look' && <LookStep onNext={next} />}
+            {step === 'import' && <ImportStep onNext={next} />}
+            {step === 'tokn' && <ToknStep onNext={next} />}
+            {step === 'ready' && <Ready updated={updated} onTour={() => void finish('done', true)} onStart={() => void finish('done', false)} />}
           </section>
-          <div className="onboarding__stage">
-            <MiniApp ref={mini} scene={scene} account={tokn?.account ?? null} ready={ready.map((p) => p.name)} />
-          </div>
         </div>
       </main>
+
+      <footer className="onboarding__foot">
+        <nav className="onboarding__dots" aria-label="Setup steps">
+          {steps.map((s, i) => {
+            const state = i === index ? 'current' : i <= reached ? 'done' : 'todo'
+            return (
+              <button
+                key={s.id}
+                type="button"
+                className="onboarding__dot"
+                data-state={state}
+                aria-label={`${s.label}${i === index ? ', this step' : ''}`}
+                aria-current={i === index ? 'step' : undefined}
+                disabled={i > reached || i === index || leaving}
+                onClick={() => go(s.id)}
+              >
+                <span />
+              </button>
+            )
+          })}
+        </nav>
+        <p className="onboarding__made">
+          <EaonSymbol size={12} />
+          Free and open source
+        </p>
+      </footer>
     </div>,
     document.body
   )
@@ -274,294 +225,208 @@ function EaonSymbol({ size = 18 }: { size?: number }): JSX.Element {
   )
 }
 
-/** A step's mark in the panel: an empty ring, the current one, or a check that draws itself in. */
-function StepMark({ state }: { state: 'done' | 'current' | 'todo' }): JSX.Element {
-  return (
-    <svg className="onboarding__mark" data-state={state} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-      <circle className="onboarding__mark-ring" cx="8" cy="8" r="6.25" />
-      <circle className="onboarding__mark-fill" cx="8" cy="8" r="7" />
-      <path className="onboarding__mark-check" d="M5.2 8.2 7.1 10 10.8 6.2" pathLength={1} />
-    </svg>
-  )
-}
-
 /** Children appear one after another, a beat apart. */
 const stagger = (i: number): CSSProperties => ({ '--i': i }) as CSSProperties
 
-function Header({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+/** A step's top: its picture (the mark, or an icon on a tile), the title and a line under it. */
+function Header({ hero, title, children }: { hero: ReactNode; title: string; children: ReactNode }): JSX.Element {
   return (
     <div className="onboarding__header">
-      <h1 className="onboarding__title" style={stagger(0)}>
+      <div className="onboarding__hero" style={stagger(0)}>
+        {hero}
+      </div>
+      <h1 className="onboarding__title" style={stagger(1)}>
         {title}
       </h1>
-      <p className="onboarding__lede" style={stagger(1)}>
+      <p className="onboarding__lede" style={stagger(2)}>
         {children}
       </p>
     </div>
   )
 }
 
-function Footer({ onBack, children, at = 4 }: { onBack?: () => void; children: ReactNode; at?: number }): JSX.Element {
-  return (
-    <footer className="onboarding__footer" style={stagger(at)}>
-      {onBack ? (
-        <button type="button" className="btn btn--ghost onboarding__btn onboarding__back" onClick={onBack}>
-          <ArrowLeft size={15} strokeWidth={2} />
-          Back
-        </button>
-      ) : (
-        <span />
-      )}
-      <div className="onboarding__actions">{children}</div>
-    </footer>
-  )
+/** An icon on a raised tile: the picture at the top of every step but the welcome. */
+function Tile({ children }: { children: ReactNode }): JSX.Element {
+  return <span className="onboarding__tile">{children}</span>
 }
 
-function Welcome({ updated, place, onPlace, onNext }: { updated: boolean; place: number; onPlace: (i: number) => void; onNext: () => void }): JSX.Element {
+/** The step's buttons, full width and stacked: the white one first. */
+function Actions({ at = 4, children }: { at?: number; children: ReactNode }): JSX.Element {
   return (
-    <>
-      {updated ? (
-        <Header title={`Eaon ${WHATS_NEW_RELEASE} is here`}>
-          A lot has changed since 2026.6. Take a minute to sign in with Tokn, check your models and pick a look, then see what’s new.
-        </Header>
-      ) : (
-        <Header title="Welcome to Eaon">Every model you use, the agents that work for you and the coding agents you run, in one app.</Header>
-      )}
-      <div className="onboarding__places" role="tablist" aria-label="What’s in Eaon" style={{ ...stagger(2), '--at': place } as CSSProperties}>
-        <span className="onboarding__places-indicator" aria-hidden="true" />
-        {PLACES.map((p, i) => (
-          <button
-            key={p.scene}
-            type="button"
-            role="tab"
-            aria-selected={i === place}
-            className="onboarding__place"
-            data-on={i === place || undefined}
-            onClick={() => onPlace(i)}
-          >
-            <span className="onboarding__place-icon">{p.icon}</span>
-            <span className="onboarding__place-body">
-              <span className="onboarding__place-title">{p.title}</span>
-              <span className="onboarding__place-text">{updated ? p.news : p.text}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <Footer at={3}>
-        <button type="button" className="btn btn--primary onboarding__btn" onClick={onNext} autoFocus>
-          Get started
-          <ArrowRight size={15} strokeWidth={2} />
-        </button>
-      </Footer>
-    </>
-  )
-}
-
-function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }): JSX.Element {
-  const state = useToknAccount()
-  const patchSettings = useApp((s) => s.patchSettings)
-  // Offered on: it's the point of the step. It takes effect only with a Tokn account, on Continue.
-  const [trackCli, setTrackCli] = useState(true)
-  const account = state?.account ?? null
-  const pending = state?.signIn.state === 'pending'
-  const failed = state?.signIn.state === 'error'
-  // Signed in while the step shows: the account opens into the card rather than being there from the start.
-  const [arrives] = useState(() => state !== null && !state.account)
-
-  const proceed = (): void => {
-    // The switch is the person's choice; it takes effect once there's a Tokn account to publish to.
-    void patchSettings({ toknCli: { sync: trackCli } }).then(() => window.api.toknCli.apply())
-    onNext()
-  }
-
-  return (
-    <>
-      <Header title="Track your usage with Tokn">
-        See what your AI use costs, keep a streak going, and get a profile on toknhq.com. Eaon sends daily totals only, never your prompts or
-        code.
-      </Header>
-      <div className="card" style={stagger(2)}>
-        {account && <AccountRow account={account} arrives={arrives} />}
-        <label className="card__row onboarding__option">
-          <span className="card__row-body">
-            <span className="card__row-title">Also track Claude Code, Codex and other coding CLIs</span>
-            <span className="card__row-desc">The tokn command that comes with Eaon publishes their usage to the same profile, also while Eaon is closed.</span>
-          </span>
-          <Switch checked={trackCli} onChange={setTrackCli} label="Also track the coding CLIs" />
-        </label>
-      </div>
-      <Footer onBack={onBack} at={3}>
-        {account ? (
-          <button type="button" className="btn btn--primary onboarding__btn" onClick={proceed} autoFocus>
-            Continue
-            <ArrowRight size={15} strokeWidth={2} />
-          </button>
-        ) : (
-          <>
-            <button type="button" className="btn btn--ghost onboarding__btn" onClick={proceed}>
-              Not now
-            </button>
-            {pending ? (
-              <button type="button" className="btn onboarding__btn" onClick={() => void window.api.usage.cancelSignIn()} title="Cancel">
-                <Loader2 size={15} className="spinner" />
-                Waiting for your browser…
-              </button>
-            ) : (
-              <button type="button" className="btn btn--primary onboarding__btn" onClick={() => void window.api.usage.signIn()} autoFocus>
-                <ToknMark size={16} />
-                {failed ? 'Try again' : 'Sign in with Tokn'}
-              </button>
-            )}
-          </>
-        )}
-      </Footer>
-      {failed && state?.signIn.error && <p className="onboarding__note onboarding__note--error">{state.signIn.error}</p>}
-      {pending && <p className="onboarding__note">Approve Eaon on toknhq.com. No account yet? You can make one there.</p>}
-    </>
-  )
-}
-
-/** The Tokn account signed in to, as the card's first row: who it is, and their profile on toknhq.com. */
-function AccountRow({ account, arrives }: { account: ToknAccount; arrives: boolean }): JSX.Element {
-  const name = account.name?.trim()
-  return (
-    <div className="onboarding__account" data-arrives={arrives || undefined}>
-      <div className="card__row onboarding__account-row">
-        <span className="onboarding__avatar" aria-hidden="true">
-          {(name || account.handle).charAt(0).toUpperCase()}
-          <span className="onboarding__avatar-mark">
-            <ToknMark size={14} />
-          </span>
-        </span>
-        <span className="card__row-body">
-          <span className="card__row-title">{name || `@${account.handle}`}</span>
-          <span className="card__row-desc onboarding__account-status">{name ? `@${account.handle} · Signed in with Tokn` : 'Signed in with Tokn'}</span>
-        </span>
-        <button
-          type="button"
-          className="btn btn--ghost btn--sm onboarding__profile"
-          title={account.profileUrl.replace(/^https?:\/\//, '')}
-          onClick={() => void window.api.app.openExternal(account.profileUrl)}
-        >
-          Profile
-          <ArrowUpRight size={13} strokeWidth={2} />
-        </button>
-      </div>
+    <div className="onboarding__actions" style={stagger(at)}>
+      {children}
     </div>
   )
 }
 
-/** The ways to connect a model, each opening Link accounts on just the providers that link that way. */
-const WAYS: { method: LinkMethod; title: string; text: string; icon: JSX.Element }[] = [
-  // Its text is the accounts that can sign in now (useSigninNames); this is for when none can.
-  { method: 'signin', title: 'Sign in with an account', text: 'Accounts are set up in Settings → Model providers', icon: <CircleUserRound size={16} strokeWidth={1.9} /> },
-  { method: 'key', title: 'Paste an API key', text: 'Anthropic, OpenAI, Gemini, Grok and more', icon: <KeyRound size={16} strokeWidth={1.9} /> },
-  { method: 'local', title: 'Run models on this computer', text: 'Ollama or LM Studio, no account needed', icon: <Laptop size={16} strokeWidth={1.9} /> }
+/** The white button. Enter presses it (Setup), and its ↵ says so. */
+function Primary({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: ReactNode }): JSX.Element {
+  return (
+    <button type="button" className="onboarding__btn onboarding__btn--primary" data-primary onClick={onClick} disabled={disabled}>
+      {children}
+      <CornerDownLeft className="onboarding__enter" size={13} strokeWidth={2.2} aria-hidden="true" />
+    </button>
+  )
+}
+
+function Secondary({ onClick, title, children }: { onClick: () => void; title?: string; children: ReactNode }): JSX.Element {
+  return (
+    <button type="button" className="onboarding__btn onboarding__btn--secondary" onClick={onClick} title={title}>
+      {children}
+    </button>
+  )
+}
+
+function Welcome({ updated, onNext }: { updated: boolean; onNext: () => void }): JSX.Element {
+  return (
+    <>
+      <Header
+        hero={
+          <span className="onboarding__mark">
+            <span className="onboarding__glow" aria-hidden="true" />
+            <EaonSymbol size={56} />
+          </span>
+        }
+        title={updated ? `Eaon ${WHATS_NEW_RELEASE} is here` : 'Welcome to Eaon'}
+      >
+        {updated
+          ? 'A lot has changed since 2026.6. Check your models and pick a look, then see what’s new.'
+          : 'Every model you use, agents that keep working on their own, and your coding agents, in one app.'}
+      </Header>
+      <ul className="onboarding__places" style={stagger(3)} aria-label="What’s in Eaon">
+        <li>Chat</li>
+        <li>Workers</li>
+        <li>ADE</li>
+      </ul>
+      <Actions>
+        <Primary onClick={onNext}>Get started</Primary>
+      </Actions>
+      <p className="onboarding__fine" style={stagger(5)}>
+        About 30 seconds. All of it is in Settings later.
+      </p>
+    </>
+  )
+}
+
+/**
+ * The providers the setup offers by their logos: the few most people have,
+ * each saying how it connects, and More for the rest. Each opens Link
+ * accounts on just that provider. A sign-in that needs a client of the
+ * user's own first (set up in Settings) isn't offered here.
+ */
+const OFFERED: { id: string; method: LinkMethod; how: string }[] = [
+  { id: 'chatgpt', method: 'signin', how: 'Sign in' },
+  { id: 'claude-agent', method: 'signin', how: 'Sign in' },
+  { id: 'gemini', method: 'key', how: 'API key' },
+  { id: 'openrouter', method: 'signin', how: 'Sign in' },
+  { id: 'ollama', method: 'local', how: 'On this computer' }
 ]
 
-/** Which of the ways a ready provider came in by; Eaon's own (Eaon Lite, Eaon Event) need none. */
+/** Which way a ready provider came in by; Eaon's own (Eaon Lite, Eaon Event) need none. */
 const wayOf = (provider: Provider): LinkMethod | 'eaon' =>
   provider.category === 'eaon' ? 'eaon' : provider.local ? 'local' : provider.auth === 'oauth' ? 'signin' : 'key'
 
-/** "A, B or C". */
-const orList = (names: string[]): string => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`)
-
-/**
- * The accounts the setup can sign in to now. One whose sign-in needs a
- * client of the user's own first (Hugging Face, Poe until Eaon's are
- * registered) is set up in Settings, not offered here.
- */
-function useSigninNames(): string | null {
-  const providers = useApp((s) => s.providers)
-  const [needsSetup, setNeedsSetup] = useState<Set<string> | null>(null)
+/** The sign-ins that need a client set up in Settings first; null until known. */
+function useNeedsClient(): Set<string> | null {
+  const [needs, setNeeds] = useState<Set<string> | null>(null)
   useEffect(() => {
     void window.api.providerAuth
       .status()
-      .then((list) => setNeedsSetup(new Set(list.filter((s) => s.needsClientId).map((s) => s.providerId))))
-      .catch(() => setNeedsSetup(new Set()))
+      .then((list) => setNeeds(new Set(list.filter((s) => s.needsClientId).map((s) => s.providerId))))
+      .catch(() => setNeeds(new Set()))
   }, [])
-  if (!needsSetup) return null
-  const names = LINK_TARGETS.filter((t) => t.method === 'signin' && !needsSetup.has(t.providerId))
-    .map((t) => providers.find((p) => p.id === t.providerId)?.name)
-    .filter((name): name is string => Boolean(name))
-  return orList(names)
+  return needs
 }
 
-function ModelsStep({
-  ready,
-  eaonWaiting,
-  refresh,
-  onBack,
-  onNext
-}: {
-  ready: Provider[]
-  eaonWaiting: Provider | null
-  refresh: () => void
-  onBack: () => void
-  onNext: () => void
-}): JSX.Element {
-  const [linking, setLinking] = useState(false)
-  const signinNames = useSigninNames()
+/** The step's picture: a few of the providers it connects, fanned out like cards. */
+function ProviderFan(): JSX.Element {
+  return (
+    <span className="onboarding__fan" aria-hidden="true">
+      {['chatgpt', 'claude-agent', 'gemini'].map((id) => (
+        <span key={id} className="onboarding__fan-card">
+          <BrandIcon id={id} size={44} />
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function ModelsStep({ ready, refresh, onNext }: { ready: Provider[]; refresh: () => void; onNext: () => void }): JSX.Element {
+  const providers = useApp((s) => s.providers)
+  const needsClient = useNeedsClient()
   // Kept while the dialog closes, so its list doesn't change on the way out.
-  const [method, setMethod] = useState<LinkMethod>('signin')
+  const [linking, setLinking] = useState(false)
+  const [shown, setShown] = useState<{ method?: LinkMethod; provider?: string }>({})
   const [codeOpen, setCodeOpen] = useState(false)
-  const names = (way: LinkMethod | 'eaon'): string => ready.filter((p) => wayOf(p) === way).map((p) => p.name).join(', ')
-  const eaon = names('eaon')
-  const waiting = !eaon && eaonWaiting ? providerReadiness(eaonWaiting) : null
+  const open = (method?: LinkMethod, provider?: string): void => {
+    setShown({ method, provider })
+    setLinking(true)
+  }
+  const byId = new Map(providers.map((p) => [p.id, p]))
+  const isReady = new Set(ready.map((p) => p.id))
+  // Eaon's free models, when they're on: then nothing else is needed to start.
+  const eaon = ready.find((p) => wayOf(p) === 'eaon') ?? null
+  const offered = OFFERED.filter((o) => byId.has(o.id) && !(o.method === 'signin' && needsClient?.has(o.id)))
   return (
     <>
-      <Header title="Connect a model">Eaon works with whatever you have. Connect as many as you like; every chat can use a different one.</Header>
-      <div className="onboarding__ways" style={stagger(2)}>
-        {(eaon || waiting) && (
-          <>
-            <div className="onboarding__way" data-static data-waiting={waiting ? true : undefined}>
-              <span className="onboarding__way-icon">
-                <EaonSymbol size={15} />
-              </span>
-              <span className="onboarding__way-body">
-                <span className="onboarding__way-title">{eaon || eaonWaiting?.name}</span>
-                <span className="onboarding__way-text">{waiting?.reason ?? 'Free models from Eaon, already on'}</span>
-              </span>
-              <span className="onboarding__way-state">
-                {waiting ? <CircleAlert size={14} strokeWidth={2.2} /> : <Check size={14} strokeWidth={2.4} />}
-                {waiting ? waiting.label : 'Ready'}
-              </span>
-            </div>
-            <div className="onboarding__ways-rule" role="presentation" />
-          </>
+      <Header hero={<ProviderFan />} title="Connect a model">
+        {eaon ? 'Eaon’s free models are on, so you can start right away. Add the AI you already pay for.' : 'Use an AI plan you already have, or an API key.'}
+      </Header>
+      <div className="onboarding__connect" style={stagger(3)}>
+        {eaon && (
+          <div className="onboarding__free">
+            <BrandIcon id={eaon.id} size={30} name={eaon.name} />
+            <span className="onboarding__free-body">
+              <span className="onboarding__free-name">{eaon.name}</span>
+              <span className="onboarding__free-text">Free models, ready to use</span>
+            </span>
+            <span className="onboarding__pill">
+              <Check size={13} strokeWidth={2.6} />
+              On
+            </span>
+          </div>
         )}
-        {WAYS.map((way) => {
-          const linked = names(way.method)
-          return (
-            <button
-              key={way.method}
-              type="button"
-              className="onboarding__way"
-              onClick={() => {
-                setMethod(way.method)
-                setLinking(true)
-              }}
-            >
-              <span className="onboarding__way-icon">{way.icon}</span>
-              <span className="onboarding__way-body">
-                <span className="onboarding__way-title">{way.title}</span>
-                <span className="onboarding__way-text">{way.method === 'signin' ? (signinNames ?? '\u00a0') || way.text : way.text}</span>
-              </span>
-              {linked ? (
-                <span className="onboarding__way-state" title={linked}>
-                  <Check size={14} strokeWidth={2.4} />
-                  <span className="onboarding__way-names">{linked}</span>
+        <div className="onboarding__tiles">
+          {offered.map((o) => {
+            const provider = byId.get(o.id)!
+            const on = isReady.has(o.id)
+            return (
+              <button
+                key={o.id}
+                type="button"
+                className="onboarding__tile-btn"
+                data-on={on || undefined}
+                onClick={() => open(o.method, o.id)}
+                aria-label={on ? `${provider.name}, connected` : `Connect ${provider.name}`}
+              >
+                <span className="onboarding__tile-logo">
+                  <BrandIcon id={o.id} size={32} name={provider.name} />
+                  {on && (
+                    <span className="onboarding__tile-check" aria-hidden="true">
+                      <Check size={10} strokeWidth={3.4} />
+                    </span>
+                  )}
                 </span>
-              ) : (
-                <ChevronRight className="onboarding__way-chevron" size={16} strokeWidth={1.9} aria-hidden="true" />
-              )}
-            </button>
-          )
-        })}
+                <span className="onboarding__tile-name">{provider.name}</span>
+                <span className="onboarding__tile-how">{on ? 'Connected' : o.how}</span>
+              </button>
+            )
+          })}
+          <button type="button" className="onboarding__tile-btn onboarding__tile-btn--more" onClick={() => open()}>
+            <span className="onboarding__tile-logo onboarding__tile-logo--more">
+              <LayoutGrid size={16} strokeWidth={1.9} />
+            </span>
+            <span className="onboarding__tile-name">More</span>
+            <span className="onboarding__tile-how">Every provider</span>
+          </button>
+        </div>
       </div>
+      <Actions>
+        {ready.length > 0 ? <Primary onClick={onNext}>Continue</Primary> : <Secondary onClick={onNext}>Not now</Secondary>}
+      </Actions>
       {/* At an event, its code is the way in: no account or key, and each
           computer gets its own allowance instead of sharing the venue's IP. */}
-      <div className="onboarding__code" style={stagger(3)}>
+      <div className="onboarding__code" style={stagger(5)}>
         {codeOpen ? (
           <RedeemCode
             compact
@@ -571,26 +436,15 @@ function ModelsStep({
             }}
           />
         ) : (
-          <button type="button" className="onboarding__link" onClick={() => setCodeOpen(true)}>
+          <button type="button" className="onboarding__quiet" onClick={() => setCodeOpen(true)}>
             Have an event code?
           </button>
         )}
       </div>
-      <Footer onBack={onBack}>
-        {ready.length > 0 ? (
-          <button type="button" className="btn btn--primary onboarding__btn" onClick={onNext} autoFocus>
-            Continue
-            <ArrowRight size={15} strokeWidth={2} />
-          </button>
-        ) : (
-          <button type="button" className="btn btn--ghost onboarding__btn" onClick={onNext}>
-            Not now
-          </button>
-        )}
-      </Footer>
       <LinkAccounts
         inSetup
-        only={method}
+        only={shown.method}
+        provider={shown.provider}
         open={linking}
         onClose={() => {
           setLinking(false)
@@ -603,54 +457,19 @@ function ModelsStep({
 
 type ViewTransitionDocument = Document & { startViewTransition?: (update: () => Promise<void>) => { ready: Promise<void>; finished: Promise<void> } }
 
-/**
- * Import from another app: the MCP servers set up in Claude, Cursor, Windsurf,
- * VS Code or Gemini CLI, ticked to come over. Only their server lists are
- * read; never an account, a chat or a sign-in.
- */
-function ImportStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }): JSX.Element {
-  const state = useImportServers()
-  const { count, working, error } = state
-  const bring = async (): Promise<void> => {
-    if (await state.run()) onNext()
-  }
-  return (
-    <>
-      <Header title="Bring your tools over">Eaon can use the MCP servers you already set up in other apps. Pick the ones to add; you can change them later in Settings.</Header>
-      <div style={stagger(2)}>
-        <ImportList state={state} />
-        {error && <p className="onboarding__note onboarding__note--error">{error}</p>}
-      </div>
-      <Footer onBack={onBack}>
-        {count > 0 ? (
-          <button type="button" className="btn btn--primary onboarding__btn" onClick={() => void bring()} disabled={working} autoFocus>
-            {working ? <Loader2 size={15} strokeWidth={2} className="spinner" /> : null}
-            Import {count} {count === 1 ? 'server' : 'servers'}
-            <ArrowRight size={15} strokeWidth={2} />
-          </button>
-        ) : (
-          <button type="button" className="btn btn--ghost onboarding__btn" onClick={onNext}>
-            Skip
-          </button>
-        )}
-      </Footer>
-    </>
-  )
-}
-
-function LookStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }): JSX.Element {
+function LookStep({ onNext }: { onNext: () => void }): JSX.Element {
   const mode = useApp((s) => s.settings?.appearance.mode ?? 'system')
   const patchSettings = useApp((s) => s.patchSettings)
   const options: { value: ThemeMode; label: string; icon: JSX.Element }[] = [
-    { value: 'system', label: 'System', icon: <Laptop size={15} strokeWidth={2} /> },
-    { value: 'light', label: 'Light', icon: <Sun size={15} strokeWidth={2} /> },
-    { value: 'dark', label: 'Dark', icon: <Moon size={15} strokeWidth={2} /> }
+    { value: 'system', label: 'System', icon: <Laptop size={14} strokeWidth={2} /> },
+    { value: 'light', label: 'Light', icon: <Sun size={14} strokeWidth={2} /> },
+    { value: 'dark', label: 'Dark', icon: <Moon size={14} strokeWidth={2} /> }
   ]
 
   /**
    * The new look spreads out from the click, over the old one. A view
-   * transition snapshots the window before and after, so everything (this
-   * screen, the little window beside it) changes together in one sweep.
+   * transition snapshots the window before and after, so the whole screen
+   * changes together in one sweep.
    */
   const choose = (value: ThemeMode, event: MouseEvent<HTMLButtonElement>): void => {
     if (value === mode) return
@@ -681,8 +500,17 @@ function LookStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
 
   return (
     <>
-      <Header title="Light or dark?">Themes, accent colours and text size are in Settings → Appearance.</Header>
-      <div className="onboarding__themes" role="radiogroup" aria-label="Appearance" style={stagger(2)}>
+      <Header
+        hero={
+          <Tile>
+            <Palette size={20} strokeWidth={1.8} />
+          </Tile>
+        }
+        title="Light or dark?"
+      >
+        Themes, accent colours and text size are in Settings → Appearance.
+      </Header>
+      <div className="onboarding__themes" role="radiogroup" aria-label="Appearance" style={stagger(3)}>
         {options.map((option) => (
           <button
             key={option.value}
@@ -707,17 +535,158 @@ function LookStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
           </button>
         ))}
       </div>
-      <Footer onBack={onBack} at={3}>
-        <button type="button" className="btn btn--primary onboarding__btn" onClick={onNext} autoFocus>
-          Continue
-          <ArrowRight size={15} strokeWidth={2} />
-        </button>
-      </Footer>
+      <Actions>
+        <Primary onClick={onNext}>Continue</Primary>
+      </Actions>
     </>
   )
 }
 
-function Ready({ updated, onBack, onTour, onStart }: { updated: boolean; onBack: () => void; onTour: () => void; onStart: () => void }): JSX.Element {
+/**
+ * Import from other apps: the sessions and project scripts other agent apps
+ * have (Conductor, Orca, Paradev, Claude Squad, T3 Code, Synara, Crystal),
+ * and the MCP servers set up in Claude, Cursor, Windsurf, VS Code or Gemini
+ * CLI, ticked to come over. Only what those apps keep about the work and their
+ * server lists are read; never an account, a chat or a sign-in.
+ */
+function ImportStep({ onNext }: { onNext: () => void }): JSX.Element {
+  const servers = useImportServers()
+  const work = useAgentAppsImport()
+  const count = servers.count + work.count
+  const working = servers.working || work.working
+  const bring = async (): Promise<void> => {
+    const sessions = work.count > 0 ? await work.run() : true
+    const tools = servers.count > 0 ? await servers.run() : true
+    if (sessions && tools) onNext()
+  }
+  return (
+    <>
+      <Header
+        hero={
+          <Tile>
+            <FolderInput size={20} strokeWidth={1.8} />
+          </Tile>
+        }
+        title="Bring your work over"
+      >
+        Your sessions, chats and tools from the apps you already use. Nothing in those apps changes.
+      </Header>
+      <div className="onboarding__import" style={stagger(3)}>
+        <div className="onboarding__import-scroll edge-fade">
+          <ImportSources work={work} tools={servers} />
+        </div>
+      </div>
+      {(work.error || servers.error) && <p className="onboarding__note onboarding__note--error">{work.error ?? servers.error}</p>}
+      <Actions>
+        {count > 0 ? (
+          <>
+            <Primary onClick={() => void bring()} disabled={working}>
+              {working ? <Loader2 size={15} strokeWidth={2} className="spinner" /> : null}
+              Import
+            </Primary>
+            <Secondary onClick={onNext}>Skip</Secondary>
+          </>
+        ) : (
+          <Secondary onClick={onNext}>Skip</Secondary>
+        )}
+      </Actions>
+    </>
+  )
+}
+
+function ToknStep({ onNext }: { onNext: () => void }): JSX.Element {
+  const state = useToknAccount()
+  const patchSettings = useApp((s) => s.patchSettings)
+  // Offered on: it's the point of the step. It takes effect only with a Tokn account, on Continue.
+  const [trackCli, setTrackCli] = useState(true)
+  const account = state?.account ?? null
+  const pending = state?.signIn.state === 'pending'
+  const failed = state?.signIn.state === 'error'
+  // Signed in while the step shows: the account opens into the list rather than being there from the start.
+  const [arrives] = useState(() => state !== null && !state.account)
+
+  const proceed = (): void => {
+    // The switch is the person's choice; it takes effect once there's a Tokn account to publish to.
+    void patchSettings({ toknCli: { sync: trackCli } }).then(() => window.api.toknCli.apply())
+    onNext()
+  }
+
+  return (
+    <>
+      <Header
+        hero={
+          <Tile>
+            <ToknMark size={22} />
+          </Tile>
+        }
+        title="Track your usage with Tokn"
+      >
+        See what your AI use costs and keep a streak going on toknhq.com. Eaon sends daily totals only, never your prompts or code.
+      </Header>
+      <div className="onboarding__list" style={stagger(3)}>
+        {account && <AccountRow account={account} arrives={arrives} />}
+        <label className="onboarding__row onboarding__option">
+          <span className="onboarding__row-body">
+            <span className="onboarding__row-title">Also track Claude Code, Codex and other CLIs</span>
+            <span className="onboarding__row-text onboarding__row-text--wrap">Published to the same profile, also while Eaon is closed.</span>
+          </span>
+          <Switch checked={trackCli} onChange={setTrackCli} label="Also track the coding CLIs" />
+        </label>
+      </div>
+      <Actions>
+        {account ? (
+          <Primary onClick={proceed}>Continue</Primary>
+        ) : (
+          <>
+            {pending ? (
+              <button type="button" className="onboarding__btn onboarding__btn--secondary" onClick={() => void window.api.usage.cancelSignIn()} title="Cancel">
+                <Loader2 size={15} className="spinner" />
+                Waiting for your browser…
+              </button>
+            ) : (
+              <Primary onClick={() => void window.api.usage.signIn()}>{failed ? 'Try again' : 'Sign in with Tokn'}</Primary>
+            )}
+            <Secondary onClick={proceed}>Not now</Secondary>
+          </>
+        )}
+      </Actions>
+      {failed && state?.signIn.error && <p className="onboarding__note onboarding__note--error">{state.signIn.error}</p>}
+      {pending && <p className="onboarding__note">Approve Eaon on toknhq.com. No account yet? You can make one there.</p>}
+    </>
+  )
+}
+
+/** The Tokn account signed in to, as the list's first row: who it is, and their profile on toknhq.com. */
+function AccountRow({ account, arrives }: { account: ToknAccount; arrives: boolean }): JSX.Element {
+  const name = account.name?.trim()
+  return (
+    <div className="onboarding__account" data-arrives={arrives || undefined}>
+      <div className="onboarding__row onboarding__account-row">
+        <span className="onboarding__avatar" aria-hidden="true">
+          {(name || account.handle).charAt(0).toUpperCase()}
+          <span className="onboarding__avatar-mark">
+            <ToknMark size={14} />
+          </span>
+        </span>
+        <span className="onboarding__row-body">
+          <span className="onboarding__row-title">{name || `@${account.handle}`}</span>
+          <span className="onboarding__row-text onboarding__account-status">{name ? `@${account.handle} · Signed in with Tokn` : 'Signed in with Tokn'}</span>
+        </span>
+        <button
+          type="button"
+          className="onboarding__quiet onboarding__profile"
+          title={account.profileUrl.replace(/^https?:\/\//, '')}
+          onClick={() => void window.api.app.openExternal(account.profileUrl)}
+        >
+          Profile
+          <ArrowUpRight size={13} strokeWidth={2} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Ready({ updated, onTour, onStart }: { updated: boolean; onTour: () => void; onStart: () => void }): JSX.Element {
   const mod = window.api.platform === 'darwin' ? '⌘' : 'Ctrl'
   const keys = [
     { keys: [mod, '1'], text: 'Chat' },
@@ -727,19 +696,22 @@ function Ready({ updated, onBack, onTour, onStart }: { updated: boolean; onBack:
   ]
   return (
     <>
-      {updated ? (
-        <Header title="You’re all set">
-          Take a one-minute tour of what’s new in {WHATS_NEW_RELEASE}, or start right away. It’s in Settings → General whenever you want it.
-        </Header>
-      ) : (
-        <Header title="You’re all set">
-          Take a one-minute tour of where everything is, or start right away. The tour is in Settings → General whenever you want it.
-        </Header>
-      )}
-      <div className="card onboarding__keys" style={stagger(2)}>
+      <Header
+        hero={
+          <span className="onboarding__done">
+            <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+              <path d="M7 13.4 11.2 17.5 19.2 9" pathLength={1} />
+            </svg>
+          </span>
+        }
+        title="You’re all set"
+      >
+        {updated ? `Take a one-minute tour of what’s new in ${WHATS_NEW_RELEASE}, or start right away.` : 'Take a one-minute tour of where everything is, or start right away.'}
+      </Header>
+      <div className="onboarding__keys" style={stagger(3)}>
         {keys.map((key) => (
-          <div key={key.text} className="card__row">
-            <span className="card__row-body card__row-title">{key.text}</span>
+          <div key={key.text} className="onboarding__key">
+            <span>{key.text}</span>
             <span className="onboarding__kbd">
               {key.keys.map((k) => (
                 <kbd key={k}>{k}</kbd>
@@ -748,15 +720,13 @@ function Ready({ updated, onBack, onTour, onStart }: { updated: boolean; onBack:
           </div>
         ))}
       </div>
-      <Footer onBack={onBack} at={3}>
-        <button type="button" className="btn btn--ghost onboarding__btn" onClick={onStart}>
-          Start using Eaon
-        </button>
-        <button type="button" className="btn btn--primary onboarding__btn" onClick={onTour} autoFocus>
-          {updated ? 'See what’s new' : 'Show me around'}
-          <ArrowRight size={15} strokeWidth={2} />
-        </button>
-      </Footer>
+      <Actions>
+        <Primary onClick={onTour}>{updated ? 'See what’s new' : 'Show me around'}</Primary>
+        <Secondary onClick={onStart}>Start using Eaon</Secondary>
+      </Actions>
+      <p className="onboarding__fine" style={stagger(5)}>
+        The tour is in Settings → General whenever you want it.
+      </p>
     </>
   )
 }

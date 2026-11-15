@@ -46,7 +46,7 @@ export interface EnterprisePolicy {
   agent?: {
     /** The most autonomy the agent may be given: `ask` < `auto` < `full`. */
     maxApprovalMode?: ApprovalMode
-    /** `false` keeps file tools inside the work folder (Settings → General → Full access). */
+    /** `false` keeps file tools inside the work folder (Settings → General → Change files outside the project). */
     allowFullDiskAccess?: boolean
     /** `false` forbids pre-approving every plugin (MCP) tool call. */
     allowBlanketMcpApproval?: boolean

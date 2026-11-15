@@ -15,6 +15,8 @@ export interface ImportState {
   apps: ImportableApp[] | null
   picked: Set<string>
   toggle: (key: string) => void
+  /** Ticks or unticks several at once (an app's whole row). */
+  pick: (keys: string[], on: boolean) => void
   /** How many boxes are ticked. */
   count: number
   /** Servers found in any app, ones Eaon has already included. */
@@ -68,7 +70,17 @@ export function useImportServers(): ImportState {
     }
   }
 
-  return { apps, picked, toggle, count: picked.size, total: (apps ?? []).reduce((n, app) => n + app.servers.length, 0), working, error, run }
+  const pick = (keys: string[], on: boolean): void =>
+    setPicked((current) => {
+      const next = new Set(current)
+      for (const key of keys) {
+        if (on) next.add(key)
+        else next.delete(key)
+      }
+      return next
+    })
+
+  return { apps, picked, toggle, pick, count: picked.size, total: (apps ?? []).reduce((n, app) => n + app.servers.length, 0), working, error, run }
 }
 
 /** The servers, grouped by the app they came from. */
@@ -78,7 +90,7 @@ export function ImportList({ state }: { state: ImportState }): JSX.Element {
   const withServers = apps.filter((app) => app.servers.length > 0)
   if (withServers.length === 0) return <p className="import__empty">No MCP servers found in Claude, Cursor, Windsurf, VS Code or Gemini CLI on this computer.</p>
   return (
-    <div className="import">
+    <div className="import edge-fade">
       {withServers.map((app) => (
         <section key={app.id} className="import__app">
           <h2 className="import__app-name">{app.name}</h2>

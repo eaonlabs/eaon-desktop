@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ArrowUp,
@@ -44,9 +44,11 @@ import { SideQuestion } from './chat/SideQuestion'
 import { useSideQuestion } from '../state/sideQuestion'
 import { parseSideQuestion } from '@shared/sideQuestion'
 import { ScreenshotPicker } from './composer/ScreenshotPicker'
-import { clampEffort, EFFORT_LABEL } from '@shared/effort'
+import { clampEffort, EFFORT_LABEL, orderEfforts } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
+import { LinkAccounts } from './LinkAccounts'
 import { ModelPicker } from './composer/ModelPicker'
+import { useSignedInEngine } from './composer/useSignedInEngine'
 import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
@@ -65,7 +67,8 @@ import { dropStashed, stashPrompt, stashTitle, takeStashed, useStash } from '../
 import { Bookmark } from 'lucide-react'
 import { PromptLibrary } from './composer/PromptLibrary'
 import { savedPromptItems } from './composer/promptItems'
-import { ago } from '@shared/modelSelection'
+import { ago, nativeOptions } from '@shared/modelSelection'
+import { candidates } from '@shared/adaptive'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
@@ -166,6 +169,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const isAgent = useIsWork()
   // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
   const coding = useCoding()
+  // A conversation outside a project: its tray has no project or branch to show.
+  const compact = variant === 'chat' && !(coding && isAgent)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
     setText((current) => joinTranscript(current, spoken))
@@ -176,7 +181,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
-  // In a conversation, text that wraps takes the whole box, with + and send under it.
+  // In a conversation the box is one slim line, + at one end and send at the other; text
+  // that wraps takes the whole box, with + and send under it.
   const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
   // A temporary chat, or the start page about to make one: the box is dashed.
   const temporary = useApp((s) => (variant === 'home' ? s.pendingTemporary : Boolean(s.activeChat()?.temporary)))
@@ -207,9 +213,24 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const model = engineChoice ? null : selection.model
   // Nothing connected, or the chosen model can't be used: the notice above
   // says why before anything is typed, and sending waits with the draft kept.
-  const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
-  // What the request will actually use: the chosen effort, clamped to the model.
-  const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
+  const chosenUnusable = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
+  // Adaptive picks a model per message: it waits only when none it could pick, nor the chosen one, can run.
+  const adaptive = Boolean(settings?.adaptiveModel)
+  const providers = useApp((s) => s.providers)
+  const adaptiveReady = useMemo(() => adaptive && candidates(nativeOptions(providers), providers).length > 0, [adaptive, providers])
+  const noModel = adaptive ? !adaptiveReady && chosenUnusable : chosenUnusable
+  // Nothing connected at all (not a connected one that needs fixing, which says so above the box):
+  // the model button reads Connect a model, and sending opens the ways to connect one, keeping the draft.
+  const needsConnect =
+    !engineChoice && !adaptiveReady && selection.status === 'none' && !(selection.provider && selection.action && selection.action !== 'connect')
+  const [connecting, setConnecting] = useState(false)
+  // A coding agent already signed in here (Codex, Claude Code): the button offers it instead, one click.
+  const signedIn = useSignedInEngine(needsConnect)
+  // What the request will actually use: the chosen effort, clamped to the model; Adaptive sets its own.
+  const effort = adaptive ? undefined : clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
+  // The highest level the model takes (Extra high or Max): its name lights up on the model button.
+  const efforts = orderEfforts((engineChoice ? engineChoice.efforts : model?.efforts) ?? [])
+  const topEffort = efforts.length >= 2 && effort === efforts[efforts.length - 1]
 
 
   useEffect(() => {
@@ -307,6 +328,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       return
     }
     if (askSide()) return
+    if (needsConnect && (text.trim() || attachments.length > 0)) {
+      setConnecting(true)
+      return
+    }
     if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
@@ -600,9 +625,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
               ? coding && isAgent
                 ? 'Ask for follow-up changes'
                 : 'Ask a follow-up'
-              : isAgent
-                ? 'Ask Eaon to do anything'
-                : 'Ask anything'
+              : 'Ask anything, / for commands, @ for context'
       }
       value={text}
       rows={1}
@@ -683,15 +706,38 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ))}
     </div>
   )
-  const modelButton = (
+  const chooseSignedIn = (): void => {
+    if (!signedIn) return
+    // A signed-in Claude Code runs Chat as Claude Agent, the provider (Eaon's own agent and tools on
+    // the Claude plan): Chat's picker has no tab for the Claude engine.
+    if (signedIn === 'claude') {
+      const models = useApp.getState().providers.find((p) => p.id === 'claude-agent')?.models ?? []
+      useApp.getState().selectModel(models.find((m) => m.id === 'default')?.id ?? models[0]?.id ?? 'default', 'claude-agent')
+    } else void useApp.getState().patchSettings({ selectedEngine: signedIn, selectedEngineModel: '' })
+  }
+  const modelButton = needsConnect ? (
+    signedIn ? (
+      <button className="chip chip--model chip--connect" onClick={chooseSignedIn} title={`${ENGINE_LABEL[signedIn]} is signed in on this computer: Chat can run on it, with its plan`}>
+        <ProviderMark providerId={ENGINE_MARK[signedIn]} size={15} />
+        <span className="chip__model">Use {ENGINE_LABEL[signedIn]}</span>
+      </button>
+    ) : (
+      <button className="chip chip--model chip--connect" onClick={() => setConnecting(true)} title="Sign in with an AI plan, add an API key, or use a model on this computer">
+        <Plus size={14} strokeWidth={2.2} />
+        <span className="chip__model">Connect a model</span>
+      </button>
+    )
+  ) : (
     <button
       ref={modelAnchor}
       className="chip chip--model"
       data-open={modelMenu.open || undefined}
-      data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
+      data-unavailable={(adaptive ? noModel : engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
       onClick={modelMenu.toggle}
       title={
-        engineChoice
+        adaptive
+          ? 'Adaptive: each message goes to the model that suits it, at the effort it needs'
+          : engineChoice
           ? engineChoice.ready
             ? `${engineChoice.label}. Runs on ${ENGINE_LABEL[engineChoice.engine]}, with your ${ENGINE_LABEL[engineChoice.engine]} sign-in and plan`
             : `Unavailable — ${engineChoice.reason ?? ''}`
@@ -700,10 +746,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             : model?.label
       }
     >
-      {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
-      <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
-      {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
-      {variant === 'chat' && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
+      {adaptive ? (
+        <Sparkles size={14} strokeWidth={1.9} className="chip__adaptive" />
+      ) : engineChoice ? (
+        <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} />
+      ) : (
+        model && <ProviderMark providerId={model.providerId} size={15} />
+      )}
+      <span className="chip__model">{adaptive ? 'Adaptive' : engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
+      {effort && (
+        <span key={effort} className="chip__effort" data-top={topEffort || undefined}>
+          {EFFORT_LABEL[effort]}
+        </span>
+      )}
+      {variant === 'chat' && !adaptive && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
       <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
     </button>
   )
@@ -739,10 +795,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0))}
+      disabled={!streaming && ((noModel && !needsConnect) || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={!streaming && noModel ? 'Connect a model first — see above' : undefined}
+      title={!streaming && needsConnect ? 'Connect a model to send this' : !streaming && noModel ? 'Pick a model that can be used — see above' : undefined}
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />
@@ -778,7 +834,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
-      {engineChoice ? (
+      {/* Adaptive with models to pick from: what the chosen model needs doesn't hold anything up. */}
+      {adaptiveReady ? null : engineChoice ? (
         !engineChoice.ready && <EngineNotice choice={engineChoice} onChooseModel={() => modelMenu.setOpen(true)} />
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
@@ -788,13 +845,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
       <SideQuestion />
-      {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
-      {isAgent && variant !== 'chat' && (
-        <div className="composer__above">
-          <ProjectPicker />
-          <BranchPicker />
-        </div>
-      )}
       {variant === 'chat' && draftId && <QueuedMessages chatId={draftId} onEdit={takeBack} />}
       {editing && (
         <div className="composer-editing" role="status">
@@ -819,7 +869,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-temporary={temporary || undefined} data-stacked={stacked || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-variant={variant} data-compact={compact || undefined} data-stacked={stacked || undefined} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -852,24 +902,21 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )}
 
         {variant === 'chat' ? (
-          // In a conversation: one pill, + at one end and send at the other (under the text once
-          // it wraps); its settings sit under it.
+          // In a conversation: one slim pill, + at one end and the mic and send at the other.
           <div className="composer__row">
             {plusButton}
             {input}
-            {micButton}
             {queueButton}
+            {micButton}
             {sendButton}
           </div>
         ) : (
+          // The start page: the text, then + at one end and the mic and send at the other.
           <>
             {input}
             <div className="composer__toolbar">
               {plusButton}
-              {isAgent && <PermissionPicker />}
-              {chips}
               <div className="composer__spacer" />
-              {modelButton}
               {micButton}
               {sendButton}
             </div>
@@ -877,15 +924,17 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )}
       </div>
 
-      {variant === 'chat' && (
-        <div className="composer__meta">
-          {isAgent && <PermissionPicker />}
-          {chips}
-          <div className="composer__spacer" />
-          {modelButton}
-          {!engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
-        </div>
-      )}
+      {/* Tucked under the box: what Eaon may do, the project and its branch (in a project), what's
+          switched on, and the model, with how full the context is in a conversation. */}
+      <div className="composer__tray">
+        {isAgent && <PermissionPicker />}
+        {isAgent && !compact && <ProjectPicker />}
+        {isAgent && !compact && <BranchPicker />}
+        {chips}
+        <div className="composer__spacer" />
+        {modelButton}
+        {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
+      </div>
 
       {suggest.menu}
       <AddMenu
@@ -918,6 +967,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       />
       <ScreenshotPicker open={shotOpen} onClose={() => setShotOpen(false)} onAttach={addAttachments} />
       <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
+      <LinkAccounts open={connecting} onClose={() => setConnecting(false)} />
       <Popover anchor={stashAnchor} open={stashMenu.open && stashed.length > 0} onClose={stashMenu.close} placement="top-start" width={340}>
         <div className="menu__label">Saved for later</div>
         {stashed.map((prompt) => (
@@ -1120,7 +1170,7 @@ function AddMenu({
   }
 
   return (
-    <Popover anchor={anchor} open={open} onClose={close} placement="bottom-start" width={isAgent ? 280 : 240} className="menu--tall">
+    <Popover anchor={anchor} open={open} onClose={close} placement="bottom-start" width={isAgent ? 304 : 240} className="menu--tall">
       <MenuItem
         icon={<Paperclip size={16} strokeWidth={1.8} />}
         title="Add photos and files"
@@ -1180,7 +1230,7 @@ function AddMenu({
           <MenuItem
             icon={<MessageCircleQuestion size={16} strokeWidth={1.8} />}
             title="Ask only"
-            hint={settings?.askMode ? undefined : 'Read, answer, change nothing'}
+            hint={settings?.askMode ? undefined : 'Just answers'}
             checked={settings?.askMode}
             onMouseEnter={() => setSub(null)}
             onClick={() => {

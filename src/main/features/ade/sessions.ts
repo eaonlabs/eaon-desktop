@@ -68,6 +68,7 @@ function normalize(raw: unknown): AdeSession | null {
     worktree: v.worktree === true,
     createdAt: typeof v.createdAt === 'number' && Number.isFinite(v.createdAt) ? v.createdAt : 0,
     ...(v.imported === true ? { imported: true } : {}),
+    ...(str(v.importedFrom) ? { importedFrom: (str(v.importedFrom) as string).slice(0, 40) } : {}),
     ...(str(v.host) ? { host: str(v.host) as string } : {}),
     ...(typeof v.archivedAt === 'number' && Number.isFinite(v.archivedAt) ? { archivedAt: v.archivedAt } : {})
   }
@@ -379,6 +380,27 @@ export class SessionBook {
       host: fields.host
     }
     this.sessions.push(session)
+    this.commit()
+    return { ...session }
+  }
+
+  /**
+   * A session another app made (a Conductor workspace, an Orca worktree),
+   * brought in by Import: filed under its repository like any folder, with
+   * the other app's name for it, and archived if it was archived there. Null
+   * when the ADE has that folder already. Picking it is asked for, so a
+   * folder removed from the ADE before can come back this way.
+   */
+  async adoptForeign(folder: string, info: { title: string | null; at: number; from: string; archived: boolean }): Promise<AdeSession | null> {
+    const cwd = path.resolve(folder)
+    if (this.byCwd(cwd)) return null
+    this.closed.delete(cwd)
+    const made = await this.ensureFolder(cwd, { at: info.at || this.deps.now() })
+    const session = this.sessions.find((s) => s.id === made.id)
+    if (!session) return null
+    session.title = info.title?.trim().slice(0, 120) || null
+    session.importedFrom = info.from
+    if (info.archived && session.archivedAt === undefined) session.archivedAt = this.deps.now()
     this.commit()
     return { ...session }
   }

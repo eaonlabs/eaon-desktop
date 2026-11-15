@@ -233,6 +233,24 @@ const has = (combo: Combo, ...mods: Modifier[]): boolean =>
   mods.length === combo.modifiers.length && mods.every((m) => combo.modifiers.includes(m))
 
 /**
+ * The part of dangerousCombo that can't be taken back: emptying the Trash,
+ * deleting past it, logging out, killing the display server. These still ask
+ * with Full access; the rest of dangerousCombo (quitting an app, moving files
+ * to the Trash, locking the screen) asks only in Ask and Auto.
+ */
+export function irreversibleCombo(combo: Combo, platform: Platform): string | null {
+  const key = combo.key
+  if (platform === 'darwin') {
+    if ((key === 'backspace' || key === 'delete') && has(combo, 'cmd', 'shift')) return 'empties the Trash'
+    if (key === 'q' && (has(combo, 'cmd', 'shift') || has(combo, 'cmd', 'shift', 'alt'))) return 'logs you out'
+    return null
+  }
+  if (key === 'delete' && has(combo, 'shift')) return 'permanently deletes the selection'
+  if (platform === 'linux' && key === 'backspace' && has(combo, 'ctrl', 'alt')) return 'kills the X server'
+  return null
+}
+
+/**
  * Combos that quit, force-quit, log out, lock, or delete — the ones that
  * "Approve for me" should still stop and ask about. Like the shell deny-list,
  * this catches plausible mistakes; it is not a sandbox.

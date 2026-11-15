@@ -30,10 +30,11 @@
   stroke-width: 2.4;
 }
 .context-meter__track {
-  stroke: var(--border);
+  /* Visible empty too: the border colour left a chat's first ring all but invisible. */
+  stroke: color-mix(in srgb, var(--fg) 22%, transparent);
 }
 .context-meter__fill {
-  stroke: var(--text-2);
+  stroke: var(--text);
   stroke-linecap: round;
   transition: stroke-dashoffset 500ms var(--ease), stroke var(--dur) var(--ease);
 }

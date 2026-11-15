@@ -42,12 +42,16 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   const page = app.page
   assert.equal(await codexState(page), 'signed-in')
 
-  // With nothing else connected, the first-run notice offers Codex for Chat.
-  await page.find('.model-notice .model-notice__link', { text: /Use Codex in Chat/ })
+  // With nothing else connected, the model button offers Codex for Chat, one click.
+  await page.find('.chip--model.chip--connect', { text: /Use Codex/ })
+  assert.equal(await page.eval(() => Boolean(document.querySelector('.model-notice'))), false, 'no notice over the box')
+  await page.click('.chip--model.chip--connect', { text: /Use Codex/ })
+  await page.waitFor(async () => (await window.api.settings.get()).selectedEngine === 'codex', { message: 'Chat to run on Codex' })
+  await page.waitFor(() => !document.querySelector('.chip--connect'), { message: 'the button to show the model' })
 
   // Codex's own tab in the model picker, with its logo.
   await page.click('.chip--model')
-  assert.ok(await page.eval(() => Boolean(document.querySelector('.mp__tab[aria-label="Codex"] img'))), 'the Codex tab shows its logo')
+  await page.find('.mp__tab[aria-label="Codex"] img', { timeout: 10_000 })
   // The picker pops open with a spring: clicked mid-animation (a slow CI
   // runner), the tab was missed and Starred stayed open. Click once it has
   // landed, and again if the tab still isn't the open one.
@@ -63,13 +67,14 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
     if (open) break
     if (attempt === 2) assert.fail('the Codex tab never opened')
   }
+  // Codex's models, under the rows every tab starts with (Adaptive).
   const rows = await page.waitFor(() => {
-    const r = [...document.querySelectorAll('.mp__list .mp__row')].map((row) => row.querySelector('.mp__row-name')?.textContent ?? '')
+    const r = [...document.querySelectorAll('.mp__list .mp__row:not(.mp__row--follow)')].map((row) => row.querySelector('.mp__row-name')?.textContent ?? '')
     return r.length ? r : null
   }, { message: 'Codex’s models' })
   s.t.diagnostic(`Codex tab: ${JSON.stringify(rows)}`)
   await s.shot(page, 'picker-codex-tab')
-  await page.click('.mp__list .mp__row', { text: rows[0] })
+  await page.click('.mp__list .mp__row:not(.mp__row--follow)', { text: rows[0] })
   await page.waitFor((want) => document.querySelector('.chip--model .chip__model')?.textContent === want, {
     args: [`Codex · ${rows[0]}`],
     message: 'the chip to show the Codex model by name'
