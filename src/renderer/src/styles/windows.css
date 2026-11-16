@@ -1,0 +1,136 @@
+/*
+ * Windows: Eaon's own look in a Windows window.
+ *
+ * The rest of the styles were drawn on a Mac, where the sidebar floats as a
+ * rounded card in a gutter beside the traffic lights. On Windows the caption
+ * buttons are laid over the top right of the page instead
+ * (titleBarOverlayFor in main/index.ts), and a card floating in a gutter
+ * looks like a web page in a frame. So here, and only when the app runs on
+ * Windows (body[data-platform='win32'], App.tsx), the frame changes and
+ * nothing else does:
+ *
+ *   - panels that meet the window's edge (the sidebar, Settings' list of
+ *     pages, the side panels) sit flush and square, with a hairline between
+ *     them and the page;
+ *   - the top row is one title bar the height of the caption buttons, with
+ *     Eaon's mark and name at the top left;
+ *   - the type is Segoe UI Variable, which renders better on Windows 11 than
+ *     the older Segoe UI that system-ui picks, with Cascadia for code;
+ *   - scroll bars are thin, as on a Mac, not Chromium's grey Windows ones.
+ *
+ * Everything inside (buttons, menus, the message box, dialogs, toggles) keeps
+ * Eaon's own shapes.
+ */
+
+body[data-platform='win32'] {
+  /* The panels sit flush, so there is no gutter round them; the title bar row
+     keeps the caption buttons' full height (44px) on its own. */
+  --sidebar-gap: 0px;
+  --titlebar-h: 44px;
+  --r-panel: 0px;
+
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+
+  /* The sidebar a step below the page in dark, a step greyer in light. */
+  --win-pane: var(--canvas);
+  --win-page: var(--bg);
+}
+[data-theme='light'] body[data-platform='win32'] {
+  --win-pane: color-mix(in srgb, var(--bg), var(--fg) 3.5%);
+}
+/* The page is the window's background, so the caption buttons, painted in
+   the theme's background (titleBarOverlayFor), match the row under them.
+   See-through keeps its picture. */
+body[data-platform='win32']:not([data-see-through='on']) {
+  background: var(--win-page);
+}
+
+/* Segoe UI isn't set tight the way SF Pro is on a Mac. */
+body[data-platform='win32'] .home__title,
+body[data-platform='win32'] .modal__title,
+body[data-platform='win32'] .page__title,
+body[data-platform='win32'] .settings__title {
+  font-family: var(--font-display);
+  letter-spacing: 0;
+}
+
+/* ---------------- The frame ---------------- */
+
+/* The sidebar and Settings' list of pages: flush panes, the full height of the window. */
+body[data-platform='win32'] .sidebar__panel,
+body[data-platform='win32'] .settings__nav-panel {
+  border: 0;
+  border-right: 1px solid var(--border-soft);
+  border-radius: 0;
+  box-shadow: none;
+}
+body[data-platform='win32']:not([data-see-through='on']) .sidebar__panel,
+body[data-platform='win32']:not([data-see-through='on']) .settings__nav-panel {
+  background: var(--win-pane);
+}
+body[data-platform='win32'] .sidebar__panel .titlebar {
+  justify-content: flex-end;
+  padding: 0 6px 0 14px;
+}
+
+/* Eaon's mark and name at the top left, where a Mac has its traffic lights. */
+.titlebar__app {
+  display: none;
+}
+body[data-platform='win32'] .titlebar__app {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+body[data-platform='win32'] .titlebar__app svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text);
+}
+body[data-platform='win32'] .settings__nav-top {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+}
+/* Settings' narrow rail (under 860px) has room for its icons only. */
+@media (max-width: 859px) {
+  body[data-platform='win32'] .settings__nav:not([data-expanded]) .titlebar__app {
+    display: none;
+  }
+}
+
+/* ---------------- Scroll bars ---------------- */
+
+/* Thin and rounded, clear of the edge, darker under the pointer. */
+body[data-platform='win32'] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+body[data-platform='win32'] ::-webkit-scrollbar-track,
+body[data-platform='win32'] ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+body[data-platform='win32'] ::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 24%, transparent) padding-box;
+}
+body[data-platform='win32'] ::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 40%, transparent);
+}
+/* .scroll keeps its bar out of sight until the pointer is over the list. */
+body[data-platform='win32'] .scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+body[data-platform='win32'] .scroll:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fg) 24%, transparent);
+}
