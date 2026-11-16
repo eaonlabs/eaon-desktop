@@ -53,12 +53,18 @@
   align-items: center;
   justify-content: space-between;
   height: 52px;
-  padding: 0 14px;
+  /* Skip setup stays clear of Windows' and Linux's caption buttons at the
+     top right, which used to sit on top of it. */
+  padding: 0 calc(14px + var(--window-controls-right)) 0 14px;
   -webkit-app-region: drag;
 }
 /* The traffic lights end at x = 79 (main/index.ts). */
 body[data-platform='darwin'] .onboarding__bar {
   padding-left: 90px;
+}
+/* Level with the caption buttons, which are as tall as the title bar (44px). */
+body[data-platform='win32'] .onboarding__bar {
+  height: var(--titlebar-h);
 }
 .onboarding__bar button {
   -webkit-app-region: no-drag;

@@ -8,6 +8,7 @@ import { isDirty, openInCode, useIde } from '../ide/ideStore'
 import { notify } from '../Notice'
 import { joinPath } from '../ide/paths'
 import { folderName, preferredTarget, useChatCode } from './chatCodeStore'
+import { isMac } from '../../lib/platform'
 
 const OPTIONS_KEY = 'eaon.chatCode.searchOptions'
 
@@ -429,7 +430,7 @@ function SearchDialog(): JSX.Element {
             <kbd>↵</kbd> open here
           </span>
           <span>
-            <kbd>⌘</kbd>
+            <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd>
             <kbd>↵</kbd> open in editor
           </span>
         </div>

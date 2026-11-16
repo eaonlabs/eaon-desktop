@@ -1,5 +1,6 @@
 import { createContext, useContext, type JSX, type ReactNode } from 'react'
 import { FileIcon } from './FileIcon'
+import { isMac } from '../../lib/platform'
 // The reading of a path moved to shared, where the terminals read paths the same way.
 export { parseFileRef } from '@shared/fileRef'
 
@@ -28,7 +29,7 @@ export function FileRef({ text, path, line, children, asCode = true }: { text: s
     <a
       href="#"
       className={asCode ? 'md__code md__file' : 'md__file md__file--text'}
-      title={`Open ${path}${line ? ` at line ${line}` : ''} (⌘-click for your editor)`}
+      title={`Open ${path}${line ? ` at line ${line}` : ''} (${isMac ? '⌘' : 'Ctrl+'}click for your editor)`}
       onClick={(event) => {
         event.preventDefault()
         links.open(path, line, event.metaKey || event.ctrlKey)

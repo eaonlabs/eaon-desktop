@@ -11,6 +11,7 @@ import { gutterMarks } from '../gitGutter'
 import { isDirty, type IdeTab, type Surface } from '../ideStore'
 import { FilesView } from './FilesView'
 import { BlameItem, FileHistoryButton } from './FileHistory'
+import { shortcutLabel } from '../../../lib/platform'
 
 /**
  * A file in a tab of its own, laid out as an editor: the project's files on
@@ -140,7 +141,7 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
                 {part}
               </span>
             ))}
-            {tab && isDirty(tab) && <span className="file-surface__dirty" title="Not saved yet (⌘S saves)" aria-label="Not saved yet" />}
+            {tab && isDirty(tab) && <span className="file-surface__dirty" title={`Not saved yet (${shortcutLabel('⌘S')} saves)`} aria-label="Not saved yet" />}
           </nav>
           <div className="file-surface__tools">
             <button

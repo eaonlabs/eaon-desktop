@@ -39,6 +39,8 @@ import './styles/cliAccounts.css'
 import './styles/workerHost.css'
 import './styles/computers.css'
 import './styles/splash.css'
+// Last: Windows' own shapes over the rest (body[data-platform='win32']).
+import './styles/windows.css'
 
 reportRendererErrors()
 

@@ -63,6 +63,7 @@ import { EnginesPage } from './pages/Engines'
 import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
 import { matchesSearch } from '@shared/searchWords'
+import { WindowTitle } from '../WindowTitle'
 
 /** The nav's groups, top to bottom. */
 const GROUP_ORDER = ['Personal', 'Agents', 'Models and tools', 'Usage', 'Advanced', 'Archived']
@@ -298,7 +299,9 @@ export function SettingsShell(): JSX.Element {
     <div className="settings">
       <nav ref={nav} className="settings__nav" data-expanded={expanded || undefined}>
         <div className="settings__nav-panel">
-        <div className="settings__nav-top" />
+        <div className="settings__nav-top">
+          <WindowTitle />
+        </div>
         <button className="settings__back" onClick={() => setView('chat')} aria-label="Back to app" title="Back to app">
           <ArrowLeft size={16} strokeWidth={1.9} />
           <span>Back to app</span>
