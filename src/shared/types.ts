@@ -1020,10 +1020,12 @@ export type StreamEvent =
 export type UpdateStatus =
   | { state: 'idle' }
   | { state: 'checking' }
-  | { state: 'available'; version: string }
+  // `name`: what the release is called on GitHub, when that isn't its version
+  // (a four-part name such as 2026.7.7.1 over the semver 2026.7.8).
+  | { state: 'available'; version: string; name?: string }
   | { state: 'not-available' }
   | { state: 'downloading'; percent: number }
-  | { state: 'downloaded'; version: string }
+  | { state: 'downloaded'; version: string; name?: string }
   | { state: 'error'; message: string }
 
 export interface LocalServerStatus {

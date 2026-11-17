@@ -5,6 +5,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+- **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
+
 ## [2026.7.7.1] — 2026-11-16
 
 ### Added

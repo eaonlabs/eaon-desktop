@@ -1,4 +1,5 @@
 import type { UpdateStatus } from '@shared/types'
+import { releaseNameVersion } from '@shared/version'
 
 /**
  * Eaon's two kinds of update, kept apart.
@@ -40,11 +41,27 @@ export interface UpdatesDeps {
   publishBeta: (status: UpdateStatus) => void
   /** A stable check the user asked for found nothing, or failed: say so. */
   interactiveResult?: (
-    result: { kind: 'up-to-date' } | { kind: 'error'; message: string } | { kind: 'downloading'; percent: number | null } | { kind: 'ready'; version: string }
+    result: { kind: 'up-to-date' } | { kind: 'error'; message: string } | { kind: 'downloading'; percent: number | null } | { kind: 'ready'; version: string; name?: string }
   ) => void
 }
 
 /* ------------------------------------------------------------------ versions */
+
+/** What electron-updater says about an update; `releaseName` is its GitHub title. */
+interface UpdateInfo {
+  version: string
+  releaseName?: string | null
+}
+
+/**
+ * The release's own name, when its GitHub title calls it something other than
+ * its version: 2026.7.7.1 for the semver 2026.7.8. Nothing otherwise, so the
+ * status reads as it always did.
+ */
+function named(info: UpdateInfo): { name?: string } {
+  const name = releaseNameVersion(info.releaseName)
+  return name && name !== info.version ? { name } : {}
+}
 
 interface Parsed {
   core: [number, number, number]
@@ -127,15 +144,15 @@ export class UpdateController {
       if (this.mode === 'stable') this.setStable({ state: 'checking' })
       else if (this.mode === 'beta-check') this.setBeta({ state: 'checking' })
     })
-    updater.on('update-available', (info: { version: string }) => {
+    updater.on('update-available', (info: UpdateInfo) => {
       this.found = info.version
       if (this.mode === 'stable') {
-        this.setStable({ state: 'available', version: info.version })
+        this.setStable({ state: 'available', version: info.version, ...named(info) })
         // The check the user asked about is answered; left set, a background
         // failure hours later would pop a dialog nobody asked for.
         this.interactive = false
       } else if (this.mode === 'beta-check') {
-        this.setBeta(isNewerBeta(info.version, this.deps.version) ? { state: 'available', version: info.version } : { state: 'not-available' })
+        this.setBeta(isNewerBeta(info.version, this.deps.version) ? { state: 'available', version: info.version, ...named(info) } : { state: 'not-available' })
       }
     })
     updater.on('download-progress', (progress: { percent: number }) => {
@@ -143,9 +160,9 @@ export class UpdateController {
       if (this.mode === 'stable') this.setStable({ state: 'downloading', percent })
       else if (this.mode === 'beta-download') this.setBeta({ state: 'downloading', percent })
     })
-    updater.on('update-downloaded', (info: { version: string }) => {
-      if (this.mode === 'stable') this.setStable({ state: 'downloaded', version: info.version })
-      else if (this.mode === 'beta-download') this.setBeta({ state: 'downloaded', version: info.version })
+    updater.on('update-downloaded', (info: UpdateInfo) => {
+      if (this.mode === 'stable') this.setStable({ state: 'downloaded', version: info.version, ...named(info) })
+      else if (this.mode === 'beta-download') this.setBeta({ state: 'downloaded', version: info.version, ...named(info) })
     })
     updater.on('update-not-available', () => {
       if (this.mode === 'stable') {
@@ -206,7 +223,7 @@ export class UpdateController {
     // say so, rather than nothing at all, or a fresh check failing offline
     // and hiding the update that is ready.
     if (options.interactive && this.stable.state === 'downloaded') {
-      this.deps.interactiveResult?.({ kind: 'ready', version: this.stable.version })
+      this.deps.interactiveResult?.({ kind: 'ready', version: this.stable.version, ...(this.stable.name ? { name: this.stable.name } : {}) })
       return
     }
     if (this.busy) {
