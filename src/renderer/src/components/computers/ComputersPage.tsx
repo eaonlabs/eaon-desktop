@@ -31,6 +31,12 @@ function deviceLine(state: VmDeviceState): string | null {
     .join(' · ')
 }
 
+/**
+ * Whether the ADE and Workers sidebars list Computers. Off for 2026.7.7: it
+ * still needs work, so a release leaves it out and this switch brings it back.
+ */
+export const COMPUTERS_IN_SIDEBAR = false
+
 export function ComputersPage(): JSX.Element {
   const { devices, refresh } = useVmDevices()
   // Until picked: the worker computer when it has VMs, or when this computer can't run any.
