@@ -404,6 +404,12 @@ export interface SeeThrough {
   custom: string | null
   /** A video wallpaper plays (muted, looping); off, it holds still on a frame. Unset is on. */
   videoPlays?: boolean
+  /**
+   * Keep text readable: the wallpaper is softened, calmed and dimmed (or
+   * lifted) behind the text, only as much as it needs, before the tint goes
+   * over it (shared/seeThroughLegibility.ts). Unset is on.
+   */
+  readable?: boolean
 }
 
 /**

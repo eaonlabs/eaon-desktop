@@ -1,13 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { RefreshCw, RotateCcwSquare, Smartphone, Tablet } from 'lucide-react'
+import { isMac } from '../../../lib/platform'
 import { useBrowser, hostOf } from '../../browser/browserStore'
 import { useDockPlace } from '../dockPlace'
+import { SimulatorSurface } from './SimulatorSurface'
+import { useSimulator } from './simulatorStore'
 
 /**
- * The browser's page as a phone or a tablet sees it: the same address at the
- * device's size and with its browser's name, scaled to fit the dock. It
- * shares the in-app browser's session, so a page signed in there is signed in
- * here.
+ * The dock's Device: on a Mac, an iOS simulator inside the app
+ * (SimulatorSurface); or the browser's page as a phone or a tablet sees it —
+ * the same address at the device's size and with its browser's name, scaled
+ * to fit the dock. That shares the in-app browser's session, so a page signed
+ * in there is signed in here.
  */
 
 interface Device {
@@ -36,6 +40,13 @@ export function useBrowserPage(scope: string): string | null {
 }
 
 export function DeviceSurface(): JSX.Element {
+  const mode = useSimulator((s) => s.view.mode)
+  const setView = useSimulator((s) => s.setView)
+  if (isMac && mode === 'simulator') return <SimulatorSurface onWeb={() => setView({ mode: 'web' })} />
+  return <WebDevice onSimulator={isMac ? () => setView({ mode: 'simulator' }) : undefined} />
+}
+
+function WebDevice({ onSimulator }: { onSimulator?: () => void }): JSX.Element {
   const url = useBrowserPage(useDockPlace().browser)
   const [device, setDevice] = useState(DEVICES[0])
   const [turned, setTurned] = useState(false)
@@ -68,6 +79,11 @@ export function DeviceSurface(): JSX.Element {
         <Smartphone size={22} strokeWidth={1.5} />
         <p className="dock-note__title">No page to show</p>
         <p className="dock-note__hint">Open a page in the browser to see it on a phone or a tablet.</p>
+        {onSimulator && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={onSimulator}>
+            Use the iOS Simulator
+          </button>
+        )}
       </div>
     )
   }
@@ -90,6 +106,11 @@ export function DeviceSurface(): JSX.Element {
           {hostOf(src)}
         </span>
         <div style={{ flex: 1 }} />
+        {onSimulator && (
+          <button type="button" className="device__back" onClick={onSimulator}>
+            iOS Simulator
+          </button>
+        )}
         <button type="button" className="dock-tool" title="Turn it sideways" aria-label="Turn it sideways" aria-pressed={turned} onClick={() => setTurned(!turned)}>
           <RotateCcwSquare size={15} strokeWidth={1.9} />
         </button>

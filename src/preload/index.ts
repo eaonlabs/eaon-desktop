@@ -30,6 +30,7 @@ import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
+import { simulatorApi } from './features/simulator'
 import { appControlApi } from './features/appControl'
 import { browserControlApi } from './features/browserControl'
 import { inAppBrowserApi } from './features/inAppBrowser'
@@ -362,6 +363,7 @@ const fullApi = {
   pluginAuth: pluginsApi,
   scheduler: schedulerApi,
   computerUse: computerUseApi,
+  simulator: simulatorApi,
   appControl: appControlApi,
   browserControl: browserControlApi,
   inAppBrowser: inAppBrowserApi,

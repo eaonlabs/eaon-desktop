@@ -2,10 +2,12 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
-import { release, tmpdir } from 'node:os'
+import { homedir, release, tmpdir } from 'node:os'
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
 import { nativeImage } from 'electron'
 import { registerToolSource, type AgentTool } from '../agent/tools'
+import type { HardwareButton } from '@shared/simulatorPane'
+import { guessScale } from './simulatorInput'
 
 /**
  * `ios_simulator`: Xcode's iOS Simulator through `xcrun simctl` — boot a
@@ -23,11 +25,13 @@ import { registerToolSource, type AgentTool } from '../agent/tools'
  * drive their devices), to the main agent only.
  */
 
-interface SimDevice {
+export interface SimDevice {
   name: string
   udid: string
   state: string
   runtime: string
+  /** Its device type, e.g. com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro. */
+  type?: string
 }
 
 const LONG_EDGE = 1280
@@ -42,6 +46,8 @@ export interface RunResult {
 export interface RunOptions {
   timeout: number
   signal?: AbortSignal
+  /** The child's environment, when it isn't Eaon's own. */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -57,6 +63,8 @@ export interface SimulatorDeps {
   /** The Darwin kernel release (`os.release()`), e.g. "24.1.0" on macOS 15. */
   osRelease: () => string
   now: () => number
+  /** Where a program really is: itself, except where a test points Xcode's tools at stand-ins. */
+  program: (file: string) => string
 }
 
 /**
@@ -68,7 +76,7 @@ export function execRun(file: string, args: string[], options: RunOptions): Prom
     execFile(
       file,
       args,
-      { timeout: options.timeout, signal: options.signal, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
+      { timeout: options.timeout, signal: options.signal, env: options.env, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8' },
       (error, stdout, stderr) => {
         if (error) fail(Object.assign(error, { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }))
         else done({ stdout: String(stdout), stderr: String(stderr) })
@@ -98,15 +106,23 @@ const realDeps: SimulatorDeps = {
   sleep: realSleep,
   platform: process.platform,
   osRelease: release,
-  now: Date.now
+  now: Date.now,
+  program: (file) => file
 }
 
 let deps: SimulatorDeps = realDeps
+
+/** Runs a program as everything here does (so a test's stand-ins answer), Xcode's tools with the Xcode in use. */
+export const runProgram = (file: string, args: string[], options: RunOptions): Promise<RunResult> => deps.run(file, args, xcodeOptions(file, options))
+
+/** Where to start a long-running program (a recording, a stream) from. */
+export const programPath = (file: string): string => deps.program(file)
 
 /** Tests swap in fakes; null puts the real machine back and forgets what was learned about it. */
 export function setSimulatorDeps(replacement: Partial<SimulatorDeps> | null): void {
   deps = replacement ? { ...realDeps, ...replacement } : realDeps
   environment = null
+  unselected = null
   viewerFound = null
   shown.clear()
 }
@@ -124,6 +140,62 @@ export const MIN_XCODE_MAJOR = 12
 
 /** Where the App Store and Apple's downloads put Xcode. */
 const XCODE_APPS = ['/Applications/Xcode.app', '/Applications/Xcode-beta.app']
+
+/**
+ * An Xcode found while the Mac has none selected (only the Command Line
+ * Tools, or nothing): used for this feature's own commands through
+ * DEVELOPER_DIR, which is what xcrun reads first, so the user needs neither
+ * to move it into Applications nor to run `sudo xcode-select`. Nothing else
+ * on the Mac changes. Null while the selected one is a full Xcode.
+ */
+let unselected: string | null = null
+
+/** The environment additions for Xcode's tools: the Xcode found, when it isn't the selected one. */
+export const xcodeEnv = (): Record<string, string> => (unselected ? { DEVELOPER_DIR: unselected } : {})
+
+function xcodeOptions(file: string, options: RunOptions): RunOptions {
+  if (!unselected || !/^\/usr\/bin\/(xcrun|xcodebuild|simctl)$/.test(file)) return options
+  return { ...options, env: { ...(options.env ?? process.env), ...xcodeEnv() } }
+}
+
+/** "27.0.1" → [27, 0, 1], for picking the newest. */
+const versionParts = (version: string): number[] => version.split('.').map((n) => Number(n) || 0)
+
+/**
+ * Every full Xcode on the Mac, newest first: the usual places, then wherever
+ * Spotlight knows of one (a download left in Downloads, a second copy). Each
+ * has its developer folder.
+ */
+async function findXcodes(signal?: AbortSignal): Promise<string[]> {
+  const home = homedir()
+  const places = new Set([...XCODE_APPS, join(home, 'Applications/Xcode.app'), join(home, 'Downloads/Xcode.app'), join(home, 'Downloads/Xcode-beta.app'), join(home, 'Desktop/Xcode.app')])
+  try {
+    const { stdout } = await deps.run('/usr/bin/mdfind', ["kMDItemCFBundleIdentifier == 'com.apple.dt.Xcode'"], { timeout: 5000, signal })
+    for (const line of stdout.split('\n')) if (line.trim().endsWith('.app')) places.add(line.trim())
+  } catch {
+    // Spotlight off or slow: the usual places are enough.
+  }
+  const found: { app: string; version: number[] }[] = []
+  for (const app of places) {
+    if (!deps.exists(join(app, 'Contents/Developer'))) continue
+    let version: number[] = [0]
+    try {
+      const { stdout } = await deps.run('/usr/bin/plutil', ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', join(app, 'Contents/Info.plist')], { timeout: 5000, signal })
+      version = versionParts(stdout.trim())
+    } catch {
+      // Unknown version: still usable, tried last.
+    }
+    found.push({ app, version })
+  }
+  found.sort((a, b) => {
+    for (let i = 0; i < Math.max(a.version.length, b.version.length); i++) {
+      const d = (b.version[i] ?? 0) - (a.version[i] ?? 0)
+      if (d) return d
+    }
+    return 0
+  })
+  return found.map((f) => f.app)
+}
 
 /** How long a good environment check stands before it is made again. A failure is never cached. */
 const ENVIRONMENT_TTL_MS = 60_000
@@ -189,19 +261,24 @@ export function xcodeMajor(versionOutput: string): number | null {
  * folder. A good answer is kept for a minute; a bad one is asked again next
  * time, so the user fixing it takes effect at once.
  */
-async function ensureEnvironment(signal?: AbortSignal): Promise<string> {
+export async function ensureEnvironment(signal?: AbortSignal): Promise<string> {
   if (deps.platform !== 'darwin') throw new SimulatorError('The iOS Simulator only runs on macOS.')
   if (environment && deps.now() - environment.at < ENVIRONMENT_TTL_MS) return environment.developer
 
-  let developer: string
+  let developer = ''
   try {
     developer = (await deps.run('/usr/bin/xcode-select', ['-p'], { timeout: 10_000, signal })).stdout.trim()
   } catch (error) {
     if (isAbort(error, signal)) throw new Error('Stopped by the user.')
-    throw noXcodeError('none')
   }
-  if (!developer) throw noXcodeError('none')
-  if (/CommandLineTools/i.test(developer) || !/\.app\/Contents\/Developer\/?$/.test(developer)) throw noXcodeError('clt')
+  unselected = null
+  // No full Xcode selected: one elsewhere on the Mac does, used for these commands only.
+  if (!developer || /CommandLineTools/i.test(developer) || !/\.app\/Contents\/Developer\/?$/.test(developer)) {
+    const [app] = await findXcodes(signal)
+    if (!app) throw noXcodeError(developer ? 'clt' : 'none')
+    developer = join(app, 'Contents/Developer')
+    unselected = developer
+  }
   if (!deps.exists(developer)) {
     throw new SimulatorError(
       `The selected Xcode (${developer.replace(/\/Contents\/Developer\/?$/, '')}) is no longer there. Ask the user to reinstall Xcode, or to select another with \`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer\`, then try again.`
@@ -209,7 +286,7 @@ async function ensureEnvironment(signal?: AbortSignal): Promise<string> {
   }
 
   try {
-    const { stdout } = await deps.run('/usr/bin/xcodebuild', ['-version'], { timeout: 30_000, signal })
+    const { stdout } = await deps.run('/usr/bin/xcodebuild', ['-version'], xcodeOptions('/usr/bin/xcodebuild', { timeout: 30_000, signal }))
     const major = xcodeMajor(stdout)
     if (major !== null && major < MIN_XCODE_MAJOR) {
       throw new SimulatorError(
@@ -254,11 +331,11 @@ export function iosRuntimes(json: string): { name: string; identifier: string }[
  * as simctl's own last lines. Any failure also makes the next call check the
  * environment again.
  */
-async function simctl(args: string[], options: { timeout?: number; signal?: AbortSignal; checked?: boolean } = {}): Promise<string> {
+export async function simctl(args: string[], options: { timeout?: number; signal?: AbortSignal; checked?: boolean } = {}): Promise<string> {
   const { timeout = 60_000, signal, checked = true } = options
   if (checked) await ensureEnvironment(signal)
   try {
-    return (await deps.run('/usr/bin/xcrun', ['simctl', ...args], { timeout, signal })).stdout
+    return (await deps.run('/usr/bin/xcrun', ['simctl', ...args], xcodeOptions('/usr/bin/xcrun', { timeout, signal }))).stdout
   } catch (error) {
     environment = null
     if (isAbort(error, signal)) throw new Error('Stopped by the user.')
@@ -281,11 +358,13 @@ async function simctl(args: string[], options: { timeout?: number; signal?: Abor
 /* ---------------------------------------------------------------- devices */
 
 export function parseDevices(json: string): SimDevice[] {
-  const parsed = JSON.parse(json) as { devices?: Record<string, { name: string; udid: string; state: string; isAvailable?: boolean }[]> }
+  const parsed = JSON.parse(json) as { devices?: Record<string, { name: string; udid: string; state: string; isAvailable?: boolean; deviceTypeIdentifier?: string }[]> }
   const out: SimDevice[] = []
   for (const [runtime, devices] of Object.entries(parsed.devices ?? {})) {
     const label = runtime.replace(/^com\.apple\.CoreSimulator\.SimRuntime\./, '').replace(/-(\d+)-(\d+)$/, ' $1.$2').replace(/-/g, ' ')
-    for (const d of devices) if (d.isAvailable !== false) out.push({ name: d.name, udid: d.udid, state: d.state, runtime: label })
+    for (const d of devices) {
+      if (d.isAvailable !== false) out.push({ name: d.name, udid: d.udid, state: d.state, runtime: label, ...(d.deviceTypeIdentifier ? { type: d.deviceTypeIdentifier } : {}) })
+    }
   }
   return out
 }
@@ -296,7 +375,7 @@ function runtimeVersion(label: string): number[] {
   return match ? match.slice(1).map((n) => Number(n ?? 0)) : [0]
 }
 
-function newerFirst(a: SimDevice, b: SimDevice): number {
+export function newerFirst(a: SimDevice, b: SimDevice): number {
   const va = runtimeVersion(a.runtime)
   const vb = runtimeVersion(b.runtime)
   for (let i = 0; i < Math.max(va.length, vb.length); i++) {
@@ -306,8 +385,68 @@ function newerFirst(a: SimDevice, b: SimDevice): number {
   return 0
 }
 
-async function devices(signal?: AbortSignal): Promise<SimDevice[]> {
+export async function devices(signal?: AbortSignal): Promise<SimDevice[]> {
   return parseDevices(await simctl(['list', 'devices', 'available', '-j'], { signal }))
+}
+
+const scales = new Map<string, number>()
+
+/**
+ * A device's screen scale (points to pixels), from its device type's profile
+ * in Xcode; a guess from its name when that can't be read.
+ */
+export async function scaleOf(target: SimDevice, signal?: AbortSignal): Promise<number> {
+  const type = target.type
+  if (!type) return guessScale(target.name)
+  const known = scales.get(type)
+  if (known) return known
+  let scale = guessScale(target.name)
+  try {
+    const listed = JSON.parse(await simctl(['list', 'devicetypes', '-j'], { signal })) as { devicetypes?: { identifier?: string; bundlePath?: string }[] }
+    const bundle = listed.devicetypes?.find((t) => t.identifier === type)?.bundlePath
+    if (bundle) {
+      const { stdout } = await deps.run('/usr/bin/plutil', ['-extract', 'mainScreenScale', 'raw', '-o', '-', join(bundle, 'Contents/Resources/profile.plist')], { timeout: 10_000, signal })
+      const read = Number(stdout.trim())
+      if (read >= 1 && read <= 4) scale = read
+    }
+  } catch {
+    // The guess stands.
+  }
+  scales.set(type, scale)
+  return scale
+}
+
+/**
+ * Eaon's Device pane, when a window is open to show it (simulatorPane.ts):
+ * shows the device there and says whether it did. Set at startup.
+ */
+let paneReveal: ((udid: string) => boolean) | null = null
+
+export function setPaneReveal(reveal: ((udid: string) => boolean) | null): void {
+  paneReveal = reveal
+}
+
+/** One input from the tool, in the device's points (a screenshot's pixels over the screen's scale). */
+export type PaneInput =
+  | { kind: 'tap'; x: number; y: number }
+  | { kind: 'swipe'; x: number; y: number; toX: number; toY: number }
+  | { kind: 'type'; text: string }
+  | { kind: 'button'; name: HardwareButton }
+
+/**
+ * Touches, typing and buttons through the Device pane's serve-sim session
+ * (simulatorPane.ts), which starts one if none is running. Set at startup;
+ * null in a test or before then. Rejects, in words, when the device can't
+ * take input.
+ */
+export interface PaneControl {
+  input: (target: SimDevice, input: PaneInput) => Promise<void>
+}
+
+let paneControl: PaneControl | null = null
+
+export function setPaneControl(control: PaneControl | null): void {
+  paneControl = control
 }
 
 /** The booted ones, and a sentence saying which was picked when there was a choice. */
@@ -412,13 +551,26 @@ function handsOn(v: Viewer): string {
  * result either way: failing to show the window doesn't fail the action.
  */
 async function showDevice(target: SimDevice, signal?: AbortSignal, front = !shown.has(target.udid)): Promise<string> {
+  // In Eaon's own Device pane: no other app opens, and this tool does the tapping. Without a
+  // window to show it in, the device's own window opens for the computer tool's hands.
+  const inPane = paneReveal?.(target.udid) ?? false
+  if (inPane && paneControl) {
+    const first = !shown.has(target.udid)
+    shown.add(target.udid)
+    return first || front
+      ? "It is showing in Eaon's Device pane beside the chat, where the user sees it. Tap, swipe, type and press its buttons with this tool's tap, swipe, type and button actions, in points (screenshot says the screen's size in points)."
+      : ''
+  }
   try {
     const v = await viewer(signal)
     const args = [...(front ? [] : ['-g']), '-a', v.path]
     if (v.bundleId === 'com.apple.iphonesimulator') args.push('--args', '-CurrentDeviceUDID', target.udid)
     await deps.run('/usr/bin/open', args, { timeout: 15_000, signal })
     shown.add(target.udid)
-    return front ? `It is showing on the user's screen in ${v.windowApp}. ${handsOn(v)}` : ''
+    if (!front) return ''
+    return inPane
+      ? `It is showing in Eaon's Device pane beside the chat (to look at only), and in ${v.windowApp} for the computer tool. ${handsOn(v)}`
+      : `It is showing on the user's screen in ${v.windowApp}. ${handsOn(v)}`
   } catch (error) {
     if (isAbort(error, signal)) throw new Error('Stopped by the user.')
     const stderr = stderrOf(error)
@@ -435,7 +587,7 @@ async function showDevice(target: SimDevice, signal?: AbortSignal, front = !show
  * signal and the waiting under a time limit, so a hung boot ends with a
  * clear answer and no simctl left running.
  */
-async function bootAndWait(target: SimDevice, signal?: AbortSignal): Promise<string> {
+export async function bootAndWait(target: SimDevice, signal?: AbortSignal): Promise<string> {
   if (target.state === 'Shutting Down') {
     for (let i = 0; i < 30; i++) {
       await deps.sleep(1000, signal)
@@ -524,12 +676,13 @@ export const simulatorTool: AgentTool = {
     'list (devices), boot {device?} (no device: the running one, else an iPhone on the newest iOS), shutdown {device?}, apps (installed apps), install {app_path}, launch {bundle_id}, terminate {bundle_id}, open_url {url} (a website in Safari, or an app\'s deep link),',
     'appearance {mode: "light" | "dark"}, location {latitude, longitude}, screenshot {save_to?} (at the device\'s own resolution; save_to a .png or folder).',
     "device defaults to the booted one. Booting and acting on a device puts its window on the user's screen (DeviceHub on Xcode 27, Simulator before).",
-    'simctl cannot tap, type, swipe or rotate: do those with the computer tool on that window (screenshot with the app name the result gives).'
+    "tap {x, y}, swipe {x, y, to_x, to_y}, type {text} and button {name: home | lock | volume-up | volume-down | action} act on the screen in points, in Eaon's Device pane (the boot result says when).",
+    'Otherwise simctl cannot tap, type, swipe or rotate: do those with the computer tool on the window the result names.'
   ].join(' '),
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['list', 'boot', 'shutdown', 'apps', 'install', 'launch', 'terminate', 'open_url', 'appearance', 'location', 'screenshot'] },
+      action: { type: 'string', enum: ['list', 'boot', 'shutdown', 'apps', 'install', 'launch', 'terminate', 'open_url', 'appearance', 'location', 'screenshot', 'tap', 'swipe', 'type', 'button'] },
       device: { type: 'string', description: 'Device name (e.g. "iPhone 17 Pro") or UDID; defaults to the booted one' },
       bundle_id: { type: 'string' },
       app_path: { type: 'string', description: 'install: path to a built .app' },
@@ -537,12 +690,19 @@ export const simulatorTool: AgentTool = {
       mode: { type: 'string', enum: ['light', 'dark'] },
       latitude: { type: 'number' },
       longitude: { type: 'number' },
-      save_to: { type: 'string', description: 'screenshot: .png path or folder, relative to the work folder' }
+      save_to: { type: 'string', description: 'screenshot: .png path or folder, relative to the work folder' },
+      x: { type: 'number', description: 'tap, swipe: in points from the screen\'s top left' },
+      y: { type: 'number' },
+      to_x: { type: 'number', description: 'swipe: where it ends, in points' },
+      to_y: { type: 'number' },
+      text: { type: 'string', description: 'type: typed into whatever field has the focus' },
+      name: { type: 'string', enum: ['home', 'lock', 'volume-up', 'volume-down', 'action'] }
     },
     required: ['action']
   },
   mutating: (input) => !READ_ONLY.has(str(input.action)) && !(str(input.action) === 'screenshot' && !str(input.save_to)),
-  describe: (input) => [str(input.action), str(input.device) || str(input.bundle_id) || str(input.url) || str(input.mode)].filter(Boolean).join(' '),
+  describe: (input) =>
+    [str(input.action), str(input.device) || str(input.bundle_id) || str(input.url) || str(input.mode) || str(input.text) || str(input.name)].filter(Boolean).join(' '),
   run: async (input, ctx) => {
     if (deps.platform !== 'darwin') return { text: 'The iOS Simulator only runs on macOS.', isError: true }
     const action = str(input.action)
@@ -635,6 +795,38 @@ export const simulatorTool: AgentTool = {
         await simctl(['location', target.udid, 'set', `${lat},${lon}`], { signal })
         return join2(`Set ${target.name}'s location to ${lat}, ${lon}.`, note)
       }
+      case 'tap':
+      case 'swipe':
+      case 'type':
+      case 'button': {
+        const control = paneControl
+        if (!control) return { text: `${action} works through Eaon's Device pane, which isn't available here. Use the computer tool on the simulator's window instead.`, isError: true }
+        const { device: target, note } = await device(input.device, signal)
+        const x = Number(input.x)
+        const y = Number(input.y)
+        if (action === 'tap' || action === 'swipe') {
+          if (!Number.isFinite(x) || !Number.isFinite(y)) return { text: `${action} needs x and y, in points.`, isError: true }
+        }
+        if (action === 'tap') await control.input(target, { kind: 'tap', x, y })
+        else if (action === 'swipe') {
+          const toX = Number(input.to_x)
+          const toY = Number(input.to_y)
+          if (!Number.isFinite(toX) || !Number.isFinite(toY)) return { text: 'swipe needs to_x and to_y, in points.', isError: true }
+          await control.input(target, { kind: 'swipe', x, y, toX, toY })
+        } else if (action === 'type') {
+          const text = typeof input.text === 'string' ? input.text : ''
+          if (!text) return { text: 'type needs text.', isError: true }
+          await control.input(target, { kind: 'type', text })
+        } else {
+          const name = str(input.name) as HardwareButton
+          if (!['home', 'lock', 'volume-up', 'volume-down', 'action'].includes(name)) {
+            return { text: 'button needs name: home, lock, volume-up, volume-down or action.', isError: true }
+          }
+          await control.input(target, { kind: 'button', name })
+        }
+        const done = action === 'tap' ? `Tapped ${Math.round(x)}, ${Math.round(y)}` : action === 'swipe' ? 'Swiped' : action === 'type' ? 'Typed it' : `Pressed ${str(input.name)}`
+        return join2(`${done} on ${target.name}. Take a screenshot to see what it did.`, note)
+      }
       case 'screenshot': {
         const { device: target, note } = await device(input.device, signal)
         const file = join(tmpdir(), `eaon-sim-${randomUUID()}.png`)
@@ -652,12 +844,17 @@ export const simulatorTool: AgentTool = {
           const scale = Math.min(1, LONG_EDGE / Math.max(width, height))
           const small = scale < 1 ? image.resize({ width: Math.round(width * scale), quality: 'best' }) : image
           const windowApp = viewerFound?.windowApp
+          const points = await scaleOf(target, signal)
+          // From the image as shown to the device's points: its pixels, shrunk for the image, over the screen's scale.
+          const perPixel = 1 / (scale * points)
           return {
             text: [
               `Screenshot of the ${target.name} simulator: ${width}×${height} px at the device's resolution (shown smaller).`,
               note,
               saved ? `Saved to ${saved}.` : '',
-              `These are not screen coordinates: to tap, use the computer tool with a screenshot of the simulator window (app "${windowApp ?? 'Device Hub'}"${windowApp ? '' : ' on Xcode 27, "Simulator" before'}).`
+              paneControl
+                ? `The screen is ${Math.round(width / points)}×${Math.round(height / points)} points. tap and swipe take points: multiply a position in this image by ${perPixel.toFixed(3)}.`
+                : `These are not screen coordinates: to tap, use the computer tool with a screenshot of the simulator window (app "${windowApp ?? 'Device Hub'}"${windowApp ? '' : ' on Xcode 27, "Simulator" before'}).`
             ]
               .filter(Boolean)
               .join('\n'),
@@ -668,7 +865,10 @@ export const simulatorTool: AgentTool = {
         }
       }
       default:
-        return { text: `Unknown action "${action}". Use one of: list, boot, shutdown, apps, install, launch, terminate, open_url, appearance, location, screenshot.`, isError: true }
+        return {
+          text: `Unknown action "${action}". Use one of: list, boot, shutdown, apps, install, launch, terminate, open_url, appearance, location, screenshot, tap, swipe, type, button.`,
+          isError: true
+        }
     }
   }
 }
@@ -716,5 +916,5 @@ registerToolSource({
       ? [simulatorTool]
       : [],
   guidance: () =>
-    'ios_simulator runs iPhone apps in Xcode\'s Simulator — a simulated iPhone on the Mac, not the user\'s own phone: boot a device, launch or open_url, then drive its window with the computer tool to tap, type, swipe or rotate (screenshot app: "Device Hub" on Xcode 27, "Simulator" before; the boot result names it). For screenshots of every screen of an app, save each with ios_simulator screenshot save_to into one folder.'
+    'ios_simulator runs iPhone apps in Xcode\'s Simulator — a simulated iPhone on the Mac, not the user\'s own phone — shown in Eaon\'s Device pane beside the chat: boot a device, launch or open_url, then tap, type and swipe as the boot result says (with ios_simulator itself when it can, else the computer tool on the window it names). For screenshots of every screen of an app, save each with ios_simulator screenshot save_to into one folder.'
 })

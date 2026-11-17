@@ -7,7 +7,8 @@
  * GitHub name; everything that compares versions keeps the semver.
  */
 const RELEASE_NAMES: Record<string, string> = {
-  '2026.7.3': '2026.7.2.1'
+  '2026.7.3': '2026.7.2.1',
+  '2026.7.8': '2026.7.7.1'
 }
 
 export function versionLabel(version: string): string {

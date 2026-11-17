@@ -754,21 +754,50 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 24px;
-  padding: 0 8px;
-  border-top: 1px solid var(--border-soft);
-  color: var(--text-3);
+  height: 26px;
+  padding: 0 6px;
+  border-top: 1px solid color-mix(in srgb, var(--fg) 6%, transparent);
+  background: color-mix(in srgb, var(--ide-editor-bg, var(--canvas)), var(--sink-color) 8%);
+  color: var(--text-4, var(--text-3));
   font-size: var(--fs-xxs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
+  container: file-status / inline-size;
 }
 .file-status__item {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 6px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+}
+.file-status__branch {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-status__branch svg {
+  flex: none;
+}
+/* A narrow editor: the indent and line ending go first, then who last changed the line. */
+@container file-status (max-width: 520px) {
+  .file-status__item--minor {
+    display: none;
+  }
+}
+@container file-status (max-width: 400px) {
+  .file-status .file-status__blame {
+    display: none;
+  }
+}
+@container file-status (max-width: 250px) {
+  .file-status__item--lang {
+    display: none;
+  }
 }
 .file-status__dim {
   color: var(--text-4, var(--text-3));
@@ -1084,17 +1113,73 @@
 }
 
 /* ---------------- Terminals: Chat's drawer and the dock's Terminal ----------------
-   A shell edge to edge, the panes of a split group divided by a hairline, the
-   one in use outlined; a small bar floats over the top right corner. */
+   Chat's is a panel inset under the conversation, rounded like the app's
+   other panels, with a slim header row; the dock's runs edge to edge with a
+   small bar floating over its top right corner. Split panes are divided by a
+   hairline, the one in use outlined. */
 
 .term-drawer {
   position: relative;
   flex: none;
   display: flex;
+  flex-direction: column;
   min-height: 140px;
-  border-top: 1px solid var(--border-soft);
+  margin: 2px 12px 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
   background: var(--term-bg);
+  box-shadow: 0 10px 28px -18px rgb(0 0 0 / 0.55);
   animation: term-drawer-in 240ms var(--spring-moderate, var(--ease)) both;
+}
+.term-drawer__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 4px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--term-fg, var(--fg)) 8%, transparent);
+}
+.term-drawer__title {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--term-fg, var(--fg)) 62%, transparent);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.term-drawer__title svg {
+  flex: none;
+}
+.term-drawer__name {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--term-fg, var(--fg)) 85%, transparent);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.term-drawer__where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.term-drawer__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* Over .term-tools below, which floats the dock terminal's buttons. */
+.term-drawer .term-tools--inline {
+  position: static;
+  flex-direction: row;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  opacity: 1;
 }
 @keyframes term-drawer-in {
   from {
@@ -1111,7 +1196,7 @@ body[data-resizing='drawer'] .cterm-pane__screen {
 }
 .term-drawer__resize {
   position: absolute;
-  top: -3px;
+  top: 0;
   left: 0;
   right: 0;
   z-index: 3;
@@ -1133,13 +1218,11 @@ body[data-resizing='drawer'] .cterm-pane__screen {
 body[data-resizing='drawer'] .term-drawer__resize::after {
   opacity: 0.6;
 }
-/* The right edge is kept for the terminal's buttons (.term-tools), so they never sit over its output. */
 .term-drawer__main {
   position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
-  padding-right: var(--term-rail);
 }
 
 .dock-term {
@@ -1150,7 +1233,7 @@ body[data-resizing='drawer'] .term-drawer__resize::after {
   padding-right: var(--term-rail);
   background: var(--term-bg);
 }
-.term-drawer,
+/* The dock's terminal keeps its right edge for its floating buttons (.term-tools), so they never sit over its output. */
 .dock-term {
   --term-rail: 38px;
 }
@@ -1367,4 +1450,413 @@ body[data-resizing='drawer'] .term-drawer__resize::after {
   .term-list__dot {
     animation: none;
   }
+}
+
+/* ---- Device: the iOS Simulator inside the dock (SimulatorSurface) ----
+   The bar: the device and its system, the Edit / Device / View menus, zoom.
+   The stage: the device in its outline (a black border inside a thin metal
+   rim, its side buttons), fitted to the pane. Floating at its foot: a
+   notice when there is one, and the toolbar of a phone's buttons. */
+
+.sim {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: sim / inline-size;
+}
+.sim__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 8px 0 6px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.sim__picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.sim__picker:hover,
+.sim__picker[aria-expanded='true'] {
+  background: var(--hover);
+}
+.sim__picker-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sim__picker-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sim__picker-os {
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.sim__menus {
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+}
+.sim__menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 28px;
+  padding: 0 7px 0 9px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.sim__menu svg {
+  color: var(--text-4);
+}
+.sim__menu:hover,
+.sim__menu[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+.sim__zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.sim__running {
+  color: var(--git-added);
+  font-size: var(--fs-xxs);
+}
+.sim__link {
+  padding: 4px;
+}
+.sim__link .input {
+  width: 100%;
+}
+.sim-note__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sim__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 24px 24px 76px;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 42%, color-mix(in srgb, var(--fg) 4%, transparent), transparent 70%),
+    color-mix(in srgb, var(--canvas), var(--sink-color) 18%);
+}
+.sim__stage[data-zoomed] {
+  place-items: start center;
+  overflow: auto;
+}
+
+.sim__holder {
+  position: relative;
+  flex: none;
+}
+/* The whole device, turned as it is held: its frame, its buttons and its screen together. */
+.sim__device {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transition: transform 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+.sim__body {
+  position: absolute;
+}
+/* Xcode's frame: its pieces carry the bezel and the rim; only the shadow under it is the pane's. */
+.sim__body[data-art] {
+  box-shadow:
+    0 28px 56px -24px rgb(0 0 0 / 0.7),
+    0 10px 20px -12px rgb(0 0 0 / 0.45);
+}
+/* No frame from Xcode for this device: a plain one, a black border inside a thin metal rim. */
+.sim__body[data-frame]:not([data-art]) {
+  background: #0a0a0b;
+  box-shadow:
+    0 0 0 1.5px #3d3d41,
+    0 0 0 3px #1b1b1d,
+    0 28px 56px -22px rgb(0 0 0 / 0.7),
+    0 10px 20px -12px rgb(0 0 0 / 0.45);
+}
+.sim__body[data-frame][data-phone]:not([data-art])::before,
+.sim__body[data-frame][data-phone]:not([data-art])::after {
+  content: '';
+  position: absolute;
+  width: 3px;
+  background: #2b2b2f;
+}
+.sim__body[data-frame][data-phone]:not([data-art])::before {
+  left: -5px;
+  top: 22%;
+  height: 15%;
+  border-radius: 2px 0 0 2px;
+  background: linear-gradient(to bottom, #2b2b2f 0 44%, transparent 44% 56%, #2b2b2f 56%);
+}
+.sim__body[data-frame][data-phone]:not([data-art])::after {
+  right: -5px;
+  top: 27%;
+  height: 10%;
+  border-radius: 0 2px 2px 0;
+}
+.sim__piece {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+/* The device's own buttons, from its frame: pressing one presses it on the device. */
+.sim__hw {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.sim__hw img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+}
+.sim__hw:disabled {
+  cursor: default;
+}
+.sim__hw:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 2px var(--accent));
+}
+
+.sim__screen {
+  position: absolute;
+  overflow: hidden;
+  background: #000;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+.sim__screen:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.sim__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.sim__screen[data-live] {
+  cursor: default;
+}
+.sim__ripple {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 1.5px solid rgb(255 255 255 / 0.7);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.22);
+  pointer-events: none;
+  animation: sim-tap 450ms cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+@keyframes sim-tap {
+  from {
+    opacity: 1;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+.sim__off {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgb(255 255 255 / 0.62);
+  font-size: var(--fs-sm);
+}
+.sim__off-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sim__start {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 86%;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    scale var(--dur) var(--ease);
+}
+.sim__start:hover {
+  background: rgb(255 255 255 / 0.18);
+}
+.sim__start:active {
+  scale: 0.96;
+}
+
+.sim__foot {
+  position: absolute;
+  right: 0;
+  bottom: 16px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  pointer-events: none;
+}
+.sim__foot > * {
+  pointer-events: auto;
+}
+.sim__toolbar,
+.sim__notice {
+  background: color-mix(in srgb, var(--menu-bg) 86%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 10px 28px -12px rgb(0 0 0 / 0.5);
+}
+.sim__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+}
+.sim__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--text-3);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    scale var(--dur) var(--ease);
+}
+.sim__tool:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.sim__tool:active:not(:disabled) {
+  scale: 0.96;
+}
+.sim__tool:disabled {
+  opacity: 0.35;
+}
+.sim__tool:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.sim__tool[data-active] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.sim__rec-time {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.sim__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border-soft);
+}
+.sim__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  max-width: 100%;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+.sim__notice[data-error] {
+  color: var(--danger);
+}
+.sim__notice button {
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  color: var(--text);
+  font-weight: 500;
+  transition: background var(--dur) var(--ease);
+}
+.sim__notice button:hover {
+  background: var(--hover);
+}
+
+/* A narrow dock keeps the device and the menus; zoom is in View. */
+@container sim (max-width: 470px) {
+  .sim__zoom {
+    display: none;
+  }
+}
+@container sim (max-width: 340px) {
+  .sim__menus {
+    margin-left: auto;
+  }
+  .sim__menu svg {
+    display: none;
+  }
+}
+
+.device__back {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.device__back:hover {
+  background: var(--hover);
+  color: var(--text);
 }

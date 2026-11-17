@@ -5,6 +5,16 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [2026.7.7.1] — 2026-11-16
+
+### Added
+- **An iOS simulator inside Eaon (macOS, with Xcode).** In the IDE's dock, Device runs a real iOS simulator from your Xcode, streamed into Eaon and used with the mouse and keyboard. Pick the device and iOS version from its menu, zoom it, and use the toolbar under it for Home, Lock, rotate left and right, light and dark, a screenshot, a recording, or adding the screen to the chat. The device frame is drawn from Xcode's own artwork, and Simulator's own window stays closed. An Xcode that isn't the selected one (in Downloads, say) is found too. The web page in a phone frame is still there under View.
+- **Keep text readable over a see-through picture.** Settings → Appearance → Keep text readable (on by default) adjusts the picture behind the app as much as it needs to: a busy picture is softened, a bright one dimmed in a dark theme, a dark one lifted in a light theme, and the tint over it follows the hardest spot to read. Videos get the same adjustment; drawn styles aren't blurred.
+
+### Changed
+- **Chat's terminal panel is a card** with a header (its name, the folder, its buttons in a row, and hide), and the editor's status bar is quieter, dropping the indent and line endings, then the blame note, as the editor narrows.
+- **The first message's glide is smoother:** the box and its chips slide without stuttering while the conversation is built, and on the start page the row under the box sits on a frosted band.
+
 ## [2026.7.7] — 2026-11-16
 
 ### Added
