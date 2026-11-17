@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import type { UpdateStatus } from '@shared/types'
 import { compareVersions, isNewerBeta, isPrerelease, UpdateController, type UpdaterLike } from '../src/main/updates'
+import { releaseNameVersion, updateLabel } from '../src/shared/version'
 
 /**
  * Stable and beta updates are separate tracks (main/updates.ts). The updater
@@ -14,6 +15,8 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
   allowPrerelease = false
   /** What the next check finds: a version, or null for nothing, or an Error. */
   feed: string | null | Error = null
+  /** The GitHub release's title, which electron-updater passes on as `releaseName`. */
+  title: string | null = null
   /** Flags as they were when the check ran, to see what the controller asked for. */
   checks: { autoDownload: boolean; allowPrerelease: boolean }[] = []
   downloads = 0
@@ -26,7 +29,7 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
       throw this.feed
     }
     if (this.feed === null) return void this.emit('update-not-available', {})
-    this.emit('update-available', { version: this.feed })
+    this.emit('update-available', { version: this.feed, ...(this.title ? { releaseName: this.title } : {}) })
     // electron-updater's own download when it is allowed to: started, not
     // waited for. The check returns at once and the download goes on.
     if (this.autoDownload) return { downloadPromise: this.downloadUpdate() } as never
@@ -38,7 +41,7 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
     await new Promise((resolve) => setTimeout(resolve, 5))
     this.emit('download-progress', { percent: 41.6 })
     await new Promise((resolve) => setTimeout(resolve, 5))
-    this.emit('update-downloaded', { version })
+    this.emit('update-downloaded', { version, ...(this.title ? { releaseName: this.title } : {}) })
   }
   quitAndInstall(): void {
     this.installed++
@@ -237,4 +240,36 @@ test('Switch to stable is refused on a stable build, and while a check is runnin
   const running = controller.checkStable()
   await assert.rejects(controller.switchToStable(), /checking for updates right now/)
   await running
+})
+
+test('an update is called what its GitHub release is called, which an installed copy cannot know ahead of time', async () => {
+  const { updater, controller, stable, dialogs } = setup('2026.7.7', false)
+  updater.feed = '2026.7.8'
+  updater.title = 'Eaon 2026.7.7.1'
+  await controller.checkStable()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.deepEqual(stable.find((s) => s.state === 'available'), { state: 'available', version: '2026.7.8', name: '2026.7.7.1' })
+  assert.deepEqual(controller.stable, { state: 'downloaded', version: '2026.7.8', name: '2026.7.7.1' })
+  assert.equal(updateLabel(controller.stable as { version: string; name?: string }), '2026.7.7.1')
+  await controller.checkStable({ interactive: true })
+  assert.deepEqual(dialogs.at(-1), { kind: 'ready', version: '2026.7.8', name: '2026.7.7.1' }, 'the "update is ready" dialog says it too')
+})
+
+test('a release titled with its own version carries no separate name', async () => {
+  const { updater, controller } = setup('2026.7.7', false)
+  updater.feed = '2026.7.9'
+  updater.title = 'Eaon 2026.7.9'
+  await controller.checkStable()
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.deepEqual(controller.stable, { state: 'downloaded', version: '2026.7.9' })
+})
+
+test('the name is the version in the release title; without one the label is the version’s own', () => {
+  assert.equal(releaseNameVersion('Eaon 2026.7.7.1'), '2026.7.7.1')
+  assert.equal(releaseNameVersion('Eaon 2026.7.8-beta.2'), '2026.7.8-beta.2')
+  assert.equal(releaseNameVersion('Eaon'), null)
+  assert.equal(releaseNameVersion(null), null)
+  assert.equal(updateLabel({ version: '2026.7.3' }), '2026.7.2.1', 'releases the app already knows keep their names')
+  assert.equal(updateLabel({ version: '2026.7.9' }), '2026.7.9')
+  assert.equal(updateLabel({ version: '2026.7.8', name: '2026.7.7.1' }), '2026.7.7.1')
 })

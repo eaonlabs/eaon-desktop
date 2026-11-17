@@ -49,8 +49,18 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   await page.waitFor(async () => (await window.api.settings.get()).selectedEngine === 'codex', { message: 'Chat to run on Codex' })
   await page.waitFor(() => !document.querySelector('.chip--connect'), { message: 'the button to show the model' })
 
-  // Codex's own tab in the model picker, with its logo.
-  await page.click('.chip--model')
+  // Codex's own tab in the model picker, with its logo. Right after the switch
+  // the model button is still being swapped in, and on a slow CI runner the
+  // click landed on the old one and opened nothing: click until the picker is
+  // there (a click on an open picker would close it, so only while it isn't).
+  for (let attempt = 0; ; attempt++) {
+    await page.click('.chip--model')
+    const opened = await page
+      .waitFor(() => Boolean(document.querySelector('.mp')), { message: 'the model picker to open', timeout: 3000 })
+      .then(() => true, () => false)
+    if (opened) break
+    if (attempt === 2) assert.fail('the model picker never opened')
+  }
   await page.find('.mp__tab[aria-label="Codex"] img', { timeout: 10_000 })
   // The picker pops open with a spring: clicked mid-animation (a slow CI
   // runner), the tab was missed and Starred stayed open. Click once it has
