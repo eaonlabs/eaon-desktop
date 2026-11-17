@@ -6,6 +6,7 @@ import { useApp } from '../../state/store'
 import { NavItem } from '../Sidebar'
 import { useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
+import { COMPUTERS_IN_SIDEBAR } from '../computers/ComputersPage'
 import { MAX_WORKERS, describeWorker, workerMood, type Worker } from '@shared/workers'
 import type { WorkerHostState } from '@shared/workerHost'
 
@@ -64,7 +65,7 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
       />
       <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen && !creating} onClick={() => show(null)} />
       <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
-      <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />
+      {COMPUTERS_IN_SIDEBAR && <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />}
       <NavItem
         icon={<AtSign {...ICON} />}
         label="Plugins"

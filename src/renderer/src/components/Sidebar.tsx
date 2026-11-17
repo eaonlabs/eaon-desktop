@@ -17,6 +17,7 @@ import { notify } from './Notice'
 import { CHAT_SORTS, PROJECT_SORTS, SIDEBAR_IS_NEW, sortChats, sortProjects, useChatSidebar, type ChatSort, type ProjectSort } from './chatSidebar'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import { RemoteFolderDialog } from './RemoteFolderDialog'
+import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
 import type { Project } from '@shared/types'
 import { sessionSubtitle, sessionTitle, type AdeSession } from '@shared/adeSessions'
 import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
@@ -382,7 +383,7 @@ function AdeMenu(): JSX.Element {
         onClick={() => setView('pull-requests')}
       />
       <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
-      <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />
+      {COMPUTERS_IN_SIDEBAR && <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />}
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
     </>
   )
