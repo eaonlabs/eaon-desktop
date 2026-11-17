@@ -435,6 +435,9 @@ function SeeThroughSection(): JSX.Element | null {
         )}
         {see.enabled && usable && (
           <>
+            <Row title="Keep text readable" description="Softens a busy wallpaper behind the text and tones down its brightest (or darkest) parts, only as much as it needs, so the text is always easy to read">
+              <Switch label="Keep text readable" checked={see.readable !== false} onChange={(readable) => set({ readable })} />
+            </Row>
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable">
               <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>

@@ -1,6 +1,7 @@
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { homedir } from 'node:os'
 import type { ToolContext, ToolResult } from '../src/main/agent/tools'
 import {
   appStillRunning,
@@ -8,9 +9,12 @@ import {
   iosRuntimes,
   iphoneMirroringAvailability,
   launchedPid,
+  setPaneControl,
+  setPaneReveal,
   setSimulatorDeps,
   simulatorTool,
   xcodeMajor,
+  type PaneInput,
   type RunOptions,
   type RunResult
 } from '../src/main/features/simulator'
@@ -41,6 +45,8 @@ interface MachineOptions {
   launchctl?: string
   /** Answers a simctl subcommand instead of the defaults; undefined falls through. */
   simctl?: (args: string[], options: RunOptions) => Promise<RunResult> | undefined
+  /** Answers any other program (an input tool). */
+  other?: (file: string, args: string[]) => Promise<RunResult>
 }
 
 const fail = (stderr: string, extra: Record<string, unknown> = {}): Error => Object.assign(new Error('Command failed'), { stderr, stdout: '', ...extra })
@@ -76,6 +82,7 @@ function machine(options: MachineOptions = {}): { calls: { file: string; args: s
         return ok(version)
       }
       if (file === '/usr/bin/open') return ok('')
+      if (options.other && file !== '/usr/bin/xcrun') return options.other(file, args)
       assert.equal(file, '/usr/bin/xcrun')
       assert.equal(args[0], 'simctl')
       const rest = args.slice(1)
@@ -124,7 +131,11 @@ async function call(input: Record<string, unknown>, signal?: AbortSignal): Promi
 const simctlCalls = (calls: { file: string; args: string[] }[], sub: string): string[][] =>
   calls.filter((c) => c.file === '/usr/bin/xcrun' && c.args[1] === sub).map((c) => c.args.slice(1))
 
-afterEach(() => setSimulatorDeps(null))
+afterEach(() => {
+  setSimulatorDeps(null)
+  setPaneReveal(null)
+  setPaneControl(null)
+})
 
 /* ------------------------------------------------------------ environment */
 
@@ -147,15 +158,28 @@ test('no Xcode and no developer folder: install Xcode from the App Store', async
   assert.match(result.text, /App Store/)
 })
 
-test('the Command Line Tools selected while Xcode is installed: says the xcode-select command that fixes it', async () => {
+test('the Command Line Tools selected while Xcode is installed: that Xcode is used, for these commands only', async () => {
   // What this Mac really reports with only the Command Line Tools selected.
   const { calls } = machine({ developer: '/Library/Developer/CommandLineTools' })
   const result = await call({ action: 'boot' })
-  assert.equal(result.isError, true)
-  assert.match(result.text, /Xcode is installed at \/Applications\/Xcode\.app, but the Command Line Tools are selected/)
-  assert.match(result.text, /sudo xcode-select -s \/Applications\/Xcode\.app\/Contents\/Developer/)
-  assert.match(result.text, /Settings → Locations/)
-  assert.equal(simctlCalls(calls, 'boot').length, 0)
+  assert.equal(result.isError, false, result.text)
+  assert.deepEqual(simctlCalls(calls, 'boot'), [['boot', 'NEW']])
+  const boot = calls.find((c) => c.file === '/usr/bin/xcrun' && c.args[1] === 'boot')!
+  assert.equal(boot.options.env?.DEVELOPER_DIR, `${XCODE}/Contents/Developer`)
+})
+
+test('an Xcode outside Applications (left in Downloads) is found too, with no xcode-select needed', async () => {
+  const downloads = `${homedir()}/Downloads/Xcode.app`
+  const { calls } = machine({ developer: '/Library/Developer/CommandLineTools', exists: [downloads, `${downloads}/Contents/Developer`] })
+  assert.equal((await call({ action: 'list' })).isError, false)
+  const list = calls.find((c) => c.file === '/usr/bin/xcrun' && c.args[1] === 'list')!
+  assert.equal(list.options.env?.DEVELOPER_DIR, `${downloads}/Contents/Developer`)
+})
+
+test('a selected Xcode is left to xcode-select: no DEVELOPER_DIR of our own', async () => {
+  const { calls } = machine()
+  await call({ action: 'list' })
+  assert.equal(calls.find((c) => c.file === '/usr/bin/xcrun')!.options.env, undefined)
 })
 
 test('only the Command Line Tools, no Xcode: says the full Xcode is needed', async () => {
@@ -407,4 +431,59 @@ test('the real runner kills the command when the turn is stopped or the time lim
   await assert.rejects(execRun('/bin/sleep', ['38.321'], { timeout: 200 }), (error: { killed?: boolean }) => error.killed === true)
   await new Promise((r) => setTimeout(r, 100))
   assert.equal(running('sleep 38.321'), false, 'no child left after a timeout')
+})
+
+/* ------------------------------------------------- Eaon's Device pane */
+
+/** The pane's control, recording what it was asked to do. */
+function withPane(): PaneInput[] {
+  const sent: PaneInput[] = []
+  setPaneReveal(() => true)
+  setPaneControl({ input: async (_target, input) => void sent.push(input) })
+  return sent
+}
+
+test('with the Device pane, boot shows the device there and opens no other app', async () => {
+  const { calls } = machine()
+  const revealed: string[] = []
+  withPane()
+  setPaneReveal((udid) => (revealed.push(udid), true))
+  const result = await call({ action: 'boot', device: 'iPhone 17 Pro' })
+  assert.equal(result.isError, false, result.text)
+  assert.deepEqual(revealed, ['NEW'])
+  assert.match(result.text, /Device pane/)
+  assert.match(result.text, /tap, swipe, type and button/)
+  assert.equal(calls.filter((c) => c.file === '/usr/bin/open').length, 0)
+})
+
+test('with no window to show it in, the device opens in its own window for the computer tool', async () => {
+  const { calls } = machine()
+  setPaneControl({ input: async () => {} })
+  setPaneReveal(() => false)
+  const result = await call({ action: 'boot', device: 'iPhone 17 Pro' })
+  assert.match(result.text, /showing on the user's screen in Device Hub/)
+  assert.equal(calls.filter((c) => c.file === '/usr/bin/open').length, 1)
+})
+
+test('tap, swipe, type and button go to the pane in points', async () => {
+  machine({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-5': [{ name: 'iPhone 17 Pro', udid: 'NEW', state: 'Booted' }] } })
+  const sent = withPane()
+  assert.match((await call({ action: 'tap', x: 60.4, y: 118 })).text, /Tapped 60, 118 on iPhone 17 Pro/)
+  await call({ action: 'swipe', x: 200, y: 780, to_x: 200, to_y: 300 })
+  await call({ action: 'type', text: 'hello' })
+  await call({ action: 'button', name: 'home' })
+  assert.deepEqual(sent, [
+    { kind: 'tap', x: 60.4, y: 118 },
+    { kind: 'swipe', x: 200, y: 780, toX: 200, toY: 300 },
+    { kind: 'type', text: 'hello' },
+    { kind: 'button', name: 'home' }
+  ])
+  assert.equal((await call({ action: 'button', name: 'siri' })).isError, true)
+})
+
+test('without the pane, tapping says to use the computer tool', async () => {
+  machine({ devices: { 'com.apple.CoreSimulator.SimRuntime.iOS-26-5': [{ name: 'iPhone 17 Pro', udid: 'NEW', state: 'Booted' }] } })
+  const result = await call({ action: 'tap', x: 10, y: 10 })
+  assert.equal(result.isError, true)
+  assert.match(result.text, /computer tool/)
 })

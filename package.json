@@ -1,6 +1,6 @@
 {
   "name": "eaon-desktop",
-  "version": "2026.7.7",
+  "version": "2026.7.8",
   "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
   "desktopName": "eaon.desktop",
@@ -52,6 +52,7 @@
     "opus-decoder": "0.7.12",
     "postal-mime": "^4.2.0",
     "qrcode": "^1.5.4",
+    "serve-sim": "0.1.47",
     "tldts": "7.4.9",
     "unpdf": "1.9.1",
     "ws": "^8.21.3"

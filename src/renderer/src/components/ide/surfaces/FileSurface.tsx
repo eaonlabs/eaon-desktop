@@ -260,7 +260,11 @@ function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel:
   )
 }
 
-/** Under the editor: where the caret is and what is selected, then the language, the indent, the line ending and the branch. */
+/**
+ * Under the editor: where the caret is and what is selected, then the
+ * language, the indent, the line ending and the branch. A narrow editor
+ * keeps the caret, the language and the branch; the rest goes first.
+ */
 function StatusBar({ tab, caret, rel }: { tab: IdeTab; caret: EditorCaret; rel: string }): JSX.Element {
   const { status } = useDockPlace()
   const indent = useMemo(() => indentOf(tab.saved), [tab.saved])
@@ -278,11 +282,11 @@ function StatusBar({ tab, caret, rel }: { tab: IdeTab; caret: EditorCaret; rel: 
       </span>
       <BlameItem path={tab.path} rel={rel} line={caret.line} ready={!isDirty(tab)} version={tab.modified} />
       <span className="file-status__spacer" />
-      {indent && <span className="file-status__item">{indent}</span>}
-      <span className="file-status__item">{(tab.eol ?? '\n') === '\r\n' ? 'CRLF' : 'LF'}</span>
-      <span className="file-status__item">{languageName(languageOf(tab.path))}</span>
+      {indent && <span className="file-status__item file-status__item--minor">{indent}</span>}
+      <span className="file-status__item file-status__item--minor">{(tab.eol ?? '\n') === '\r\n' ? 'CRLF' : 'LF'}</span>
+      <span className="file-status__item file-status__item--lang">{languageName(languageOf(tab.path))}</span>
       {branch && (
-        <span className="file-status__item" title="Branch">
+        <span className="file-status__item file-status__branch" title={`Branch: ${branch}`}>
           <GitBranch size={12} strokeWidth={2} />
           {branch}
         </span>

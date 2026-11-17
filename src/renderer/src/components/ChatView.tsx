@@ -92,10 +92,24 @@ import { isKey } from '../lib/bindings'
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
-type ViewTransitionDocument = Document & { startViewTransition?: (update: () => void) => { finished: Promise<void>; skipTransition?: () => void } }
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (update: () => void) => { finished: Promise<void>; ready?: Promise<void>; skipTransition?: () => void }
+}
 
 /** How long the switch may wait for the glide to start before it is made anyway. */
 const GLIDE_WAIT_MS = 150
+
+/** What glides on its own (chat.css), by its view-transition name: the box, and the model and permission chips. */
+const GLIDERS: [name: string, selector: string][] = [
+  ['composer', '.composer-stack'],
+  ['composer-model', '.composer-stack .chip--model'],
+  ['composer-permission', '.composer-stack :is(.composer-pill--permission, .composer-permission-icon)']
+]
+const GLIDE_MS = 580
+/** Leaves gently, travels, and settles gently: no snap at the start, no bump at the end. */
+const GLIDE_EASE = 'cubic-bezier(0.4, 0, 0.15, 1)'
+
+const glidersAt = (): Map<string, DOMRect | null> => new Map(GLIDERS.map(([name, selector]) => [name, document.querySelector(selector)?.getBoundingClientRect() ?? null]))
 
 /**
  * The box can glide: the browser has view transitions, motion is on, and the
@@ -147,7 +161,24 @@ export function ChatView(): JSX.Element {
       if (event.target === document.documentElement || event.target === document.body) event.preventDefault()
     }
     document.addEventListener('mousedown', keepFocus, true)
+    const from = glidersAt()
     const transition = (document as ViewTransitionDocument).startViewTransition!(show)
+    // The move, by position alone (chat.css turns the browser's own off): from where each was to
+    // where it is now, on the compositor, so it stays smooth while the conversation is built.
+    void transition.ready
+      ?.then(() => {
+        const to = glidersAt()
+        for (const [name] of GLIDERS) {
+          const a = from.get(name)
+          const b = to.get(name)
+          if (!a || !b) continue
+          document.documentElement.animate(
+            { transform: [`translate(${a.left}px, ${a.top}px)`, `translate(${b.left}px, ${b.top}px)`] },
+            { duration: GLIDE_MS, easing: GLIDE_EASE, pseudoElement: `::view-transition-group(${name})` }
+          )
+        }
+      })
+      .catch(() => {})
     // Frames that never come (the window hidden as it starts) don't keep the conversation away.
     const late = window.setTimeout(() => {
       transition.skipTransition?.()

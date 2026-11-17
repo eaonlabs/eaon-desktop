@@ -208,8 +208,9 @@
 .file-status__blame {
   display: block;
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 4em;
   max-width: 60%;
+  line-height: 20px;
   overflow: hidden;
   color: inherit;
   font: inherit;

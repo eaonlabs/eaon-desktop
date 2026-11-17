@@ -1,23 +1,25 @@
 import { useEffect, useRef, useSyncExternalStore, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { SquareTerminal, X } from 'lucide-react'
+import { ChevronDown, SquareTerminal, X } from 'lucide-react'
 import { terminals } from '../code/terminal/registry'
 import { ScriptGlyph, ScriptsButton } from './CodeTools'
 import { folderTabs, groupOf, useChatCode, type DrawerTab } from './chatCodeStore'
 import { TerminalGroup, TerminalToolbar, useTerminalLook } from './TerminalPanes'
 
 /**
- * The terminal under a chat: real shells in the chat's folder, edge to edge
- * under the conversation. The shell in front fills it, with a small bar over
- * its corner to split it, open another or close it; with more than one, a
- * list down the right side picks between them (split shells listed under
- * their group). Project scripts each run in one of their own. It drags taller
- * from its top edge, ⌘J hides and shows it, and selected output goes into
- * the message box.
+ * The terminal under a chat: real shells in the chat's folder, in a panel
+ * inset under the conversation like the app's other panels. A slim header
+ * names the shell in front and holds what splits it, opens another or
+ * closes it, and hides the panel; the shell fills the rest. With more than
+ * one, a list down the right side picks between them (split shells listed
+ * under their group). Project scripts each run in one of their own. It drags
+ * taller from its top edge, ⌘J hides and shows it, and selected output goes
+ * into the message box.
  */
 export function TerminalDrawer(): JSX.Element | null {
-  const { open, height, all, active, setHeight, newTab, splitTab, closeTab, setActiveTab } = useChatCode(
+  const { open, height, all, active, setHeight, newTab, splitTab, closeTab, setActiveTab, toggleDrawer } = useChatCode(
     useShallow((s) => ({
+      toggleDrawer: s.toggleDrawer,
       open: s.drawerOpen,
       height: s.drawerHeight,
       all: s.tabs,
@@ -67,25 +69,38 @@ export function TerminalDrawer(): JSX.Element | null {
   return (
     <section ref={drawer} className="term-drawer" style={{ ...themed, height }} aria-label="Terminal">
       <div className="term-drawer__resize" onPointerDown={startResize} aria-hidden />
-      <div className="term-drawer__main">
-        <TerminalGroup key={group} panes={panes} active={tab.id} onFocus={setActiveTab} />
+      <header className="term-drawer__head">
+        <span className="term-drawer__title" title={tab.command ?? tab.cwd}>
+          <SquareTerminal size={13} strokeWidth={1.8} />
+          <span className="term-drawer__name">{tab.title}</span>
+          <span className="term-drawer__where">{tab.cwd.split('/').filter(Boolean).pop()}</span>
+        </span>
         <TerminalToolbar
+          inline
           pane={tab}
           extra={<ScriptsButton place="tool" />}
           onSplit={(dir) => splitTab(tab.id, dir)}
           onNew={() => newTab()}
           onClose={() => closeTab(tab.id)}
         />
+        <button type="button" className="term-tools__btn" title="Hide the terminal (⌘J)" aria-label="Hide the terminal" onClick={() => toggleDrawer(false)}>
+          <ChevronDown size={15} strokeWidth={1.9} />
+        </button>
+      </header>
+      <div className="term-drawer__body">
+        <div className="term-drawer__main">
+          <TerminalGroup key={group} panes={panes} active={tab.id} onFocus={setActiveTab} />
+        </div>
+        {groups.length > 1 && (
+          <nav className="term-list scroll" aria-label="Terminals">
+            {groups.map((members) =>
+              members.map((member, i) => (
+                <ListRow key={member.id} tab={member} nested={i > 0} active={member.id === tab.id} onSelect={() => setActiveTab(member.id)} onClose={() => closeTab(member.id)} />
+              ))
+            )}
+          </nav>
+        )}
       </div>
-      {groups.length > 1 && (
-        <nav className="term-list scroll" aria-label="Terminals">
-          {groups.map((members) =>
-            members.map((member, i) => (
-              <ListRow key={member.id} tab={member} nested={i > 0} active={member.id === tab.id} onSelect={() => setActiveTab(member.id)} onClose={() => closeTab(member.id)} />
-            ))
-          )}
-        </nav>
-      )}
     </section>
   )
 }

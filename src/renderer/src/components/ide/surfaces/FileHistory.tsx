@@ -109,7 +109,7 @@ export function BlameItem({ path, rel, line, ready, version }: { path: string; r
 
   if (!blame) return null
   const label = blameLabel(blame)
-  if (!blame.committed) return <span className="file-status__item">{label}</span>
+  if (!blame.committed) return <span className="file-status__item file-status__blame">{label}</span>
   return (
     <button type="button" className="file-status__item file-status__blame" title={`${blame.short}: ${blame.subject}. Show what this commit changed in the file`} onClick={() => showCommit(place.store, blame.sha, blame.short, blame.subject, rel)}>
       {label}

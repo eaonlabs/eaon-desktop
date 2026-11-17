@@ -17,6 +17,7 @@ import {
   GitPullRequest,
   X
 } from 'lucide-react'
+import { isMac } from '../../lib/platform'
 import { useApp } from '../../state/store'
 import { FileIcon, splitPath } from '../agent/FileIcon'
 import { useAgentBrowser } from '../agentBrowser/agentBrowserStore'
@@ -90,7 +91,8 @@ function useChoices(): Choice[] {
       icon: <Link2 size={15} strokeWidth={1.8} />,
       unavailable: linked ? undefined : place.id === 'chat' ? 'No pull requests linked in this chat yet' : 'No pull requests in this session’s terminals yet'
     },
-    { action: 'device', label: 'Device', letter: 'M', icon: <Smartphone size={15} strokeWidth={1.8} />, unavailable: page ? undefined : 'Open a page in the browser first' }
+    // On a Mac it's the iOS Simulator, which needs no page.
+    { action: 'device', label: 'Device', letter: 'M', icon: <Smartphone size={15} strokeWidth={1.8} />, unavailable: page || isMac ? undefined : 'Open a page in the browser first' }
   ]
   return choices.filter((c): c is Choice => c !== false && (place.coding || !CODE_KINDS.has(c.action)))
 }

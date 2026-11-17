@@ -96,17 +96,20 @@ export function TerminalToolbar({
   onSplit,
   onNew,
   onClose,
-  extra
+  extra,
+  inline = false
 }: {
   pane: DrawerTab
   onSplit: (dir: SplitDir) => void
   onNew: () => void
   onClose: () => void
   extra?: ReactNode
+  /** In a header row (Chat's terminal panel) rather than floating down the terminal's right edge. */
+  inline?: boolean
 }): JSX.Element {
   const [confirm, setConfirm] = useState(false)
   return (
-    <div className="term-tools" role="toolbar" aria-orientation="vertical" aria-label="Terminal">
+    <div className={`term-tools${inline ? ' term-tools--inline' : ''}`} role="toolbar" aria-orientation={inline ? 'horizontal' : 'vertical'} aria-label="Terminal">
       <SelectionToChat paneId={pane.id} />
       {extra}
       <button type="button" className="term-tools__btn" title="Split right" aria-label="Split right" onClick={() => onSplit('right')}>

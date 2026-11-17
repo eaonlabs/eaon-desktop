@@ -2,7 +2,24 @@ import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react
 import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
 import { wallpaperVideoUrl } from '@shared/wallpaper'
-import { legibleWash, LEGIBLE_CONTRAST, QUIET_CONTRAST, type Rgb } from '@shared/seeThroughLegibility'
+import {
+  filterOf,
+  LEGIBLE_CONTRAST,
+  legibleWash,
+  luminanceAt,
+  LIFT_CONTRAST,
+  LIFT_TO,
+  DIM_TO,
+  MOST_DIM,
+  MOST_LIFT,
+  QUIET_CONTRAST,
+  READABLE_WORST_SHARE,
+  softening,
+  statsOf,
+  UNADJUSTED,
+  type Adjustment,
+  type Rgb
+} from '@shared/seeThroughLegibility'
 import { renderStyle, styleInfo, type Paint } from './seeThrough/styles'
 import '../styles/seeThrough.css'
 
@@ -39,24 +56,100 @@ const SAMPLE = 32
 /** A moving picture (a video, or a style redrawn as it plays) is read again this often. */
 const RESAMPLE_MS = 2000
 
-/** The picture's colours at SAMPLE × SAMPLE, or null when there is no picture yet, or the browser won't read it back. */
-function sampleOf(plate: HTMLCanvasElement | HTMLVideoElement): Rgb[] | null {
+/** The picture is measured for its adjustment at this many spots across: a spot is a few points of the screen, about a letter. */
+const MEASURE = 160
+
+type Plate = HTMLCanvasElement | HTMLVideoElement
+
+const sizeOf = (plate: Plate): { width: number; height: number } =>
+  plate instanceof HTMLVideoElement ? { width: plate.videoWidth, height: plate.videoHeight } : { width: plate.width, height: plate.height }
+
+/**
+ * Draws `plate` into `ctx` at w × h with an adjustment. A blur reaches past
+ * the picture's edge into nothing, which would darken its border; drawn a
+ * little larger than the canvas, the border is picture all the way out.
+ */
+function drawAdjusted(ctx: CanvasRenderingContext2D, plate: Plate, w: number, h: number, adjust: Adjustment, pxPerPoint: number): void {
+  const pad = adjust.blur * pxPerPoint * 2
+  ctx.filter = filterOf(adjust, pxPerPoint)
+  ctx.drawImage(plate, -pad, -pad, w + pad * 2, h + pad * 2)
+  ctx.filter = 'none'
+}
+
+/** The picture's pixels (RGBA) at w × h as adjusted, or null when there is nothing to read yet, or the browser won't read it back. */
+function pixelsOf(plate: Plate, w: number, h: number, adjust: Adjustment, pxPerPoint: number): Uint8ClampedArray | null {
   if (plate instanceof HTMLVideoElement && plate.readyState < 2) return null
   const canvas = document.createElement('canvas')
-  canvas.width = SAMPLE
-  canvas.height = SAMPLE
+  canvas.width = w
+  canvas.height = h
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return null
   try {
-    ctx.drawImage(plate, 0, 0, SAMPLE, SAMPLE)
-    const { data } = ctx.getImageData(0, 0, SAMPLE, SAMPLE)
-    const spots: Rgb[] = []
-    for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 0) spots.push([data[i], data[i + 1], data[i + 2]])
-    return spots.length > 0 ? spots : null
+    drawAdjusted(ctx, plate, w, h, adjust, pxPerPoint)
+    return ctx.getImageData(0, 0, w, h).data
   } catch {
     // A picture from another origin can't be read back: the Tint setting stands.
     return null
   }
+}
+
+const spotsOf = (data: Uint8ClampedArray): Rgb[] => {
+  const spots: Rgb[] = []
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 0) spots.push([data[i], data[i + 1], data[i + 2]])
+  return spots
+}
+
+/** The picture's colours at SAMPLE × SAMPLE as shown (with `adjust` when it is applied as a filter rather than drawn in), or null. */
+function sampleOf(plate: Plate, adjust: Adjustment = UNADJUSTED, displayWidth = SAMPLE): Rgb[] | null {
+  const data = pixelsOf(plate, SAMPLE, SAMPLE, adjust, SAMPLE / displayWidth)
+  const spots = data ? spotsOf(data) : []
+  return spots.length > 0 ? spots : null
+}
+
+/**
+ * How the picture should be drawn so text over it reads well
+ * (seeThroughLegibility.ts): a photo softened as much as it is busy, its colour
+ * calmed if it is loud, then dimmed under light text (or lifted under dark)
+ * until its bright (or dark) end sits where only a little wash is left to
+ * add. Measured on the picture as the screen shows it, a spot about a letter.
+ */
+function adjustmentFor(plate: Plate, light: boolean, displayWidth: number, soften: boolean): Adjustment {
+  const { width, height } = sizeOf(plate)
+  if (!width || !height) return UNADJUSTED
+  const w = MEASURE
+  const h = Math.max(1, Math.round((MEASURE * height) / width))
+  const pxPerPoint = w / displayWidth
+  const raw = pixelsOf(plate, w, h, UNADJUSTED, pxPerPoint)
+  if (!raw) return UNADJUSTED
+  // A drawn style (characters, halftone, mosaic) is texture on purpose: softened it would smear, so it is only toned.
+  const soft = soften ? softening(statsOf(raw, w, h)) : { blur: 0, saturate: 1 }
+  const endOf = (contrast: number, brightness: number): number | null => {
+    const data = pixelsOf(plate, w, h, { ...soft, contrast, brightness }, pxPerPoint)
+    return data ? luminanceAt(spotsOf(data), light ? 0.03 : 0.97) : null
+  }
+  let brightness = 1
+  let contrast = 1
+  if (light) {
+    // A picture too dark at its dark end for dark text: its contrast eased first, then lifted.
+    if ((endOf(1, 1) ?? 1) < LIFT_TO) contrast = LIFT_CONTRAST
+    while (brightness < MOST_LIFT && (endOf(contrast, brightness) ?? 1) < LIFT_TO) brightness = Math.round((brightness + 0.05) * 100) / 100
+  } else {
+    while (brightness > MOST_DIM && (endOf(1, brightness) ?? 0) > DIM_TO) brightness = Math.round((brightness - 0.05) * 100) / 100
+  }
+  return { ...soft, contrast, brightness }
+}
+
+/** A picture's plate with its adjustment drawn in, once; a softened one at half size, which nobody can tell blurred. */
+function bake(plate: HTMLCanvasElement, adjust: Adjustment, displayWidth: number): HTMLCanvasElement {
+  const scale = adjust.blur >= 4 ? 0.5 : 1
+  const out = document.createElement('canvas')
+  out.width = Math.max(1, Math.round(plate.width * scale))
+  out.height = Math.max(1, Math.round(plate.height * scale))
+  out.className = plate.className
+  const ctx = out.getContext('2d')
+  if (!ctx) return plate
+  drawAdjusted(ctx, plate, out.width, out.height, adjust, out.width / displayWidth)
+  return out
 }
 
 /** A CSS colour as the browser paints it, sRGB 0–255, whatever form the theme wrote it in. */
@@ -110,8 +203,12 @@ export function SeeThrough(): JSX.Element | null {
   const [picture, setPicture] = useState<string | null>(null)
   /** The video wallpaper, once it has a frame to show. */
   const [clip, setClip] = useState<HTMLVideoElement | null>(null)
-  /** What the layer shows: the picture in its style, or the video (as it is, or a canvas it is redrawn into). */
-  const [plate, setPlate] = useState<HTMLCanvasElement | HTMLVideoElement | null>(null)
+  /** The picture in its style, or the video (as it is, or a canvas it is redrawn into), before it is adjusted for the text. */
+  const [base, setBase] = useState<Plate | null>(null)
+  /** What the layer shows: `base` as adjusted (drawn in for a picture, a filter over a video), and the adjustment. */
+  const [plate, setPlate] = useState<Plate | null>(null)
+  const [adjust, setAdjust] = useState<Adjustment>(UNADJUSTED)
+  const readable = options?.readable !== false
   const layer = useRef<HTMLDivElement>(null)
   const latest = useRef<WallpaperFrame | null>(null)
 
@@ -183,7 +280,7 @@ export function SeeThrough(): JSX.Element | null {
       const ctx = next.getContext('2d')
       if (!ctx) return
       renderStyle(style, ctx, (c, w, h) => c.drawImage(image, 0, 0, w, h), next.width / display.width, light)
-      setPlate(next)
+      setBase(next)
     }
     image.src = picture
     return () => {
@@ -211,7 +308,7 @@ export function SeeThrough(): JSX.Element | null {
       el.removeAttribute('src')
       el.load()
       setClip(null)
-      setPlate(null)
+      setBase(null)
     }
   }, [on, video])
 
@@ -220,7 +317,7 @@ export function SeeThrough(): JSX.Element | null {
   useEffect(() => {
     if (!clip || !display) return
     if (style === 'photo') {
-      setPlate(clip)
+      setBase(clip)
       return
     }
     const canvas = document.createElement('canvas')
@@ -247,7 +344,7 @@ export function SeeThrough(): JSX.Element | null {
       handle = 'requestVideoFrameCallback' in clip ? clip.requestVideoFrameCallback(tick) : requestAnimationFrame(tick)
     }
     draw()
-    setPlate(canvas)
+    setBase(canvas)
     schedule()
     // Paused on a frame (or moved to one): that frame, in the style.
     clip.addEventListener('seeked', draw)
@@ -272,6 +369,24 @@ export function SeeThrough(): JSX.Element | null {
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [clip, plays])
+
+  // Adjusted for the text (or not, with Keep text readable off): a picture once, drawn in; a video
+  // from its first frames, as a filter the compositor applies as it plays.
+  useEffect(() => {
+    if (!base || !display) {
+      setPlate(null)
+      return
+    }
+    const live = clip !== null
+    const next = readable ? adjustmentFor(base, light, display.width, style === 'photo') : UNADJUSTED
+    setAdjust(next)
+    if (live) {
+      base.style.filter = next === UNADJUSTED ? '' : filterOf(next)
+      setPlate(base)
+    } else {
+      setPlate(next === UNADJUSTED || !(base instanceof HTMLCanvasElement) ? base : bake(base, next, display.width))
+    }
+  }, [base, clip, readable, light, display, style])
 
   // The plate goes into the layer once; from then on only the layer moves.
   useEffect(() => {
@@ -305,13 +420,20 @@ export function SeeThrough(): JSX.Element | null {
     }
     const measure = (): void => {
       const colours = themeColours()
-      const picture = sampleOf(plate)
+      // A video's adjustment is a filter over it, not in its frames: measured with it applied.
+      const picture = sampleOf(plate, clip ? adjust : UNADJUSTED, display?.width)
       setLegible(
         colours && picture
-          ? legibleWash(washOf(tint, light), colours.canvas, picture, [
-              { colour: colours.text, contrast: LEGIBLE_CONTRAST },
-              { colour: colours.quiet, contrast: QUIET_CONTRAST }
-            ])
+          ? legibleWash(
+              washOf(tint, light),
+              colours.canvas,
+              picture,
+              [
+                { colour: colours.text, contrast: LEGIBLE_CONTRAST },
+                { colour: colours.quiet, contrast: QUIET_CONTRAST }
+              ],
+              readable ? READABLE_WORST_SHARE : undefined
+            )
           : null
       )
     }
@@ -322,7 +444,7 @@ export function SeeThrough(): JSX.Element | null {
       if (timer !== undefined) window.clearInterval(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, plate, clip, tint, light])
+  }, [ready, plate, clip, tint, light, adjust, readable, display])
 
   // An entry animation that keeps its last frame (`both`, `forwards`) leaves
   // its element with a live opacity or transform effect, and Chromium makes

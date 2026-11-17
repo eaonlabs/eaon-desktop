@@ -48,10 +48,16 @@ electronFuses:
 # the helper is exec'd, which cannot happen from inside an asar archive.
 asarUnpack:
   - node_modules/node-pty/**
-# node-pty is the only native dependency, and it ships N-API prebuilds for
-# every platform we build (prebuilds/darwin-*, win32-*), which Electron loads
-# as they are. Rebuilding it from source is never needed — and fails outright
-# on current Python, whose missing `distutils` breaks node-pty's bundled gyp.
+  # serve-sim (the Device pane's simulator stream and input) runs as its own
+  # process on Eaon's Node and loads native parts, so it and the one package
+  # it imports at run time are real files too.
+  - node_modules/serve-sim/**
+  - node_modules/ws/**
+# The native dependencies ship prebuilt: node-pty N-API prebuilds for every
+# platform we build (prebuilds/darwin-*, win32-*), which Electron loads as
+# they are, and serve-sim a universal macOS addon. Rebuilding from source is
+# never needed — and fails outright on current Python, whose missing
+# `distutils` breaks node-pty's bundled gyp.
 npmRebuild: false
 # The Chrome extension ships inside the app (Contents/Resources/extension) so
 # "Load unpacked" works from an installed copy before, or without, the Chrome

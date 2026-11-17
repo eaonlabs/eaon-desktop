@@ -621,14 +621,9 @@
 .composer[data-variant='chat'][data-stacked] .composer__row .composer__input {
   padding: 8px 10px 2px;
 }
-.composer[data-variant='chat'] + .composer__tray {
-  margin: 4px 6px 0;
-  padding: 0;
-  background: none;
-  box-shadow: none;
-  border-radius: 0;
-}
-
+/* The row under the box (what Eaon may do, the project, the model, the
+   context). On the start page it sits in a frosted band tucked under the
+   box; in a conversation it is bare, on the page itself. */
 .composer__tray {
   position: relative;
   z-index: 1;
@@ -636,10 +631,16 @@
   align-items: center;
   gap: 2px;
   min-width: 0;
+  margin: 4px 6px 0;
+  padding: 0;
+}
+.composer[data-variant='home'] + .composer__tray {
   margin: -18px 16px 0;
   padding: 22px 8px 5px;
   border-radius: 0 0 16px 16px;
-  background: color-mix(in srgb, var(--surface-2) 55%, var(--canvas));
+  background: color-mix(in srgb, var(--surface-2) 50%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
   box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 .composer__tray .composer-pill {
@@ -1510,32 +1511,33 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
 :root[data-composer-glide] .composer-stack :is(.composer-pill--permission, .composer-permission-icon) {
   view-transition-name: composer-permission;
 }
+/* The move itself is ChatView's: it slides each of these from where it was
+   to where it lands by its position alone, which the compositor runs on its
+   own, so the frames keep coming while the conversation is built and its
+   reply starts. The browser's own move here also resized them, which runs on
+   the main thread and stuttered just then; so it is off. Each picture keeps
+   its own size (the start page's box is taller, with its band): the old one
+   fades out and the new one in as they travel, neither squashed nor cut. */
 :root[data-composer-glide]::view-transition-group(composer),
 :root[data-composer-glide]::view-transition-group(composer-model),
 :root[data-composer-glide]::view-transition-group(composer-permission) {
-  animation-duration: 420ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  animation: none;
 }
+:root[data-composer-glide]::view-transition-old(composer),
+:root[data-composer-glide]::view-transition-new(composer),
 :root[data-composer-glide]::view-transition-old(composer-model),
 :root[data-composer-glide]::view-transition-new(composer-model),
 :root[data-composer-glide]::view-transition-old(composer-permission),
 :root[data-composer-glide]::view-transition-new(composer-permission) {
-  height: 100%;
-  object-fit: none;
-  object-position: left center;
-  animation-duration: 300ms;
-}
-:root[data-composer-glide]::view-transition-old(composer),
-:root[data-composer-glide]::view-transition-new(composer) {
-  /* The two boxes differ in height; each keeps its shape and the taller one is cut, not squashed. */
-  height: 100%;
-  object-fit: cover;
-  object-position: top;
-  animation-duration: 260ms;
+  width: auto;
+  height: auto;
+  animation-duration: 460ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 :root[data-composer-glide]::view-transition-old(root),
 :root[data-composer-glide]::view-transition-new(root) {
-  animation-duration: 280ms;
+  animation-duration: 420ms;
+  animation-timing-function: ease-in-out;
 }
 
 /* Adaptive's pick for a reply, before its tokens. */
