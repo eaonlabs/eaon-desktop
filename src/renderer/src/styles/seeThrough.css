@@ -198,8 +198,12 @@ body[data-see-through='on'] .edge-veil {
   display: none;
 }
 
-/* What floats over everything is read, not looked through: near opaque. */
-body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card) {
+/* What floats over everything is read, not looked through: near opaque.
+   The finders (⌘P, Find in project, the command palette), the page preview
+   and the editor's ask bar are solid colours elsewhere, from --surface-2 and
+   --surface-3, which are light tints here: the text under them showed
+   through and ran into their rows. */
+body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card, .code-search, .html-preview, .ide-ask) {
   background: var(--glass-float);
   -webkit-backdrop-filter: var(--glass-blur-float);
   backdrop-filter: var(--glass-blur-float);
@@ -408,7 +412,7 @@ body[data-see-through='on']
   :is(
     .sidebar__panel, .settings__nav-panel, .composer, .queued, .elsewhere-ask, .mode-switch, .thread-jump,
     .menu, .modal, .approval, .usage-card, .update-toast, .peek, .star-card, .usage-pill, .suggestion-chip,
-    .composer__above .composer-pill
+    .composer__above .composer-pill, .code-search, .html-preview
   ) {
   background-image: var(--glass-grain);
   border-color: transparent;

@@ -7,6 +7,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Fixed
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
+- **The file finder (⌘P), Find in project and the command palette aren't see-through any more** with a see-through wallpaper on. The page behind them showed through and ran into their rows; they are frosted like Eaon's other dialogs now, as are the page preview and the editor's ask bar.
 
 ## [2026.7.7.1] — 2026-11-16
 
