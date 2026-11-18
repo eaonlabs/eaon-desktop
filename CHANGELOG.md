@@ -13,6 +13,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Fixed
 - **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
+- **The marks along the right edge of a conversation stay sharp** near its top and foot, instead of being blurred with the text under the top bar.
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
 - **The file finder (⌘P), Find in project and the command palette aren't see-through any more** with a see-through wallpaper on. The page behind them showed through and ran into their rows; they are frosted like Eaon's other dialogs now, as are the page preview and the editor's ask bar.
 - **Antigravity and Devin have their logos in Settings → Usage & limits** and the usage rings, instead of a letter in a circle.

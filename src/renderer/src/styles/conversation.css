@@ -550,10 +550,13 @@
 
 /* ---- Minimap of the user's messages ------------------------------- */
 
+/* Over the thread's veils at its top and foot (chat.css .scroll-veil, at 3):
+   under them its marks near either end were blurred too. Its strip starts
+   below the top bar, so it never meets the bar, which is also at 4. */
 .minimap {
   position: absolute;
   right: 6px;
-  z-index: 2;
+  z-index: 4;
   width: 18px;
 }
 .minimap__mark {
