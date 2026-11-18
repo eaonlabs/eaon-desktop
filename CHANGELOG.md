@@ -6,7 +6,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
-- **Chat's sidebar has Settings, Pull requests, Issues and Usage as icons along its bottom.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat.
+- **Chat's sidebar has Settings, Pull requests, Issues and Usage as icons along its bottom.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The token count over them sits in the panel with no dividing line.
 - **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. Under the box in a project, a quiet strip holds the folder and the branch. Full access keeps an orange open lock.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
 - **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.

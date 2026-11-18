@@ -931,14 +931,15 @@ a:hover {
 }
 
 /* The foot (SidebarFoot.tsx): today's use over a bar a day for the week,
-   and the plans' usage rings beside it; each can be turned off. */
+   and the plans' usage rings beside it; each can be turned off. No rule
+   over it: the list fades out above it (.sidebar__fade), so it sits in the
+   panel rather than being cut off from it. */
 .sidebar-foot {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 7px 7px;
-  border-top: 1px solid var(--border-soft);
+  padding: 10px 7px 7px;
 }
 .sidebar-foot__gap {
   flex: 1;
