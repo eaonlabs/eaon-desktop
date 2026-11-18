@@ -176,7 +176,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
 
     // The ADE's Pull requests page: the PR asked of us, and Start review.
     await page.click('.mode-switch__option', { text: 'ADE' })
-    await page.click('.sidebar .foot-bar__btn', { text: /^Pull requests$/ })
+    await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
     await page.click('.pr-row__title', { text: 'Retry the login three times', timeout: 20_000 })
     await page.find('.pr-review', { text: /Agent review/ })
     await s.shot(page, 'pr-review-offered')
@@ -201,7 +201,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await s.shot(page, 'pr-review-agent-in-ade')
 
     // Back on the page, the review the agent wrote, to edit and post.
-    await page.click('.sidebar .foot-bar__btn', { text: /^Pull requests$/ })
+    await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
     await page.click('.pr-row__title', { text: 'Retry the login three times' })
     await page.find('.pr-review__summary', { timeout: 20_000 })
     const shown = await page.eval(() => ({
@@ -226,7 +226,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await s.shot(page, 'pr-review-posted')
 
     // Linear: connect with a key, see the issue, start it in the project the review cloned.
-    await page.click('.sidebar .foot-bar__btn', { text: /^Issues$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.find('.linear-connect')
     await s.shot(page, 'linear-connect')
     await page.fill('.linear-connect input', KEY)
@@ -252,7 +252,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await s.shot(page, 'linear-agent-in-ade')
 
     // The page now says the issue is in the ADE.
-    await page.click('.sidebar .foot-bar__btn', { text: /^Issues$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.find('.linear-started', { text: 'In the ADE', timeout: 20_000 })
     await page.click('.pr-row__title', { text: 'Add search to the docs' })
     await page.find('.linear-actions button', { text: /Open session/ })
@@ -264,21 +264,21 @@ if (fs.existsSync('.eaon/review-task.md')) {
       page.waitFor(
         () => {
           const pane = document.querySelector('.term-pane')
-          return !document.querySelector('.sidebar .foot-bar__btn[data-active]') && pane !== null && pane.getBoundingClientRect().width > 0
+          return !document.querySelector('.sidebar .nav-item[data-active]') && pane !== null && pane.getBoundingClientRect().width > 0
         },
         { message: `the session, after ${what}`, timeout: 10_000 }
       )
     // The pages in the ADE's own sidebar (Models, Plugins and Trading are in Chat's).
     for (const pageName of ['Pull requests', 'Issues']) {
-      await page.click('.sidebar .foot-bar__btn', { text: new RegExp(`^${pageName}$`) })
-      await page.waitFor((name) => document.querySelector('.sidebar .foot-bar__btn[data-active]')?.textContent?.trim() === name, { args: [pageName], message: `${pageName} open` })
+      await page.click('.sidebar .nav-item', { text: new RegExp(`^${pageName}$`) })
+      await page.waitFor((name) => document.querySelector('.sidebar .nav-item[data-active]')?.textContent?.trim() === name, { args: [pageName], message: `${pageName} open` })
       await page.click('.ade-session[data-active] .ade-session__row')
       await sessionShown(`clicking the active session from ${pageName}`)
     }
-    await page.click('.sidebar .foot-bar__btn', { text: /^Pull requests$/ })
+    await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
     await page.click('.ade-session:not([data-active]) .ade-session__row')
     await sessionShown('clicking another session from Pull requests')
-    await page.click('.sidebar .foot-bar__btn', { text: /^Issues$/ })
+    await page.click('.sidebar .nav-item', { text: /^Issues$/ })
     await page.click('.ade-session[data-active] .ade-agent')
     await sessionShown('clicking an agent from Linear')
     await s.shot(page, 'back-to-the-session')

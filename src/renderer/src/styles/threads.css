@@ -467,16 +467,21 @@ body[data-reduce-motion='on'] .thread-status__ring {
 /* ---------------- Foot ---------------- */
 
 /* The ADE's places, as a row of icons along the sidebar's bottom edge. */
+/* The places along the sidebar's foot (Sidebar.tsx FootBar): spaced icons, T3 Code's way. */
 .foot-bar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 6px 10px 9px;
+  gap: 10px;
+  padding: 6px 12px 10px;
 }
 .foot-bar__btn {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+}
+.foot-bar__btn[data-active] {
+  background: var(--hover);
+  color: var(--text);
 }
 /* Its name, for screen readers (and what the tooltip says). */
 .foot-bar__label {

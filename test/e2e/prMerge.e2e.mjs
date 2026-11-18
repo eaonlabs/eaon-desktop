@@ -98,7 +98,7 @@ scenario('Pull requests: a pull request’s Overview, Files, Checks and Merge ta
   const ade = (await page.eval(() => window.api.workspaces.get())).find((w) => w.kind === 'code')
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
   await page.reload()
-  await page.click('.sidebar .foot-bar__btn', { text: /^Pull requests$/ })
+  await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
   await page.click('.pr-row', { text: /Add the usage meter/, timeout: 20_000 })
 
   // Overview: the description, who opened it, the review.

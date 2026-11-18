@@ -2,12 +2,13 @@ import { DotMatrix, Spinner, type DotState } from './Spinner'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, LibraryBig, ListFilter, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, BarChart3, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
 import { SidebarFoot } from './SidebarFoot'
-import { AdeDock, AdeFind, AdeFootBar, CodeSidebar } from './code/CodeSidebar'
+import { AdeDock, AdeFind, CodeSidebar } from './code/CodeSidebar'
+import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { useTradingOn } from './trading/useTradingOn'
 import { WorkersSearchButton } from './workers/WorkerThreads'
@@ -57,15 +58,24 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Each tab's places stay put; its list scrolls under them and fades at its edges.
-          The ADE's are a search row over its sessions, and icons along the foot. */}
+          Chat's other places are icons along the foot. */}
       <div className="sidebar__menu" data-kind={kind}>
-        {kind === 'workers' ? <WorkersNav part="menu" /> : kind === 'code' ? <AdeFind /> : <ChatMenu />}
+        {kind === 'workers' ? (
+          <WorkersNav part="menu" />
+        ) : kind === 'code' ? (
+          <>
+            <AdeMenu />
+            <AdeFind />
+          </>
+        ) : (
+          <ChatMenu />
+        )}
       </div>
       <FadingBody key={kind}>{kind === 'workers' ? <WorkersNav part="list" /> : kind === 'code' ? <CodeSidebar /> : <ChatNav />}</FadingBody>
       {kind === 'code' ? <AdeDock /> : kind !== 'workers' && <ChatDock />}
       {/* The ADE has the plans' rings in its header already. */}
       <SidebarFoot rings={kind !== 'code'} />
-      {kind === 'code' && <AdeFootBar />}
+      {kind !== 'code' && kind !== 'workers' && <FootBar />}
       </div>
       </div>
     </aside>
@@ -158,15 +168,66 @@ export function NavItem({
 const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
- * Chat mode, laid out like the design spec's sidebar: the five destinations,
+ * Chat's places along the sidebar's foot, as a row of icons: Settings, Pull
+ * requests, Issues and Usage. Their names are in the tooltips, and for
+ * screen readers.
+ */
+function FootBar(): JSX.Element {
+  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
+  const places: { label: string; icon: JSX.Element; active: boolean; go: () => void }[] = [
+    { label: 'Settings', icon: <SettingsIcon size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('general') },
+    { label: 'Pull requests', icon: <GitPullRequest size={16} strokeWidth={1.8} />, active: view === 'pull-requests', go: () => setView('pull-requests') },
+    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') },
+    { label: 'Usage', icon: <BarChart3 size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('usage') }
+  ]
+  return (
+    <nav className="foot-bar" aria-label="Places">
+      {places.map((place) => (
+        <button
+          key={place.label}
+          type="button"
+          className="icon-btn foot-bar__btn"
+          title={place.label}
+          aria-current={place.active ? 'page' : undefined}
+          data-active={place.active || undefined}
+          onClick={place.go}
+        >
+          {place.icon}
+          <span className="foot-bar__label">{place.label}</span>
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+/** The ADE's places, over the search row of its sessions (New session is on that row). */
+function AdeMenu(): JSX.Element {
+  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
+  return (
+    <>
+      <NavItem
+        icon={<GitPullRequest {...ICON} />}
+        label="Pull requests"
+        active={view === 'pull-requests'}
+        onClick={() => setView('pull-requests')}
+      />
+      <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
+      {COMPUTERS_IN_SIDEBAR && <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />}
+      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
+    </>
+  )
+}
+
+/**
+ * Chat mode, laid out like the design spec's sidebar: its four destinations,
  * then Projects, then Chats, each under its own heading. Scheduled tasks
  * moved to the Workers tab — things that run on their own live together
  * there.
  */
 /** Chat's places, which stay put above its projects and chats. */
 function ChatMenu(): JSX.Element {
-  const { view, setView, setModelsRepo, newChat, setSettingsPage } = useApp(
-    useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, setSettingsPage: s.setSettingsPage }))
+  const { view, setView, setModelsRepo, newChat } = useApp(
+    useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat }))
   )
   const { on: tradingOn } = useTradingOn()
   return (
@@ -189,7 +250,6 @@ function ChatMenu(): JSX.Element {
         active={view === 'plugins' || view === 'integrations'}
         onClick={() => setView('plugins')}
       />
-      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
       <ChatFind />
     </>
   )

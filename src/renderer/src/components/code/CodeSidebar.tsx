@@ -14,15 +14,12 @@ import {
   GitPullRequestClosed,
   GitPullRequestDraft,
   ListFilter,
-  ListTodo,
-  Monitor,
   Moon,
   PencilLine,
   Pin,
   PinOff,
   Plus,
   RotateCcw,
-  Settings as SettingsIcon,
   SquarePen,
   SquareTerminal,
   Trash2
@@ -35,7 +32,6 @@ import { useBranchPr, useBranchPrsForAll } from './branchPrs'
 import { DoneMark, FindTool, ProjectBadge, SidebarFind, ThreadLines, ThreadSection, useHeldOrder, useNow, WorkingFor } from '../threads'
 import { MenuItem, Popover, useDisclosure } from '../ui'
 import { useApp } from '../../state/store'
-import { COMPUTERS_IN_SIDEBAR } from '../computers/ComputersPage'
 import { matchesSearch, threadOrder } from '@shared/threadList'
 import { isAsleep } from '@shared/adeSleep'
 import { AgentMark } from './terminal/TerminalWorkspace'
@@ -371,35 +367,6 @@ function AdeViewMenu(): JSX.Element {
         )}
       </Popover>
     </>
-  )
-}
-
-/** The ADE's places, as icons along the sidebar's foot: Settings, Pull requests, Issues (and Computers). */
-export function AdeFootBar(): JSX.Element {
-  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
-  const places: { label: string; icon: JSX.Element; active: boolean; go: () => void }[] = [
-    { label: 'Settings', icon: <SettingsIcon size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('general') },
-    { label: 'Pull requests', icon: <GitPullRequest size={16} strokeWidth={1.8} />, active: view === 'pull-requests', go: () => setView('pull-requests') },
-    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') },
-    ...(COMPUTERS_IN_SIDEBAR ? [{ label: 'Computers', icon: <Monitor size={16} strokeWidth={1.8} />, active: view === 'computers', go: () => setView('computers') }] : [])
-  ]
-  return (
-    <nav className="foot-bar" aria-label="ADE">
-      {places.map((place) => (
-        <button
-          key={place.label}
-          type="button"
-          className="icon-btn foot-bar__btn"
-          title={place.label}
-          aria-current={place.active ? 'page' : undefined}
-          data-active={place.active || undefined}
-          onClick={place.go}
-        >
-          {place.icon}
-          <span className="foot-bar__label">{place.label}</span>
-        </button>
-      ))}
-    </nav>
   )
 }
 

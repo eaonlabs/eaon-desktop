@@ -1,8 +1,8 @@
 /**
- * The ADE's sidebar holds only what coding needs: New session on the search
- * row over its sessions, and Settings, Pull requests and Issues along its
- * foot. Trading, Models and Plugins are in the Chat sidebar, and a session
- * over SSH starts from the New session dialog.
+ * The ADE's sidebar holds only what coding needs: Pull requests, Issues and
+ * Settings, and New session on the search row over its sessions. Trading,
+ * Models and Plugins are in the Chat sidebar (its Settings, Pull requests and
+ * Usage along its foot), and a session over SSH starts from the New session dialog.
  */
 import assert from 'node:assert/strict'
 import { scenario } from './fixtures.mjs'
@@ -18,8 +18,8 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
   await page.reload()
   await page.find('.sidebar .side-find__tool[aria-label="New session"]')
-  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .foot-bar__btn, .sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
-  assert.deepEqual(adeItems, ['Settings', 'Pull requests', 'Issues'])
+  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Usage', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
+  assert.deepEqual(adeItems, ['Pull requests', 'Issues', 'Settings'])
   await s.shot(page, 'ade-sidebar')
 
   // SSH from the New session dialog.
@@ -33,8 +33,8 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), chat.id)
   await page.reload()
   await page.find('.sidebar .nav-item', { text: /^New chat$/ })
-  const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()))
-  for (const item of ['Models', 'Library', 'Plugins', 'Settings']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
+  const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()))
+  for (const item of ['Models', 'Library', 'Plugins', 'Settings', 'Pull requests', 'Usage']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
   assert.ok(!chatItems.includes('Trading'), `Trading is off by default: ${JSON.stringify(chatItems)}`)
   // Switching it on takes effect at the next start: the trading desk is only set up when Eaon opens.
   await page.eval(() => window.api.settings.patch({ general: { trading: true } }))
