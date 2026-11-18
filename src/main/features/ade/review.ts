@@ -2,12 +2,14 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
   actionsRunOf,
+  branchPrsFromGh,
   cleanRunLog,
   hasConflictMarkers,
   parseUnifiedDiff,
   prFromGh,
   pullRequestFromCommits,
   runsFromGh,
+  type BranchPr,
   type ReviewAction,
   type ReviewCheck,
   type ReviewFile,
@@ -17,6 +19,7 @@ import {
   type ReviewState
 } from '@shared/adeReview'
 import { remoteLocation } from '@shared/adeRemote'
+import { ownerOfRemote } from '@shared/repoAvatar'
 import { FEEDBACK_QUERY, parseFeedback, parsePrUrl, type PrFeedbackResult } from '@shared/prFeedback'
 import { problemOf, type Runner } from './runner'
 
@@ -32,6 +35,9 @@ import { problemOf, type Runner } from './runner'
 const MAX_UNTRACKED = 60
 const PR_FIELDS = 'number,title,url,state,isDraft,mergeable,mergeStateStatus,baseRefName,reviewDecision,statusCheckRollup'
 const RUN_FIELDS = 'databaseId,name,workflowName,status,conclusion,url'
+const BRANCH_PR_FIELDS = 'number,title,url,state,isDraft,headRefName,isCrossRepository,headRepositoryOwner,reviewDecision,statusCheckRollup'
+/** The repository's most recent pull requests, any state, that the sidebar's rows are matched against by branch. */
+const BRANCH_PR_LIMIT = '40'
 /** Past this size a conflicted file is left to the agent or an editor: it travels as a command argument over SSH. */
 const MAX_RESOLVE_BYTES = 100_000
 
@@ -109,6 +115,26 @@ export async function github(run: Runner, cwd: string, branch: string | null): P
   if (/gh auth login|not logged in|authentication|GH_TOKEN/i.test(said)) return { github: null, githubProblem: 'Sign in to the GitHub CLI first: run gh auth login in a terminal.' }
   if (/none of the git remotes|no git remotes|not a git repository/i.test(said)) return { github: null, githubProblem: 'This repository has no GitHub remote.' }
   return { github: null, githubProblem: problemOf(res, 'GitHub couldn’t be asked about a pull request.') }
+}
+
+/**
+ * The pull requests of the repository's recent branches, by branch, for the
+ * ADE sidebar's rows (shared/adeReview.ts branchPrsFromGh): one `gh pr list`
+ * for every session of a project. Null when GitHub couldn't be asked (no gh,
+ * signed out, a repository that isn't on GitHub).
+ */
+export async function branchPullRequests(run: Runner, cwd: string): Promise<Record<string, BranchPr> | null> {
+  const [list, origin] = await Promise.all([
+    run(cwd, 'gh', ['pr', 'list', '--state', 'all', '--limit', BRANCH_PR_LIMIT, '--json', BRANCH_PR_FIELDS], 30_000),
+    run(cwd, 'git', ['remote', 'get-url', 'origin'])
+  ])
+  if (!list.ok) return null
+  const owner = origin.ok ? ownerOfRemote(origin.stdout.trim()) : null
+  try {
+    return branchPrsFromGh(JSON.parse(list.stdout), owner?.forge === 'github' ? owner.owner : null)
+  } catch {
+    return null
+  }
 }
 
 /** A merge, rebase or cherry-pick that stopped on conflicts, and the files still in conflict. */

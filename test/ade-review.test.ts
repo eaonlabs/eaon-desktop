@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   actionsRunOf,
+  branchPrLabel,
+  branchPrsFromGh,
   cleanRunLog,
   conflictCount,
   formatCheckFailure,
@@ -23,6 +25,7 @@ import { makeRunner } from '../src/main/features/ade/runner'
 import {
   abortMerge,
   baseBranches,
+  branchPullRequests,
   checkLog,
   commitAll,
   finishMerge,
@@ -124,6 +127,57 @@ test('a pull request’s checks are counted from what gh reports, check runs and
   assert.deepEqual(pr?.checks, { passed: 3, failed: 1, pending: 1 })
   assert.equal(pr?.mergeState, 'BLOCKED')
   assert.equal(prFromGh({ nope: true }), null)
+})
+
+test('each branch gets its pull request: open before merged before closed, then the newest', () => {
+  const row = (number: number, branch: string, state: string, more: Record<string, unknown> = {}): Record<string, unknown> => ({
+    number,
+    title: `PR ${number}`,
+    url: `https://github.com/o/r/pull/${number}`,
+    state,
+    isDraft: false,
+    headRefName: branch,
+    isCrossRepository: false,
+    headRepositoryOwner: { login: 'o' },
+    reviewDecision: '',
+    statusCheckRollup: [],
+    ...more
+  })
+  const prs = branchPrsFromGh(
+    [
+      row(9, 'fix/a', 'CLOSED'),
+      row(4, 'fix/a', 'MERGED'),
+      row(3, 'fix/a', 'OPEN', { statusCheckRollup: [{ status: 'IN_PROGRESS', conclusion: '' }] }),
+      row(8, 'fix/b', 'MERGED'),
+      row(12, 'fix/b', 'MERGED'),
+      row(5, 'fix/c', 'CLOSED'),
+      // Someone else's fork, with a branch of the same name: not this one's.
+      row(20, 'fix/c', 'OPEN', { isCrossRepository: true, headRepositoryOwner: { login: 'stranger' } }),
+      // The person's own fork (origin), into the upstream repository: theirs.
+      row(21, 'fix/d', 'OPEN', { isCrossRepository: true, headRepositoryOwner: { login: 'O' }, isDraft: true }),
+      row(22, '', 'OPEN'),
+      { nope: true },
+      null
+    ],
+    'o'
+  )
+  assert.deepEqual(Object.keys(prs).sort(), ['fix/a', 'fix/b', 'fix/c', 'fix/d'])
+  assert.deepEqual(prs['fix/a'], { number: 3, title: 'PR 3', url: 'https://github.com/o/r/pull/3', state: 'OPEN', draft: false, checks: 'pending', reviewDecision: '' })
+  assert.equal(prs['fix/b'].number, 12)
+  assert.equal(prs['fix/c'].number, 5)
+  assert.equal(prs['fix/d'].draft, true)
+  // Without knowing whose the origin is, no fork's pull request counts.
+  assert.deepEqual(Object.keys(branchPrsFromGh([row(21, 'fix/d', 'OPEN', { isCrossRepository: true, headRepositoryOwner: { login: 'o' } })], null)), [])
+  assert.deepEqual(branchPrsFromGh({ not: 'a list' }, 'o'), {})
+})
+
+test('a pull request’s mark says its state, and while open its checks and review', () => {
+  const pr = { number: 7, title: 'T', url: 'u', state: 'OPEN' as const, draft: false, checks: 'failed' as const, reviewDecision: 'APPROVED' }
+  assert.equal(branchPrLabel(pr), 'Pull request #7 · Open · Checks failing · Approved')
+  assert.equal(branchPrLabel({ ...pr, checks: null, reviewDecision: '' }), 'Pull request #7 · Open')
+  assert.equal(branchPrLabel({ ...pr, draft: true, checks: 'pending', reviewDecision: 'REVIEW_REQUIRED' }), 'Pull request #7 · Draft · Checks running · Review required')
+  assert.equal(branchPrLabel({ ...pr, state: 'MERGED' }), 'Pull request #7 · Merged')
+  assert.equal(branchPrLabel({ ...pr, state: 'CLOSED' }), 'Pull request #7 · Closed')
 })
 
 test('each check keeps its name, status, conclusion, link and workflow, failing ones first', () => {
@@ -378,6 +432,32 @@ test('gh signed out inside GitHub Actions reads as signed out, not as its GH_TOK
     assert.equal(res.state.github, null)
     assert.equal(res.state.githubProblem, 'Sign in to the GitHub CLI first: run gh auth login in a terminal.')
   } finally {
+    process.env.EAON_GH_BIN = was
+  }
+})
+
+test('the sidebar’s pull requests come from one gh pr list, forks matched to the origin’s owner; none when gh is signed out', async () => {
+  assert.equal(await branchPullRequests(run, repo), null)
+  const listGh = path.join(tmp, 'gh-list')
+  const rows = [
+    { number: 3, title: 'Mine', url: 'https://github.com/acme/acme/pull/3', state: 'OPEN', isDraft: false, headRefName: 'feature/thing', isCrossRepository: false, headRepositoryOwner: { login: 'acme' }, reviewDecision: 'APPROVED', statusCheckRollup: [] },
+    { number: 4, title: 'From my fork', url: 'https://github.com/acme/acme/pull/4', state: 'MERGED', isDraft: false, headRefName: 'fix/fork', isCrossRepository: true, headRepositoryOwner: { login: 'acme' }, reviewDecision: '', statusCheckRollup: [] },
+    { number: 5, title: 'Theirs', url: 'https://github.com/acme/acme/pull/5', state: 'OPEN', isDraft: false, headRefName: 'main', isCrossRepository: true, headRepositoryOwner: { login: 'stranger' }, reviewDecision: '', statusCheckRollup: [] }
+  ]
+  fs.writeFileSync(path.join(tmp, 'prs.json'), JSON.stringify(rows))
+  fs.writeFileSync(listGh, ['#!/bin/sh', `printf '%s\\n' "$*" >> '${ghLog}'`, `cat '${path.join(tmp, 'prs.json')}'`].join('\n'))
+  fs.chmodSync(listGh, 0o755)
+  const was = process.env.EAON_GH_BIN
+  process.env.EAON_GH_BIN = listGh
+  git('remote', 'add', 'origin', 'git@github.com:Acme/acme.git')
+  try {
+    const prs = await branchPullRequests(run, repo)
+    assert.deepEqual(Object.keys(prs ?? {}).sort(), ['feature/thing', 'fix/fork'])
+    assert.equal(prs?.['feature/thing'].reviewDecision, 'APPROVED')
+    assert.equal(prs?.['fix/fork'].state, 'MERGED')
+    assert.match(fs.readFileSync(ghLog, 'utf8'), /^pr list --state all --limit 40 --json number,title,url,state,isDraft,headRefName,isCrossRepository,headRepositoryOwner,reviewDecision,statusCheckRollup$/m)
+  } finally {
+    git('remote', 'remove', 'origin')
     process.env.EAON_GH_BIN = was
   }
 })

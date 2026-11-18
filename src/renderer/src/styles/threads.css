@@ -1,0 +1,489 @@
+/* ------------------------------------------------------------------ Thread list (components/threads.tsx)
+
+   The sidebar's list of threads, as the ADE lists its sessions: a search row
+   with the list's tools, rows of three short lines (the project's tag and
+   name with an age or a status, the title, the branch), and the Working and
+   Archived sections docked under the list. */
+
+/* ---------------- Search row ---------------- */
+
+.side-find {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 2px 0 6px;
+}
+.side-find__field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 5px 0 9px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  cursor: text;
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.side-find__field:hover {
+  background: var(--hover);
+}
+.side-find__field:focus-within {
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.side-find__icon {
+  flex: none;
+}
+.side-find__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.side-find__input::placeholder {
+  color: var(--text-3);
+}
+.side-find__clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--text-3);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.side-find__clear:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.side-find__tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.side-find__tool {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), scale 120ms var(--ease);
+}
+.side-find__tool:hover,
+.side-find__tool[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.side-find__tool:active {
+  scale: 0.96;
+}
+
+/* ---------------- Rows ---------------- */
+
+.ade-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Three short lines; the row's band is the whole of it. */
+.trow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.trow__top,
+.trow__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.trow__top {
+  height: 16px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.trow__project {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trow__pin {
+  flex: none;
+  margin: 0 -2px 0 -1px;
+  color: var(--text-3);
+}
+.trow__when {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.trow__age {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+}
+/* Agents open and waiting for you. */
+.trow__live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34c759;
+}
+.trow__title,
+.trow__sub {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trow__title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 18px;
+  letter-spacing: -0.006em;
+}
+.trow__sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 15px;
+}
+.trow__marks {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-3);
+}
+.trow__marks:empty {
+  display: none;
+}
+.trow__marks .ade-session__diff {
+  margin: 0;
+  padding: 0;
+  font-size: 10.5px;
+}
+
+/* A project's tag: its initials on its tint (shared/threadList.ts hueOf).
+   Each hue is an oklch angle; the tile and its letters are mixed from it
+   for the theme, so every project reads in light and dark alike. */
+.thread-badge {
+  --badge-h: 290;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: oklch(0.6 0.13 var(--badge-h) / 0.26);
+  color: oklch(0.84 0.11 var(--badge-h));
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+[data-theme='light'] .thread-badge {
+  background: oklch(0.72 0.12 var(--badge-h) / 0.28);
+  color: oklch(0.42 0.14 var(--badge-h));
+}
+.thread-badge[data-hue='0'] { --badge-h: 290; }
+.thread-badge[data-hue='1'] { --badge-h: 75; }
+.thread-badge[data-hue='2'] { --badge-h: 140; }
+.thread-badge[data-hue='3'] { --badge-h: 250; }
+.thread-badge[data-hue='4'] { --badge-h: 25; }
+.thread-badge[data-hue='5'] { --badge-h: 200; }
+.thread-badge[data-hue='6'] { --badge-h: 340; }
+.thread-badge[data-hue='7'] { --badge-h: 110; }
+/* The picture of whoever owns the project's repository, in the tag's place. */
+img.thread-badge--picture {
+  object-fit: cover;
+  background: var(--surface-2);
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+[data-theme='light'] img.thread-badge--picture {
+  outline-color: oklch(0 0 0 / 0.1);
+}
+/* No project: an empty dashed square. */
+.thread-badge--none {
+  background: transparent;
+  border: 1px dashed var(--text-3);
+}
+
+/* What a thread is doing, at the end of its first line. */
+.thread-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.thread-status--working {
+  color: var(--thread-working);
+}
+.thread-status--done {
+  color: var(--thread-done);
+}
+.thread-status--missing,
+.thread-status--failed {
+  color: var(--danger);
+}
+.thread-status--asking {
+  color: var(--thread-asking);
+}
+.thread-status__ring {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px dashed currentColor;
+  animation: spin 2.4s linear infinite;
+}
+body[data-reduce-motion='on'] .thread-status__ring {
+  animation: none;
+}
+
+.sidebar {
+  --thread-working: color-mix(in srgb, var(--accent), #ffffff 18%);
+  --thread-done: #30c06a;
+  --thread-asking: #f0a33a;
+}
+[data-theme='light'] .sidebar {
+  --thread-working: var(--accent);
+  --thread-done: #1f9d55;
+  --thread-asking: #c27a12;
+}
+
+/* ---------------- Sections under the list ---------------- */
+
+/* Out of the list's scroll, at the sidebar's foot; scrolls itself when its
+   sections hold more than a third of the sidebar. */
+.thread-dock {
+  flex: none;
+  max-height: 38%;
+  overflow-y: auto;
+  padding: 4px 7px 4px;
+  border-top: 1px solid var(--border-soft);
+}
+.thread-section + .thread-section {
+  margin-top: 2px;
+}
+.thread-section__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px 0 9px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-align: left;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.thread-section__head:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.thread-section__label {
+  flex: 1;
+}
+.thread-section__count {
+  font-variant-numeric: tabular-nums;
+}
+.thread-section__chev {
+  flex: none;
+  transition: rotate var(--dur) var(--ease);
+}
+.thread-section:not([data-open]) .thread-section__chev {
+  rotate: -90deg;
+}
+.thread-section__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+/* ---------------- The ADE's rows ---------------- */
+
+.ade-session[data-look='thread'] {
+  border: 0;
+  border-radius: var(--r-md);
+}
+.ade-session[data-look='thread'] .ade-session__row {
+  display: block;
+  padding: 7px 9px 8px;
+  border-radius: var(--r-md);
+}
+.ade-session[data-look='thread'][data-active='true'] {
+  margin: 0;
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+}
+[data-theme='light'] .ade-session[data-look='thread'][data-active='true'] {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.ade-session[data-look='thread'][data-active='true'] .trow__top {
+  color: var(--text-2);
+}
+.ade-session[data-look='thread'][data-active='true'] .trow__project {
+  color: var(--text-2);
+}
+.ade-session[data-look='thread'] .ade-session__title {
+  font-size: inherit;
+  line-height: inherit;
+}
+.ade-session[data-look='thread'] .ade-session__branch {
+  font-size: inherit;
+  color: inherit;
+}
+.ade-session[data-look='thread'][data-state='missing'] .trow__title {
+  color: var(--text-3);
+}
+.ade-session--archived[data-look='thread'] .trow__title {
+  color: var(--text-2);
+}
+/* New session in the row's project, over its age or status while the pointer is on the row. */
+.ade-session[data-look='thread'] > .ade-session__add {
+  top: 5px;
+  right: 6px;
+}
+.ade-session[data-look='thread']:hover:has(> .ade-session__add) .trow__when {
+  visibility: hidden;
+}
+/* The tree's rows hide their counts for the button; the list's are on the line below it. */
+.ade-session[data-look='thread']:hover:has(> .ade-session__add) .trow__marks .ade-session__diff {
+  visibility: visible;
+}
+/* Restore sits over the row's age while the pointer is on it. */
+.ade-session--archived[data-look='thread'] > .ade-session__add {
+  top: 6px;
+  right: 6px;
+}
+.ade-session--archived[data-look='thread']:hover .trow__when {
+  visibility: hidden;
+}
+/* The tray, inset to the row's lines. */
+.ade-session[data-look='thread'] > .ade-tray {
+  width: calc(100% - 18px);
+  margin: -2px 9px 8px;
+}
+/* A session's agents, listed under its tray. */
+.ade-session[data-look='thread'] .ade-agents {
+  padding: 0 4px 5px;
+}
+
+/* ---------------- Chat's rows ---------------- */
+
+.chat-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.chat-thread {
+  display: block;
+  padding: 7px 9px 8px;
+  border-radius: var(--r-md);
+  transition: background var(--dur) var(--ease);
+}
+.chat-thread:hover {
+  background: var(--hover);
+}
+.chat-thread[data-active='true'] {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+}
+[data-theme='light'] .chat-thread[data-active='true'] {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.chat-thread[data-active='true'] .trow__top {
+  color: var(--text-2);
+}
+.chat-thread:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* New chat in the row's project, over its age or status while the pointer is on the row. */
+.chat-thread-slot {
+  position: relative;
+}
+.chat-thread__add {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.chat-thread-slot:hover > .chat-thread__add,
+.chat-thread__add:focus-visible {
+  opacity: 1;
+}
+.chat-thread__add:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.chat-thread__add:active {
+  scale: 0.96;
+}
+.chat-thread-slot:hover > .chat-thread .trow__when {
+  visibility: hidden;
+}
+/* Renaming: the title line becomes a field in place. */
+.chat-thread .trow__title > input {
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+}
+/* Under Chat's places, a little apart from them. */
+.sidebar__menu:not([data-kind='code']) .side-find {
+  margin: 8px 0 4px;
+}
+
+/* ---------------- Foot ---------------- */
+
+/* The ADE's places, as a row of icons along the sidebar's bottom edge. */
+.foot-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px 9px;
+}
+.foot-bar__btn {
+  width: 28px;
+  height: 28px;
+}
+/* Its name, for screen readers (and what the tooltip says). */
+.foot-bar__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

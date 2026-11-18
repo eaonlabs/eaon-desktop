@@ -9,6 +9,8 @@ import type { Chat, Project } from '@shared/types'
 
 export type ProjectSort = 'recent' | 'created' | 'name'
 export type ChatSort = 'recent' | 'created'
+/** Projects, each a heading that folds over its chats (as T3 Code lists threads), or the chats in projects as one list, each tagged with its project; Chats under either. */
+export type ChatView = 'list' | 'projects'
 
 export const PROJECT_SORTS: Record<ProjectSort, string> = { recent: 'Recent activity', created: 'Date created', name: 'Name' }
 export const CHAT_SORTS: Record<ChatSort, string> = { recent: 'Recent activity', created: 'Date created' }
@@ -32,15 +34,23 @@ export function sortChats<T extends { id: string; pinned: boolean }>(items: T[],
 }
 
 interface ChatSidebarState {
+  view: ChatView
   projectSort: ProjectSort
   chatSort: ChatSort
-  /** Projects showing their chats, by id. */
-  open: Record<string, boolean>
+  /** What the search row holds; not remembered. */
+  query: string
+  /** The Working section under the list is open. */
+  workingOpen: boolean
+  /** Projects folded to their heading, by id; the rest show their chats. */
+  folded: Record<string, true>
   chatsFolded: boolean
+  setView: (view: ChatView) => void
+  setQuery: (query: string) => void
+  setWorkingOpen: (open: boolean) => void
   setProjectSort: (sort: ProjectSort) => void
   setChatSort: (sort: ChatSort) => void
   setProjectOpen: (id: string, open: boolean) => void
-  collapseProjects: () => void
+  collapseProjects: (ids: readonly string[]) => void
   setChatsFolded: (folded: boolean) => void
 }
 
@@ -58,17 +68,21 @@ export const SIDEBAR_IS_NEW = ((): boolean => {
     return false
   }
 })()
-type Saved = Pick<ChatSidebarState, 'projectSort' | 'chatSort' | 'open' | 'chatsFolded'>
-const DEFAULTS: Saved = { projectSort: 'recent', chatSort: 'recent', open: {}, chatsFolded: false }
+type Saved = Pick<ChatSidebarState, 'view' | 'projectSort' | 'chatSort' | 'folded' | 'chatsFolded' | 'workingOpen'>
+const DEFAULTS: Saved = { view: 'projects', projectSort: 'recent', chatSort: 'recent', folded: {}, chatsFolded: false, workingOpen: true }
+/** Saved views from before "By project" was the default are its builds' default, not a choice: only this version's is read. */
+const VIEW_VERSION = 2
 
 function read(): Saved {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Saved>
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Saved> & { v?: number }
     return {
+      view: saved.v === VIEW_VERSION && saved.view === 'list' ? 'list' : 'projects',
       projectSort: saved.projectSort && saved.projectSort in PROJECT_SORTS ? saved.projectSort : DEFAULTS.projectSort,
       chatSort: saved.chatSort && saved.chatSort in CHAT_SORTS ? saved.chatSort : DEFAULTS.chatSort,
-      open: saved.open && typeof saved.open === 'object' ? saved.open : {},
-      chatsFolded: saved.chatsFolded === true
+      folded: saved.folded && typeof saved.folded === 'object' ? saved.folded : {},
+      chatsFolded: saved.chatsFolded === true,
+      workingOpen: saved.workingOpen !== false
     }
   } catch {
     return DEFAULTS
@@ -78,25 +92,29 @@ function read(): Saved {
 export const useChatSidebar = create<ChatSidebarState>((set, get) => {
   const save = (patch: Partial<Saved>): void => {
     set(patch)
-    const { projectSort, chatSort, open, chatsFolded } = get()
+    const { view, projectSort, chatSort, folded, chatsFolded, workingOpen } = get()
     try {
-      localStorage.setItem(KEY, JSON.stringify({ projectSort, chatSort, open, chatsFolded }))
+      localStorage.setItem(KEY, JSON.stringify({ v: VIEW_VERSION, view, projectSort, chatSort, folded, chatsFolded, workingOpen }))
     } catch {
       /* Remembered until the app closes. */
     }
   }
   return {
     ...read(),
+    query: '',
+    setView: (view) => save({ view }),
+    setQuery: (query) => set({ query }),
+    setWorkingOpen: (workingOpen) => save({ workingOpen }),
     setProjectSort: (projectSort) => save({ projectSort }),
     setChatSort: (chatSort) => save({ chatSort }),
     setProjectOpen: (id, open) => {
-      if (Boolean(get().open[id]) === open) return
-      const next = { ...get().open }
-      if (open) next[id] = true
-      else delete next[id]
-      save({ open: next })
+      if (!get().folded[id] === open) return
+      const next = { ...get().folded }
+      if (open) delete next[id]
+      else next[id] = true
+      save({ folded: next })
     },
-    collapseProjects: () => save({ open: {} }),
+    collapseProjects: (ids) => save({ folded: { ...get().folded, ...Object.fromEntries(ids.map((id) => [id, true as const])) } }),
     setChatsFolded: (chatsFolded) => save({ chatsFolded })
   }
 })

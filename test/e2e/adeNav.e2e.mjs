@@ -1,7 +1,8 @@
 /**
- * The ADE's sidebar holds only what coding needs (New session, Pull requests,
- * Linear, Settings); Trading, Models and Plugins are in the Chat sidebar, and
- * a session over SSH starts from the New session dialog.
+ * The ADE's sidebar holds only what coding needs: New session on the search
+ * row over its sessions, and Settings, Pull requests and Issues along its
+ * foot. Trading, Models and Plugins are in the Chat sidebar, and a session
+ * over SSH starts from the New session dialog.
  */
 import assert from 'node:assert/strict'
 import { scenario } from './fixtures.mjs'
@@ -16,13 +17,13 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
 
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
   await page.reload()
-  await page.find('.sidebar .nav-item', { text: /^New session$/ })
-  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
-  assert.deepEqual(adeItems, ['New session', 'Pull requests', 'Issues', 'Settings'])
+  await page.find('.sidebar .side-find__tool[aria-label="New session"]')
+  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .foot-bar__btn, .sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
+  assert.deepEqual(adeItems, ['Settings', 'Pull requests', 'Issues'])
   await s.shot(page, 'ade-sidebar')
 
   // SSH from the New session dialog.
-  await page.click('.sidebar .nav-item', { text: /^New session$/ })
+  await page.click('.sidebar .side-find__tool[aria-label="New session"]')
   await page.click('.modal .ade-dialog__ssh', { text: /On another machine \(SSH\)/ })
   await page.find('.modal', { text: /Session over SSH/ })
   await s.shot(page, 'ssh-from-new-session')

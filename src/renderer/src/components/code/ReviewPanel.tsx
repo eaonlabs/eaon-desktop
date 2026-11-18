@@ -26,6 +26,7 @@ import {
   type ReviewResult
 } from '@shared/adeReview'
 import { sessionTitle } from '@shared/adeSessions'
+import { noteReviewPr } from './branchPrs'
 
 /**
  * The ADE's review panel, beside the terminals: what the session's agents
@@ -130,7 +131,9 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setResult(await window.api.ade.review(cwd))
+      const result = await window.api.ade.review(cwd)
+      setResult(result)
+      if (result.ok) noteReviewPr(cwd, result.state.branch, result.state.github?.pr ?? null)
     } catch (e) {
       setResult({ ok: false, error: e instanceof Error ? e.message : String(e) })
     } finally {

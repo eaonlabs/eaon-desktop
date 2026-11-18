@@ -43,6 +43,7 @@ import { linkAccountsFeature } from './linkAccounts'
 import { importAppsFeature } from './importApps'
 import { agentAppsFeature } from './agentApps'
 import { providerLogosFeature } from './providerLogos'
+import { projectAvatarsFeature } from './projectAvatars'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
@@ -118,6 +119,7 @@ export const FEATURES: Feature[] = [
   // Brings other apps' sessions into the ADE's.
   agentAppsFeature,
   providerLogosFeature,
+  projectAvatarsFeature,
   usageFeature,
   starRepoFeature,
   toknCliFeature,

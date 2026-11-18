@@ -92,10 +92,10 @@ test('"session 3" is the third row the sidebar shows: a folded project’s sessi
     visibleSessions(groups, { '/p/web': true }).map((s) => s.id),
     ['d']
   )
-  // A project that is just its own folder is one row and cannot be folded.
+  // A project that is just its own folder has its heading too, and folds like any other.
   assert.deepEqual(
     visibleSessions(groups, { '/p/api': true }).map((s) => s.id),
-    ['a', 'c', 'b', 'd']
+    ['a', 'c', 'b']
   )
   const list = visibleSessions(groups, {})
   assert.equal(sessionAfter(list, 'd', 1)?.id, 'a')

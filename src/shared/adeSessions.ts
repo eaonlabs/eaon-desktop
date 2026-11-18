@@ -309,11 +309,8 @@ export function splitArchived(sessions: readonly AdeSession[]): { live: AdeSessi
 
 /** The sessions the sidebar lists, top to bottom: the ones in a folded project are left out. */
 export function visibleSessions(groups: ProjectGroup[], collapsed: Readonly<Record<string, boolean>>): AdeSession[] {
-  return groups.flatMap((group) => (isSoloProject(group) || !collapsed[group.project] ? group.sessions : []))
+  return groups.flatMap((group) => (collapsed[group.project] ? [] : group.sessions))
 }
-
-/** A project that is just its own folder: shown as one row, not a heading over a row repeating it. */
-export const isSoloProject = (group: ProjectGroup): boolean => group.sessions.length === 1 && group.sessions[0].cwd === group.project
 
 /** What a session's agents have changed and not committed: lines added and removed, and files touched (new ones included). */
 export interface AdeChanges {
