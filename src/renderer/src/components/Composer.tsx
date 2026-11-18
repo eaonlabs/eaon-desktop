@@ -74,7 +74,6 @@ import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
 import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
 import { SpeechSetup } from './composer/SpeechSetup'
-import { useFitInput } from './composer/useFitInput'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../lib/platform'
 
@@ -95,10 +94,6 @@ const drafts = new Map<string, { text: string; attachments: string[] }>()
 const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 /** Pasted text this long (32 KB) is attached as a file rather than typed into the box. */
 const LARGE_PASTE = 32 * 1024
-/** A context window as the model chip shows it: 200000 → "200k", 1048576 → "1M". */
-const windowLabel = (tokens: number): string =>
-  tokens >= 1_000_000 ? `${+(tokens / 1_000_000).toFixed(1)}M` : `${Math.round(tokens / 1000)}k`
-
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
  * send — because Chat is for everyone. Everything that made it feel like a
@@ -181,9 +176,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
-  // In a conversation the box is one slim line, + at one end and send at the other; text
-  // that wraps takes the whole box, with + and send under it.
-  const stacked = useFitInput(textarea, text, 320, variant === 'chat' && !dictating) && !dictating
   // A temporary chat, or the start page about to make one: the box is dashed.
   const temporary = useApp((s) => (variant === 'home' ? s.pendingTemporary : Boolean(s.activeChat()?.temporary)))
   // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
@@ -759,7 +751,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           {EFFORT_LABEL[effort]}
         </span>
       )}
-      {variant === 'chat' && !adaptive && !engineChoice && model?.contextWindow ? <span className="chip__window">({windowLabel(model.contextWindow)})</span> : null}
       <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
     </button>
   )
@@ -869,7 +860,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           )}
         </div>
       )}
-      <div className="composer" data-variant={variant} data-compact={compact || undefined} data-stacked={stacked || undefined} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
+      <div className="composer" data-shape="box" data-variant={variant} data-compact={compact || undefined} data-temporary={temporary || undefined} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         <div ref={stashAnchor} className="composer__stash-anchor" aria-hidden />
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -901,40 +892,33 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </div>
         )}
 
-        {variant === 'chat' ? (
-          // In a conversation: one slim pill, + at one end and the mic and send at the other.
-          <div className="composer__row">
-            {plusButton}
-            {input}
-            {queueButton}
-            {micButton}
-            {sendButton}
+        {/* The text, then one row: the model (with its effort) and what Eaon may do, what's switched
+            on, and at the other end how full the context is, +, the mic and send. The same on the
+            start page and in a conversation. */}
+        {input}
+        <div className="composer__toolbar">
+          <div className="composer__controls">
+            {modelButton}
+            {isAgent && <PermissionPicker />}
           </div>
-        ) : (
-          // The start page: the text, then + at one end and the mic and send at the other.
-          <>
-            {input}
-            <div className="composer__toolbar">
-              {plusButton}
-              <div className="composer__spacer" />
-              {micButton}
-              {sendButton}
-            </div>
-          </>
-        )}
+          {chips}
+          <div className="composer__spacer" />
+          {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
+          {plusButton}
+          {queueButton}
+          {micButton}
+          {sendButton}
+        </div>
       </div>
 
-      {/* Tucked under the box: what Eaon may do, the project and its branch (in a project), what's
-          switched on, and the model, with how full the context is in a conversation. */}
-      <div className="composer__tray">
-        {isAgent && <PermissionPicker />}
-        {isAgent && !compact && <ProjectPicker />}
-        {isAgent && !compact && <BranchPicker />}
-        {chips}
-        <div className="composer__spacer" />
-        {modelButton}
-        {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
-      </div>
+      {/* Tucked under the box in a project: its folder, and the branch. */}
+      {isAgent && !compact && (
+        <div className="composer__tray">
+          <ProjectPicker />
+          <div className="composer__spacer" />
+          <BranchPicker />
+        </div>
+      )}
 
       {suggest.menu}
       <AddMenu

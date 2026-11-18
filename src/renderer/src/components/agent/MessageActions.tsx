@@ -189,7 +189,7 @@ function CueRoot({
 }: {
   rootRef: RefObject<HTMLDivElement>;
   children: ReactNode;
-  /** Hovered or focused: the only time the "ago" time shows, so the only time it ticks. */
+  /** Hovered or focused: while the "ago" time ticks by the second. */
   onLive?: (live: boolean) => void;
 }) {
   const cue = useContext(CueContext);
@@ -400,12 +400,11 @@ export function MessageActions({
   const [now, setNow] = useState(() => Date.now());
   const [live, setLive] = useState(false);
 
-  // The time only shows while the bar is hovered, so it only ticks then: a
-  // long chat has a bar under every reply.
+  // The time is always in view: by the minute, and by the second only while
+  // the bar is hovered (a long chat has a bar under every reply).
   useEffect(() => {
-    if (!live) return;
     setNow(Date.now());
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), live ? 1000 : 60_000);
     return () => window.clearInterval(id);
   }, [live]);
 
@@ -582,44 +581,6 @@ export function MessageActions({
   return (
     <RowCues>
     <CueRoot rootRef={rootRef} onLive={setLive}>
-      {onVote ? (
-        <>
-          <Cue label="Good response">
-          <button
-            type="button"
-            className={styles.btn}
-            data-on={vote === "up"}
-            aria-pressed={vote === "up"}
-            aria-label="Good response"
-            onClick={() => choose("up")}
-          >
-            <Good
-              key={upN}
-              className={`${styles.glyph} ${styles.voteUp} ${upN ? styles.bumpUp : ""}`}
-              size={12}
-            />
-          </button>
-          </Cue>
-
-          <Cue label="Bad response">
-          <button
-            type="button"
-            className={styles.btn}
-            data-on={vote === "down"}
-            aria-pressed={vote === "down"}
-            aria-label="Bad response"
-            onClick={() => choose("down")}
-          >
-            <Bad
-              key={downN}
-              className={`${styles.glyph} ${styles.glyphDown} ${styles.voteDown} ${downN ? styles.bumpDown : ""}`}
-              size={12}
-            />
-          </button>
-          </Cue>
-        </>
-      ) : null}
-
       <Cue label={copied ? "Copied" : "Copy message"}>
       <button
         type="button"
@@ -634,33 +595,6 @@ export function MessageActions({
       </button>
       </Cue>
 
-      {onReact ? (
-        <Cue label={reaction ? `Reaction ${reaction}` : "Add reaction"} quiet={panel === "react"}>
-        <button
-          type="button"
-          className={styles.btn}
-          data-on={panel === "react" || reaction !== null}
-          aria-expanded={panel === "react"}
-          aria-controls={popId}
-          aria-label={reaction ? `Reaction ${reaction}` : "Add reaction"}
-          onClick={() => {
-            setSmileN((n) => n + 1);
-            setPanel((value) => (value === "react" ? null : "react"));
-          }}
-        >
-          {reaction ? (
-            <span key={reaction} className={`${styles.reaction} ${styles.mark}`} aria-hidden="true">{reaction}</span>
-          ) : (
-            <Smile
-              key={smileN}
-              className={`${styles.glyph} ${styles.smile} ${smileN ? styles.smilePlay : ""}`}
-              size={12}
-            />
-          )}
-        </button>
-        </Cue>
-      ) : null}
-
       {onReply ? (
         <Cue label="Reply">
         <button type="button" className={styles.btn} aria-label="Reply" onClick={reply}>
@@ -673,41 +607,123 @@ export function MessageActions({
         </Cue>
       ) : null}
 
-      <span className={styles.slot}>
-        <Cue label="More actions" quiet={panel === "more"}>
-        <button
-          type="button"
-          className={styles.btn}
-          data-on={panel === "more"}
-          aria-expanded={panel === "more"}
-          aria-controls={menuId}
-          aria-haspopup="menu"
-          aria-label="More actions"
-          onClick={() => setPanel((value) => (value === "more" ? null : "more"))}
-        >
-          <More className={styles.glyph} size={12} />
-        </button>
-        </Cue>
-        {panel === "more" ? (
-          <div id={menuId} className={styles.menu} role="menu">
-            <button type="button" className={styles.item} role="menuitem" onClick={() => more("aloud")}>
-              <Aloud size={12} />
-              {speaking ? "Stop reading" : "Read aloud"}
+      <Cue label={formatAbsolute(sentAt)}>
+        <time className={styles.ago} dateTime={sentAt.toISOString()}>
+          {minutes >= 1 && minutes < 60 ? (
+            <>
+              <MinuteRoll value={String(minutes)} />
+              m ago
+            </>
+          ) : (
+            formatAgo(sentAt, now)
+          )}
+        </time>
+      </Cue>
+
+      {/* The rest show while the bar is hovered, and stay once a reply has a vote or a reaction. */}
+      <span className={styles.extras} data-kept={vote !== null || reaction !== null || panel !== null || undefined}>
+        {onVote ? (
+          <>
+            <Cue label="Good response">
+            <button
+              type="button"
+              className={styles.btn}
+              data-on={vote === "up"}
+              aria-pressed={vote === "up"}
+              aria-label="Good response"
+              onClick={() => choose("up")}
+            >
+              <Good
+                key={upN}
+                className={`${styles.glyph} ${styles.voteUp} ${upN ? styles.bumpUp : ""}`}
+                size={12}
+              />
             </button>
-            {onRetry ? (
-              <button type="button" className={styles.item} role="menuitem" onClick={() => more("retry")}>
-                <Retry size={12} />
-                Try again
-              </button>
-            ) : null}
-            {onFork ? (
-              <button type="button" className={styles.item} role="menuitem" onClick={() => more("fork")}>
-                <Fork size={12} />
-                Fork chat
-              </button>
-            ) : null}
-          </div>
+            </Cue>
+
+            <Cue label="Bad response">
+            <button
+              type="button"
+              className={styles.btn}
+              data-on={vote === "down"}
+              aria-pressed={vote === "down"}
+              aria-label="Bad response"
+              onClick={() => choose("down")}
+            >
+              <Bad
+                key={downN}
+                className={`${styles.glyph} ${styles.glyphDown} ${styles.voteDown} ${downN ? styles.bumpDown : ""}`}
+                size={12}
+              />
+            </button>
+            </Cue>
+          </>
         ) : null}
+
+        {onReact ? (
+          <Cue label={reaction ? `Reaction ${reaction}` : "Add reaction"} quiet={panel === "react"}>
+          <button
+            type="button"
+            className={styles.btn}
+            data-on={panel === "react" || reaction !== null}
+            aria-expanded={panel === "react"}
+            aria-controls={popId}
+            aria-label={reaction ? `Reaction ${reaction}` : "Add reaction"}
+            onClick={() => {
+              setSmileN((n) => n + 1);
+              setPanel((value) => (value === "react" ? null : "react"));
+            }}
+          >
+            {reaction ? (
+              <span key={reaction} className={`${styles.reaction} ${styles.mark}`} aria-hidden="true">{reaction}</span>
+            ) : (
+              <Smile
+                key={smileN}
+                className={`${styles.glyph} ${styles.smile} ${smileN ? styles.smilePlay : ""}`}
+                size={12}
+              />
+            )}
+          </button>
+          </Cue>
+        ) : null}
+
+        <span className={styles.slot}>
+          <Cue label="More actions" quiet={panel === "more"}>
+          <button
+            type="button"
+            className={styles.btn}
+            data-on={panel === "more"}
+            aria-expanded={panel === "more"}
+            aria-controls={menuId}
+            aria-haspopup="menu"
+            aria-label="More actions"
+            onClick={() => setPanel((value) => (value === "more" ? null : "more"))}
+          >
+            <More className={styles.glyph} size={12} />
+          </button>
+          </Cue>
+          {panel === "more" ? (
+            <div id={menuId} className={styles.menu} role="menu">
+              <button type="button" className={styles.item} role="menuitem" onClick={() => more("aloud")}>
+                <Aloud size={12} />
+                {speaking ? "Stop reading" : "Read aloud"}
+              </button>
+              {onRetry ? (
+                <button type="button" className={styles.item} role="menuitem" onClick={() => more("retry")}>
+                  <Retry size={12} />
+                  Try again
+                </button>
+              ) : null}
+              {onFork ? (
+                <button type="button" className={styles.item} role="menuitem" onClick={() => more("fork")}>
+                  <Fork size={12} />
+                  Fork chat
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </span>
+        {children}
       </span>
 
       {panel === "react" && !pickerOpen ? (
@@ -803,20 +819,6 @@ export function MessageActions({
             document.body,
           )
         : null}
-
-      <Cue label={formatAbsolute(sentAt)}>
-        <time className={styles.ago} dateTime={sentAt.toISOString()}>
-          {minutes >= 1 && minutes < 60 ? (
-            <>
-              <MinuteRoll value={String(minutes)} />
-              m ago
-            </>
-          ) : (
-            formatAgo(sentAt, now)
-          )}
-        </time>
-      </Cue>
-      {children}
     </CueRoot>
     </RowCues>
   );

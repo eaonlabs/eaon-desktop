@@ -31,7 +31,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, messageText, runIn, useApp, useCoding, useIsWork } from '../state/store'
+import { codeFolder, codeProject, messageText, runIn, useApp, useCoding, useIsWork } from '../state/store'
 import { Composer } from './Composer'
 import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
@@ -224,6 +224,8 @@ function Home(): JSX.Element {
   const coding = useCoding() && isWork
   // The next chat isn't kept: the page says so in place of the chips, and the box is dashed.
   const temporary = useApp((s) => s.pendingTemporary) && isWork
+  // A project's start page is only its question and the box: the project by name, no mark, no chips.
+  const project = useApp((s) => (coding ? codeProject(s) : null))
 
   return (
     <>
@@ -241,14 +243,30 @@ function Home(): JSX.Element {
           Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
-          <EaonSymbol className="home__mark" />
-          <h1 className="home__title">{temporary ? 'You’re in a temporary chat' : isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
+          {!project && <EaonSymbol className="home__mark" />}
+          <h1 className="home__title">
+            {temporary ? (
+              'You’re in a temporary chat'
+            ) : project ? (
+              <>
+                What should we build in{' '}
+                <span className="home__project" title={project.folder ?? undefined}>
+                  {project.name}
+                </span>
+                ?
+              </>
+            ) : isWork ? (
+              'What should we work on?'
+            ) : (
+              'What can I help with?'
+            )}
+          </h1>
           {temporary && <TemporaryHint />}
         </div>
         <div className="home__dock">
           <Composer variant="home" />
         </div>
-        {showSuggestions && !temporary && (
+        {showSuggestions && !temporary && !project && (
             <div className="home-chips" role="group" aria-label="Things Eaon can do">
               {SUGGESTIONS.map((s, index) => (
                 <button

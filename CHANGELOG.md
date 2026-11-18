@@ -7,6 +7,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Changed
 - **Chat's sidebar has Settings, Pull requests, Issues and Usage as icons along its bottom.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat.
+- **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. Under the box in a project, a quiet strip holds the folder and the branch. Full access keeps an orange open lock.
+- **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
+- **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
 
 ### Fixed
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
