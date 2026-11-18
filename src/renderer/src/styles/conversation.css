@@ -47,11 +47,20 @@
   }
 }
 
+/* Taller than a menu: the whole breakdown without scrolling. */
+.menu.context-pop {
+  max-height: min(620px, calc(100vh - 24px));
+}
 .context-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px 12px;
+  gap: 9px;
+  padding: 12px 14px 12px;
+}
+.context-panel__title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
 }
 .context-panel__head {
   display: flex;
@@ -62,40 +71,105 @@
   color: var(--text-2);
   font-weight: 500;
 }
+.context-panel__used {
+  color: var(--text);
+  font-size: var(--fs-base);
+}
 .context-panel__numbers {
   color: var(--text-3);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
-.context-panel__bar {
+
+/* What fills the context, a colour each (chat/ContextMeter.tsx), in the bar and beside each row. */
+.context-panel [data-part='messages'] {
+  --part: #5b8def;
+}
+.context-panel [data-part='tools'] {
+  --part: #e3793f;
+}
+.context-panel [data-part='files'] {
+  --part: #3fb38b;
+}
+.context-panel [data-part='summary'] {
+  --part: #d6a13b;
+}
+.context-panel [data-part='system'] {
+  --part: #a08cf0;
+}
+.context-panel [data-part='free'] {
+  --part: var(--hover-strong);
+}
+.context-panel [data-part='kept'] {
+  --part: color-mix(in srgb, var(--text-4) 60%, transparent);
+}
+.context-bar {
   position: relative;
-  height: 5px;
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  overflow: hidden;
   border-radius: var(--r-pill);
   background: var(--hover-strong);
 }
-.context-panel__bar > span {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: var(--text-2);
-}
-.context-panel__bar > span[data-full] {
-  background: var(--warn, #f0883e);
+.context-bar__part {
+  flex: none;
+  min-width: 2px;
+  background: var(--part);
 }
 /* Where summarizing starts. */
-.context-panel__bar > i {
+.context-bar > i {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 1.5px;
-  border-radius: 1px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
   background: var(--text-2);
 }
-.context-panel__note {
+.context-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.context-rows li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto 44px;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+.context-rows__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--part);
+}
+.context-rows__label {
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-rows__count,
+.context-rows__share {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.context-rows__count {
+  color: var(--text-3);
+}
+.context-rows__share {
+  color: var(--text);
+}
+.context-rows--room {
+  padding-top: 6px;
+}
+.context-panel__foot {
   color: var(--text-3);
   font-size: var(--fs-xs);
-  line-height: 1.45;
 }
 
 /* What the chat has used, under the context numbers (chat/ChatUsage.tsx). */
@@ -116,13 +190,7 @@
   font-variant-numeric: tabular-nums;
 }
 .context-usage__cost {
-  font-size: var(--fs-sm);
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-.context-usage__cost span {
   color: var(--text-3);
-  font-size: var(--fs-xs);
 }
 
 /* ---- Queued follow-ups -------------------------------------------- */

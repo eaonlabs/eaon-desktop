@@ -135,7 +135,10 @@ export interface Adapter {
 
 export const emptyUsage = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
 
-/** Adds `b` into `a` in place and returns it. */
+/** One call's request and reply, as the provider counted them: what it holds of the model's context. */
+export const callSize = (u: TokenUsage): number => u.context ?? u.input + u.cacheRead + u.cacheWrite + u.output
+
+/** Adds `b` into `a` in place and returns it. (`context` isn't a sum: the caller sets it from the latest call.) */
 export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   a.input += b.input
   a.output += b.output

@@ -11,7 +11,7 @@ import { compactionProgress, expectedSummaryChars } from '@shared/compaction'
 import { targetsPrivateNetwork } from '../netGuard'
 import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
-import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
+import { addUsage, callSize, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
@@ -600,6 +600,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (textOnly(params)) stripImages(messages)
     const result = await callModel(params, attempts, messages, note)
     addUsage(usage, result.usage)
+    // How full the context is now: this call's own size, not the turn's sum.
+    usage.context = callSize(result.usage)
     if (params.depth === 0) emit({ type: 'usage', messageId: request.messageId, usage: { ...usage } })
 
     if (result.stop === 'refusal') throw new Error(result.refusal ?? 'The model declined this request.')

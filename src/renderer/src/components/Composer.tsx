@@ -903,7 +903,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </div>
           {chips}
           <div className="composer__spacer" />
-          {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
+          {variant === 'chat' && !engineChoice && <ContextMeter contextWindow={model?.contextWindow} modelName={model?.label} />}
           {plusButton}
           {queueButton}
           {micButton}

@@ -43,7 +43,9 @@ export function modelsOf(models: EngineModel[], providerId: string): ModelInfo[]
     ...(m.description ? { description: m.description } : {}),
     providerId,
     efforts: m.efforts,
-    contextWindow: /\[1m\]/i.test(m.id) ? 1_000_000 : 200_000,
+    // Claude Code runs Claude's 5.x models at their full 1M (its logs show contexts past 700K);
+    // 200K here made Eaon summarize a chat at 140K, needlessly.
+    contextWindow: 1_000_000,
     tools: true,
     vision: true,
     reasoning: true

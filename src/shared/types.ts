@@ -175,6 +175,13 @@ export interface TokenUsage {
   cacheRead: number
   /** Input tokens written to the prompt cache this turn. */
   cacheWrite: number
+  /**
+   * The size of the turn's latest request with its reply, as the provider
+   * counted it: how much of the model's context the chat fills now. The
+   * fields above add up every call in the turn; this is only the last one.
+   * Absent on replies from before it was kept, and where nothing reports it.
+   */
+  context?: number
 }
 
 /** A plan the agent proposed in plan mode, waiting for the user's go-ahead. */

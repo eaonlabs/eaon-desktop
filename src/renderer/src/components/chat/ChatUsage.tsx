@@ -33,33 +33,21 @@ export function ChatUsage({ messages }: { messages: readonly ChatMessage[] }): J
   const { total } = used
   const cached = cachedPercent(total)
   const name = (model: string): string => model || 'an unknown model'
+  // One line; the fine print is in its tooltip.
+  const unpriced = cost && cost.unpriced.length > 0 ? `No price is known for ${cost.unpriced.map((u) => name(u.model)).join(', ')}. ` : ''
+  const title = `${total.input.toLocaleString()} uncached input · ${total.cacheRead.toLocaleString()} cache reads · ${total.cacheWrite.toLocaleString()} cache writes · ${total.output.toLocaleString()} output. ${unpriced}Counts are what the provider reported for each reply; a price is at published per-token rates, which a subscription plan or a free model isn’t charged.`
   return (
-    <div className="context-usage">
+    <div className="context-usage" title={title}>
       <div className="context-panel__head">
         <span>This chat</span>
         <span className="context-panel__numbers">
           {used.turns} {used.turns === 1 ? 'reply' : 'replies'}
         </span>
       </div>
-      <p
-        className="context-usage__tokens"
-        title={`${total.input.toLocaleString()} uncached input · ${total.cacheRead.toLocaleString()} cache reads · ${total.cacheWrite.toLocaleString()} cache writes · ${total.output.toLocaleString()} output`}
-      >
+      <p className="context-usage__tokens">
         {compactCount(inputTokens(total))} in · {compactCount(total.output)} out{cached > 0 ? ` · ${cached}% cached` : ''}
+        {cost?.usd != null && <span className="context-usage__cost"> · about {usd(cost.usd)}</span>}
       </p>
-      {cost?.usd != null && (
-        <p className="context-usage__cost">
-          About {usd(cost.usd)}
-          <span> at published per-token rates</span>
-        </p>
-      )}
-      {cost && cost.unpriced.length > 0 && (
-        <p className="context-panel__note">
-          {cost.usd === null ? 'No price is known for ' : 'Not in that price: '}
-          {cost.unpriced.map((u) => name(u.model)).join(', ')}, so {cost.usd === null ? 'only tokens are shown' : 'only its tokens are counted'}.
-        </p>
-      )}
-      <p className="context-panel__note">Counts are what the provider reported for each reply. A price is an estimate: a subscription plan or a free model isn’t charged it.</p>
     </div>
   )
 }

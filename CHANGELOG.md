@@ -10,8 +10,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
 - **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
+- **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
 
 ### Fixed
+- **The context meter counts what the provider counted.** Each reply keeps the size of its latest request, so the meter shows how full the context really is instead of an estimate that left out most of the system prompt and tools. Claude's models through your Claude plan now plan with their full 1M window instead of 200K, so a long chat is no longer summarized at 140K.
 - **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
 - **The marks along the right edge of a conversation stay sharp** near its top and foot, instead of being blurred with the text under the top bar.
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
