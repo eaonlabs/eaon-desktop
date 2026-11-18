@@ -54,6 +54,9 @@ and `openclaw-color`, on the same black tile.
 to the icon), as Lobe Icons has no Warp mark. It belongs to Warp and
 identifies its CLI in the ADE.
 
+`marks/devin.svg` is Lobe Icons' `devin-color` from the same package, bare,
+for Devin in Usage & limits.
+
 `marks/pi.svg` is Pi's own logo (https://pi.dev/logo-auto.svg, as Pi's README
 shows it), cropped to the mark. It belongs to Pi's owners and identifies the
 coding agent in Usage & limits.
