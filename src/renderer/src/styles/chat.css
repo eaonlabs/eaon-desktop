@@ -1293,12 +1293,16 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   --foot-len: calc(24px + 48px * var(--veil-foot));
 }
 
-/* The foot's veil: the top's, turned over, standing on the message box's dock
-   over the last of the thread. Built as the reader scrolls up from the end. */
+/* The foot's veil: the top's, turned over, building over the last of the
+   thread as the reader scrolls up from the end. It fades in over its first
+   76px and then runs on, at its fullest, behind the message box's dock and
+   past the window's foot: stopping at the dock's top it drew a hard line where
+   the blurred picture under it (a see-through wallpaper) met the sharp one. */
 .scroll-veil--foot {
-  --veil-h: 76px;
-  top: auto;
-  bottom: 100%;
+  --veil-ramp: 76px;
+  top: calc(-1 * var(--veil-ramp));
+  bottom: -40px;
+  height: auto;
   background: linear-gradient(
     to top,
     color-mix(in srgb, var(--canvas) calc(55% * var(--veil)), transparent) 0%,
@@ -1309,22 +1313,28 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
 .scroll-veil--foot > span {
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent calc(var(--i) * 16.66%),
-    #000 calc((var(--i) + 1) * 16.66%),
-    #000 calc((var(--i) + 2) * 16.66%),
-    transparent calc((var(--i) + 3) * 16.66%)
+    transparent calc(var(--i) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 1) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 2) * var(--veil-ramp) / 6),
+    transparent calc((var(--i) + 3) * var(--veil-ramp) / 6)
   );
   mask-image: linear-gradient(
     to bottom,
-    transparent calc(var(--i) * 16.66%),
-    #000 calc((var(--i) + 1) * 16.66%),
-    #000 calc((var(--i) + 2) * 16.66%),
-    transparent calc((var(--i) + 3) * 16.66%)
+    transparent calc(var(--i) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 1) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 2) * var(--veil-ramp) / 6),
+    transparent calc((var(--i) + 3) * var(--veil-ramp) / 6)
   );
 }
 .scroll-veil--foot > span:last-child {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
-  mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--veil-ramp) * 0.66), #000 calc(var(--veil-ramp) * 0.92));
+  mask-image: linear-gradient(to bottom, transparent calc(var(--veil-ramp) * 0.66), #000 calc(var(--veil-ramp) * 0.92));
+}
+/* The box and what is pinned over it stay above the veil that runs on behind them. */
+.composer-dock > .composer-stack,
+.composer-dock > .composer-dock__pinned {
+  position: relative;
+  z-index: 4;
 }
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   .main:has(> .chat-header--float)

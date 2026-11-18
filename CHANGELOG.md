@@ -7,11 +7,12 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Changed
 - **Chat's sidebar has Settings, Pull requests, Issues and Usage as icons along its bottom.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The token count over them sits in the panel with no dividing line.
-- **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. Under the box in a project, a quiet strip holds the folder and the branch. Full access keeps an orange open lock.
+- **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
 - **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
 
 ### Fixed
+- **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
 - **The file finder (⌘P), Find in project and the command palette aren't see-through any more** with a see-through wallpaper on. The page behind them showed through and ran into their rows; they are frosted like Eaon's other dialogs now, as are the page preview and the editor's ask bar.
 - **Antigravity and Devin have their logos in Settings → Usage & limits** and the usage rings, instead of a letter in a circle.

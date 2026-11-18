@@ -911,8 +911,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         </div>
       </div>
 
-      {/* Tucked under the box in a project: its folder, and the branch. */}
-      {isAgent && !compact && (
+      {/* Tucked under the box on a project's start page: its folder, and the branch. Once the
+          chat has begun the strip goes; the header names the project. */}
+      {variant === 'home' && isAgent && (
         <div className="composer__tray">
           <ProjectPicker />
           <div className="composer__spacer" />
