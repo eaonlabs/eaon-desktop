@@ -109,6 +109,8 @@ function rememberProject(path: string): void {
  * card beside a conversation (`row`), the card's first row. Choosing a
  * folder puts the chat in that folder's project (made for it the first
  * time); a chat in no project is an ordinary one, with no coding tools.
+ * The pill with no project yet opens the system's folder picker at once;
+ * with one, the menu of projects and folders (and the way back out).
  */
 export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Element {
   const { project, inChat, workIn } = useApp(useShallow((s) => ({ project: codeProject(s), inChat: s.activeChatId !== null, workIn: s.workIn })))
@@ -116,6 +118,13 @@ export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Elem
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const label = project && cwd ? project.name : 'Work in a project'
+  const pickFolder = (): void => {
+    void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => {
+      if (!paths[0]) return
+      rememberProject(paths[0])
+      workIn(paths[0])
+    })
+  }
   return (
     <>
       {row ? (
@@ -125,7 +134,7 @@ export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Elem
           <ChevronDown size={14} strokeWidth={2} className="ws-row__chev" />
         </button>
       ) : (
-        <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? 'Choose the folder Eaon works in'}>
+        <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={cwd ? menu.toggle : pickFolder} title={cwd ?? 'Choose the folder Eaon works in'}>
           {cwd ? <FolderOpen size={14} strokeWidth={1.9} /> : <Folder size={14} strokeWidth={1.9} />}
           <span className="composer-pill__label">{label}</span>
         </button>
