@@ -7,6 +7,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Changed
 - **Chat's sidebar has Settings, Pull requests and Issues as icons along its bottom, with your two plans' usage rings at the other end.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The day's token count is no longer under Chat's list (Workers and the ADE keep their footer).
+- **A plainer code panel.** A file opens full width under a row with where it sits (src › app › page.tsx) and its tools at the end: wrap, history, open in another app, and the project's files, which now start hidden. There's no status bar under the editor; who last changed the caret's line is at the top of History. In the tab strip, + follows the tabs, and a tab's × shows under the pointer.
 - **A quieter top bar in Chat:** the editor button is gone (⌘P and the dock's Files open the editor), and the temporary chat switch is only on the ordinary start page, since a temporary chat can't be in a project.
 - **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
 - **Work in a project opens the folder picker straight away** on a new chat; once a project is chosen, its button still lists your projects.

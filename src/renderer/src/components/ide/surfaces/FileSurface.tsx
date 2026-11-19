@@ -1,33 +1,34 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronRight, FileWarning, GitBranch, PanelLeft, WrapText } from 'lucide-react'
+import { ChevronRight, FileWarning, FolderTree, WrapText } from 'lucide-react'
 import { OpenInButton } from '../../chatCode/CodeTools'
 import { languageOf } from '../../chatCode/diff/tokens'
 import { FileIcon } from '../../agent/FileIcon'
 import { CodeEditor, type EditorCaret, type EditorSelection } from '../CodeEditor'
 import { useDockPlace } from '../dockPlace'
-import { editRequest, indentOf, languageName, lineRef, selectionSnippet } from '../editorMeta'
+import { editRequest, lineRef, selectionSnippet } from '../editorMeta'
 import { gutterMarks } from '../gitGutter'
 import { isDirty, type IdeTab, type Surface } from '../ideStore'
 import { FilesView } from './FilesView'
-import { BlameItem, FileHistoryButton } from './FileHistory'
+import { FileHistoryButton } from './FileHistory'
 import { shortcutLabel } from '../../../lib/platform'
 
 /**
- * A file in a tab of its own, laid out as an editor: the project's files on
- * the left (hidden with the panel button), then where the file sits, the
- * editor, and a status bar with the caret, the language, the indent, the
- * line ending and the branch. The editor saves with ⌘S; a file changed on
- * disk under unsaved edits asks which to keep. Lines changed since the last
+ * A file in a tab of its own, laid out as an editor: where the file sits,
+ * with its tools at the row's end (wrap, history, open in another app, and
+ * the project's files, shown on the left when asked for), then the editor
+ * and nothing under it. The editor saves with ⌘S; a file changed on disk
+ * under unsaved edits asks which to keep. Lines changed since the last
  * commit are marked in the gutter. The agent is a keystroke away: ⌘L adds
  * the selection to what the user is writing, ⌘K asks for a change to it,
- * and a line's number, clicked, puts the line there. In a repository, History
- * lists the file's commits and the status bar names who last changed the
- * caret's line (FileHistory.tsx).
+ * and a line's number, clicked, puts the line there. In a repository,
+ * History says who last changed the caret's line and lists the file's
+ * commits (FileHistory.tsx).
  */
 
 const WRAP_KEY = 'eaon.dock.wrap'
-const TREE_KEY = 'eaon.dock.tree'
+/** A new key: the files start hidden for everyone once, as the editor is laid out now, and remember from there. */
+const TREE_KEY = 'eaon.dock.files'
 const TREE_WIDTH_KEY = 'eaon.dock.treeWidth'
 const stored = (key: string, fallback: boolean): boolean => {
   try {
@@ -58,7 +59,7 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
   const place = useDockPlace()
   const { root, tab, openFile } = place.store(useShallow((s) => ({ root: s.root, tab: s.tabs.find((t) => t.path === path), openFile: s.openFile })))
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY, false))
-  const [tree, setTree] = useState(() => stored(TREE_KEY, true))
+  const [tree, setTree] = useState(() => stored(TREE_KEY, false))
   const [treeWidth, setTreeWidth] = useState(storedWidth)
   const [caret, setCaret] = useState<EditorCaret>({ line: 1, col: 1 })
   // Opened again after a reload: read the file back.
@@ -115,20 +116,6 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
       )}
       <div className="file-surface__main">
         <div className="file-surface__bar">
-          <button
-            type="button"
-            className="file-surface__tool"
-            data-active={tree || undefined}
-            aria-pressed={tree}
-            title={tree ? 'Hide the files' : 'Show the files'}
-            aria-label="Files"
-            onClick={() => {
-              setTree(!tree)
-              keep(TREE_KEY, !tree ? '1' : '0')
-            }}
-          >
-            <PanelLeft size={15} strokeWidth={1.8} />
-          </button>
           <nav className="file-surface__crumbs" aria-label="Where the file is">
             {parts.map((part, i) => (
               <span key={i} className="file-surface__crumb" data-last={i === parts.length - 1 || undefined}>
@@ -158,12 +145,25 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
             >
               <WrapText size={15} strokeWidth={1.8} />
             </button>
-            <FileHistoryButton path={path} rel={rel} />
+            <FileHistoryButton path={path} rel={rel} line={caret.line} ready={tab ? !isDirty(tab) : false} />
             <OpenInButton icon file={path} folder={place.folder} />
+            <button
+              type="button"
+              className="file-surface__tool"
+              data-active={tree || undefined}
+              aria-pressed={tree}
+              title={tree ? 'Hide the files' : 'Show the files'}
+              aria-label="Files"
+              onClick={() => {
+                setTree(!tree)
+                keep(TREE_KEY, !tree ? '1' : '0')
+              }}
+            >
+              <FolderTree size={15} strokeWidth={1.8} />
+            </button>
           </div>
         </div>
         <div className="file-surface__body">{tab ? <TabBody tab={tab} wrap={wrap} rel={rel} onCaret={setCaret} /> : <div className="file-surface__loading" />}</div>
-        {tab?.kind === 'text' && <StatusBar tab={tab} caret={caret} rel={rel} />}
       </div>
     </div>
   )
@@ -257,40 +257,5 @@ function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel:
         askLabel={place.id === 'chat' ? 'the chat' : 'the agent'}
       />
     </>
-  )
-}
-
-/**
- * Under the editor: where the caret is and what is selected, then the
- * language, the indent, the line ending and the branch. A narrow editor
- * keeps the caret, the language and the branch; the rest goes first.
- */
-function StatusBar({ tab, caret, rel }: { tab: IdeTab; caret: EditorCaret; rel: string }): JSX.Element {
-  const { status } = useDockPlace()
-  const indent = useMemo(() => indentOf(tab.saved), [tab.saved])
-  const branch = status?.branch ?? status?.detached ?? null
-  return (
-    <div className="file-status" role="status">
-      <span className="file-status__item">
-        Ln {caret.line}, Col {caret.col}
-        {caret.selected ? (
-          <span className="file-status__dim">
-            {' '}
-            ({caret.selected} selected{caret.selectedLines && caret.selectedLines > 1 ? `, ${caret.selectedLines} lines` : ''})
-          </span>
-        ) : null}
-      </span>
-      <BlameItem path={tab.path} rel={rel} line={caret.line} ready={!isDirty(tab)} version={tab.modified} />
-      <span className="file-status__spacer" />
-      {indent && <span className="file-status__item file-status__item--minor">{indent}</span>}
-      <span className="file-status__item file-status__item--minor">{(tab.eol ?? '\n') === '\r\n' ? 'CRLF' : 'LF'}</span>
-      <span className="file-status__item file-status__item--lang">{languageName(languageOf(tab.path))}</span>
-      {branch && (
-        <span className="file-status__item file-status__branch" title={`Branch: ${branch}`}>
-          <GitBranch size={12} strokeWidth={2} />
-          {branch}
-        </span>
-      )}
-    </div>
   )
 }
