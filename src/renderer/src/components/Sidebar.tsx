@@ -2,11 +2,12 @@ import { DotMatrix, Spinner, type DotState } from './Spinner'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, BarChart3, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
 import { SidebarFoot } from './SidebarFoot'
+import { UsageRings } from './UsageRings'
 import { AdeDock, AdeFind, CodeSidebar } from './code/CodeSidebar'
 import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
 import { WorkersNav } from './workers/WorkersSidebar'
@@ -73,9 +74,8 @@ export function Sidebar(): JSX.Element {
       </div>
       <FadingBody key={kind}>{kind === 'workers' ? <WorkersNav part="list" /> : kind === 'code' ? <CodeSidebar /> : <ChatNav />}</FadingBody>
       {kind === 'code' ? <AdeDock /> : kind !== 'workers' && <ChatDock />}
-      {/* The ADE has the plans' rings in its header already. */}
-      <SidebarFoot rings={kind !== 'code'} />
-      {kind !== 'code' && kind !== 'workers' && <FootBar />}
+      {/* The ADE has the plans' rings in its header already; Chat has them on its row of places. */}
+      {kind === 'code' || kind === 'workers' ? <SidebarFoot rings={kind !== 'code'} /> : <FootBar />}
       </div>
       </div>
     </aside>
@@ -169,16 +169,15 @@ const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
  * Chat's places along the sidebar's foot, as a row of icons: Settings, Pull
- * requests, Issues and Usage. Their names are in the tooltips, and for
- * screen readers.
+ * requests and Issues, with the two plans' usage rings at its other end.
+ * Their names are in the tooltips, and for screen readers.
  */
 function FootBar(): JSX.Element {
   const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
   const places: { label: string; icon: JSX.Element; active: boolean; go: () => void }[] = [
     { label: 'Settings', icon: <SettingsIcon size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('general') },
     { label: 'Pull requests', icon: <GitPullRequest size={16} strokeWidth={1.8} />, active: view === 'pull-requests', go: () => setView('pull-requests') },
-    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') },
-    { label: 'Usage', icon: <BarChart3 size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('usage') }
+    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') }
   ]
   return (
     <nav className="foot-bar" aria-label="Places">
@@ -196,6 +195,8 @@ function FootBar(): JSX.Element {
           <span className="foot-bar__label">{place.label}</span>
         </button>
       ))}
+      <span className="foot-bar__spacer" />
+      <UsageRings placement="top-end" />
     </nav>
   )
 }

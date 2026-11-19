@@ -6,7 +6,8 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
-- **Chat's sidebar has Settings, Pull requests, Issues and Usage as icons along its bottom.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The token count over them sits in the panel with no dividing line.
+- **Chat's sidebar has Settings, Pull requests and Issues as icons along its bottom, with your two plans' usage rings at the other end.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The day's token count is no longer under Chat's list (Workers and the ADE keep their footer).
+- **A quieter top bar in Chat:** the editor button is gone (⌘P and the dock's Files open the editor), and the temporary chat switch is only on the ordinary start page, since a temporary chat can't be in a project.
 - **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
 - **Work in a project opens the folder picker straight away** on a new chat; once a project is chosen, its button still lists your projects.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.

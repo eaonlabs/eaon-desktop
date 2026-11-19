@@ -479,6 +479,9 @@ body[data-reduce-motion='on'] .thread-status__ring {
   width: 30px;
   height: 30px;
 }
+.foot-bar__spacer {
+  flex: 1;
+}
 .foot-bar__btn[data-active] {
   background: var(--hover);
   color: var(--text);

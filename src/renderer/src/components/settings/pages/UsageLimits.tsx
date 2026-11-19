@@ -98,7 +98,7 @@ export function UsageLimitsPage(): JSX.Element {
 
       <Section label="Sidebar footer">
         <Card>
-          <Row title="Show the footer" description="Under the chat list: what you’ve used across Eaon, Claude Code and Codex, and the rings. Right-click it to change it there.">
+          <Row title="Show the footer" description="Under the Workers and ADE lists: what you’ve used across Eaon, Claude Code and Codex. Chat has the rings on its row of icons. Right-click the footer to change it there.">
             <Switch label="Show the footer" checked={foot.show} onChange={(show) => setFoot({ show })} />
           </Row>
           {foot.show && (

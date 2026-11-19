@@ -34,7 +34,7 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.reload()
   await page.find('.sidebar .nav-item', { text: /^New chat$/ })
   const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()))
-  for (const item of ['Models', 'Library', 'Plugins', 'Settings', 'Pull requests', 'Usage']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
+  for (const item of ['Models', 'Library', 'Plugins', 'Settings', 'Pull requests', 'Issues']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
   assert.ok(!chatItems.includes('Trading'), `Trading is off by default: ${JSON.stringify(chatItems)}`)
   // Switching it on takes effect at the next start: the trading desk is only set up when Eaon opens.
   await page.eval(() => window.api.settings.patch({ general: { trading: true } }))

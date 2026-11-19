@@ -126,7 +126,7 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "usage", title: "Track the coding CLIs too", description: "", section: "The tokn command" },
   { page: "usage", title: "Keep syncing when Eaon is closed", description: "", section: "The tokn command" },
   { page: "usage-limits", title: "Ring", description: "Show both limits as two rings, or a single ring for one of them.", section: "" },
-  { page: "usage-limits", title: "Show the footer", description: "Under the chat list: what you’ve used across Eaon, Claude Code and Codex, and the rings. Right-click it to change it there.", section: "Sidebar footer" },
+  { page: "usage-limits", title: "Show the footer", description: "Under the Workers and ADE lists: what you’ve used across Eaon, Claude Code and Codex. Chat has the rings on its row of icons. Right-click the footer to change it there.", section: "Sidebar footer" },
   { page: "usage-limits", title: "Numbers", description: "Which comes first; the other goes under it. Dollars are spend plus plan use at API rates.", section: "Sidebar footer" },
   { page: "usage-limits", title: "Add up", description: "Today’s use, or the last seven days’.", section: "Sidebar footer" },
   { page: "usage-limits", title: "Week chart", description: "A bar a day for the last seven days, today’s highlighted.", section: "Sidebar footer" },

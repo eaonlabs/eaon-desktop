@@ -6,7 +6,6 @@ import {
   ArrowDown,
   CalendarClock,
   Check,
-  Code2,
   ChevronDown,
   Compass,
   Copy,
@@ -74,8 +73,7 @@ import { QuickOpen } from './chatCode/QuickOpen'
 import { FileLinks, type FileLinkHandler } from './agent/FileRef'
 import { joinPath } from './ide/paths'
 import { preferredTarget, useChatCode } from './chatCode/chatCodeStore'
-import { openEditor, openInCode } from './ide/ideStore'
-import { isMac } from '../lib/platform'
+import { openInCode } from './ide/ideStore'
 import { CHANNEL_LABEL } from '@shared/channels'
 import type { WorkerMail } from '@shared/workers'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
@@ -233,7 +231,8 @@ function Home(): JSX.Element {
         left={isWork ? <TemporaryLabel /> : null}
         right={
           <div className="chat-header__actions">
-            {isWork && <TemporaryToggle />}
+            {/* A temporary chat can't be in a project: its switch is on the ordinary start page only. */}
+            {isWork && !coding && <TemporaryToggle />}
             {isWork ? <PanelToggles over /> : !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
         }
@@ -311,8 +310,8 @@ function EaonSymbol({ className }: { className?: string }): JSX.Element {
  */
 /**
  * The top bar's panel switches in Chat: the workspace card, the terminal
- * under the conversation, and the dock. With the dock open the last two are
- * on the dock's own bar instead. `over`: the card opens over the page, never
+ * under the conversation, and the dock (whose Files is the editor, as ⌘P is).
+ * With the dock open the last two are on the dock's own bar instead. `over`: the card opens over the page, never
  * beside it (the start page has no room kept for it). An ordinary chat, in
  * no project, has only the dock, for the browser.
  */
@@ -323,28 +322,9 @@ function PanelToggles({ over = false }: { over?: boolean }): JSX.Element {
     <div className="panel-toggles">
       {coding && <CodeKeys />}
       {coding && <WorkspaceToggle over={over} />}
-      {coding && <EditorToggle />}
       {coding && !dockOpen && <DrawerToggle />}
       {!dockOpen && <DockToggle holds={coding ? undefined : 'the browser'} />}
     </div>
-  )
-}
-
-/** The editor beside the conversation: lit while a file is in front in the dock. */
-function EditorToggle(): JSX.Element {
-  const editing = useIde((s) => s.open && s.surfaces.find((x) => x.id === s.activeSurface)?.kind === 'file')
-  return (
-    <button
-      type="button"
-      className="dock-tool"
-      data-active={editing || undefined}
-      aria-pressed={editing}
-      aria-label="Editor"
-      title={editing ? 'Close the editor' : `Edit the project’s files beside the chat (${isMac ? '⌘P' : 'Ctrl+P'} opens a file)`}
-      onClick={() => (editing ? useIde.getState().setOpen(false) : void openEditor())}
-    >
-      <Code2 size={15} strokeWidth={1.8} />
-    </button>
   )
 }
 
