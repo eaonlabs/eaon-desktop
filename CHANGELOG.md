@@ -15,6 +15,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
 
 ### Fixed
+- **A usage ring for a signed-out account shows, dim, instead of vanishing.** Its card says how to sign in (for Claude, `claude /login`). An account whose tool isn't on this computer still shows no ring.
 - **The context meter counts what the provider counted.** Each reply keeps the size of its latest request, so the meter shows how full the context really is instead of an estimate that left out most of the system prompt and tools. Claude's models through your Claude plan now plan with their full 1M window instead of 200K, so a long chat is no longer summarized at 140K.
 - **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
 - **The marks along the right edge of a conversation stay sharp** near its top and foot, instead of being blurred with the text under the top bar.

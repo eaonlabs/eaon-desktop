@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { ChevronRight, RefreshCw } from 'lucide-react'
 import type { ProviderWindow, UsageProviderId } from '@shared/providerUsage'
 import { useApp } from '../state/store'
-import { ensureLimits, limitsView, refreshLimits, useLimitsSources, type LimitsView } from '../state/limits'
+import { ensureLimits, limitsView, refreshLimits, signedOutView, useLimitsSources, type LimitsView } from '../state/limits'
 import { LimitsCard, windowName } from './LimitsCard'
 import { Popover, type Placement } from './ui'
 import { ProviderMark } from './composer/ProviderMark'
@@ -46,7 +46,7 @@ export function UsageRings({ placement = 'bottom-end' }: { placement?: Placement
   const now = Date.now()
   const views = chosen
     .slice(0, 2)
-    .map((id) => limitsView(id as UsageProviderId, cli, provider, now))
+    .map((id) => limitsView(id as UsageProviderId, cli, provider, now) ?? signedOutView(id as UsageProviderId, cli))
     .filter((v): v is LimitsView => v !== null)
   if (views.length === 0) return null
   return (
