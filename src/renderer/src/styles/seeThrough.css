@@ -378,6 +378,11 @@ body[data-see-through='on'] .home__field {
 .wallpaper-styles__canvas[data-empty] {
   visibility: hidden;
 }
+/* Eaon's own wallpapers, as pictures rather than drawn previews. */
+img.wallpaper-styles__canvas {
+  object-fit: cover;
+  animation: chip-in 220ms var(--ease) both;
+}
 .wallpaper-styles__tint {
   position: absolute;
   inset: 0;

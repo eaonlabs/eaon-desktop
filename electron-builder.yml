@@ -76,6 +76,9 @@ extraResources:
   # What the background sync runs (main/features/toknJob.ts), next to it.
   - from: resources/tokn-job.cjs
     to: tokn-job.cjs
+  # Eaon's own wallpapers for See-through (scripts/make-wallpapers.py; main/features/wallpaper.ts).
+  - from: resources/wallpapers
+    to: wallpapers
 publish:
   provider: github
   owner: eaonlabs

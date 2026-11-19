@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Chat, ChatMessage } from '@shared/types'
 import { highlight, languageFamily } from '../src/renderer/src/components/agent/highlight'
-import { estimateContext } from '../src/renderer/src/state/contextUse'
+import { contextUse } from '../src/renderer/src/state/contextUse'
 
 /** Code blocks' colours, and the context meter's estimate. */
 
@@ -83,19 +83,19 @@ const chat = (messages: ChatMessage[], extra: Partial<Chat> = {}): Chat => ({
 })
 
 test('the context estimate counts text, tool calls and pictures, and only what follows a summary', () => {
-  const empty = estimateContext(chat([]))
+  const empty = contextUse(chat([])).total
   assert.ok(empty > 0, 'the system prompt and tools are always there')
-  const said = estimateContext(chat([msg('u', 'user', [{ type: 'text', text: 'x'.repeat(3600) }])]))
+  const said = contextUse(chat([msg('u', 'user', [{ type: 'text', text: 'x'.repeat(3600) }])])).total
   assert.equal(said - empty, 1000)
-  const withPicture = estimateContext(chat([msg('u', 'user', [{ type: 'text', text: '' }], { attachments: ['/a.png', '/b.pdf'] })]))
+  const withPicture = contextUse(chat([msg('u', 'user', [{ type: 'text', text: '' }], { attachments: ['/a.png', '/b.pdf'] })])).total
   assert.equal(withPicture - empty, 1600)
 
   const tool = (output: string) => ({ type: 'tool' as const, id: 't', name: 'read', input: {}, output, status: 'done' as const })
-  const old = estimateContext(chat([msg('a1', 'assistant', [tool('y'.repeat(36_000))]), msg('u2', 'user', [{ type: 'text', text: '' }])]))
-  const latest = estimateContext(chat([msg('a1', 'assistant', [tool('y'.repeat(36_000))])]))
+  const old = contextUse(chat([msg('a1', 'assistant', [tool('y'.repeat(36_000))]), msg('u2', 'user', [{ type: 'text', text: '' }])])).total
+  const latest = contextUse(chat([msg('a1', 'assistant', [tool('y'.repeat(36_000))])])).total
   assert.ok(latest - old > 9000, 'older tool output counts only as far as it is replayed')
 
   const long = [msg('u1', 'user', [{ type: 'text', text: 'z'.repeat(36_000) }]), msg('a1', 'assistant', [{ type: 'text', text: 'ok' }]), msg('u2', 'user', [{ type: 'text', text: 'next' }])]
-  const summarized = estimateContext(chat(long, { summary: { text: 'short', throughMessageId: 'a1' } }))
-  assert.ok(summarized < estimateContext(chat(long)) - 9000)
+  const summarized = contextUse(chat(long, { summary: { text: 'short', throughMessageId: 'a1' } })).total
+  assert.ok(summarized < contextUse(chat(long)).total - 9000)
 })

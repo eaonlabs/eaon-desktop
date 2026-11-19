@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import type { SeeThroughStyle } from '@shared/types'
-import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { WALLPAPERS, wallpaperVideoUrl, type WallpaperId } from '@shared/wallpaper'
 import { renderStyle, STYLES, type Paint } from '../../seeThrough/styles'
 import { useLightTheme, washOf } from '../../SeeThrough'
 
@@ -16,10 +16,11 @@ const H = 145
 
 /**
  * What the previews are drawn from: the picture behind the window, or the chosen video's frame.
- * `source` names which picture that is (the desktop's, or the copy Eaon holds of a chosen one),
- * so choosing another while this page is open draws them again.
+ * `source` names which picture that is (the desktop's, one of Eaon's, or the copy Eaon holds of
+ * a chosen one), so choosing another while this page is open draws them again. One of Eaon's
+ * comes in the version for the theme.
  */
-function usePreviewSource(video: string | null, source: string): Paint | null {
+function usePreviewSource(video: string | null, source: string, light: boolean): Paint | null {
   const [paint, setPaint] = useState<Paint | null>(null)
   useEffect(() => {
     let live = true
@@ -53,7 +54,7 @@ function usePreviewSource(video: string | null, source: string): Paint | null {
         el.load()
       }
     }
-    void window.api.wallpaper.thumbnail().then((url) => {
+    void window.api.wallpaper.thumbnail(light).then((url) => {
       if (!live || !url) return
       const image = new Image()
       image.onload = () => live && setPaint(() => cover(image, image.naturalWidth, image.naturalHeight))
@@ -62,7 +63,7 @@ function usePreviewSource(video: string | null, source: string): Paint | null {
     return () => {
       live = false
     }
-  }, [video, source])
+  }, [video, source, light])
   return paint
 }
 
@@ -88,12 +89,12 @@ export function WallpaperStyles({
   value: SeeThroughStyle
   tint: number
   video: string | null
-  /** 'desktop', or the chosen picture's path: a change redraws the previews. */
+  /** 'desktop', one of Eaon's, or the chosen picture's path: a change redraws the previews. */
   source: string
   onChange: (style: SeeThroughStyle) => void
 }): JSX.Element {
-  const paint = usePreviewSource(video, source)
   const light = useLightTheme()
+  const paint = usePreviewSource(video, source, light)
   const buttons = useRef<(HTMLButtonElement | null)[]>([])
   const wash = washOf(tint, light)
 
@@ -146,4 +147,60 @@ function Preview({ style, paint, light }: { style: SeeThroughStyle; paint: Paint
     renderStyle(style, ctx, paint, 1, light)
   }, [style, paint, light])
   return <canvas ref={canvas} className="wallpaper-styles__canvas" width={W} height={H} aria-hidden="true" data-empty={!paint || undefined} />
+}
+
+/**
+ * Settings → Appearance → Wallpaper → Eaon: Eaon's own wallpapers, each in
+ * the version that goes with the theme, as they are (the styles below show
+ * them under the tint).
+ */
+export function EaonWallpapers({ value, onChange }: { value: WallpaperId; onChange: (id: WallpaperId) => void }): JSX.Element {
+  const light = useLightTheme()
+  const [previews, setPreviews] = useState<Record<string, string>>({})
+  const buttons = useRef<(HTMLButtonElement | null)[]>([])
+
+  useEffect(() => {
+    let live = true
+    void window.api.wallpaper.eaon(light).then((next) => live && setPreviews(next))
+    return () => {
+      live = false
+    }
+  }, [light])
+
+  const onKey = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const at = WALLPAPERS.findIndex((w) => w.id === value)
+    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0
+    if (!step) return
+    event.preventDefault()
+    const next = (at + step + WALLPAPERS.length) % WALLPAPERS.length
+    onChange(WALLPAPERS[next].id)
+    buttons.current[next]?.focus()
+  }
+
+  return (
+    <div className="wallpaper-styles" role="radiogroup" aria-label="Eaon wallpaper" onKeyDown={onKey}>
+      {WALLPAPERS.map((wallpaper, index) => {
+        const chosen = wallpaper.id === value
+        return (
+          <button
+            key={wallpaper.id}
+            ref={(el) => {
+              buttons.current[index] = el
+            }}
+            type="button"
+            role="radio"
+            aria-checked={chosen}
+            tabIndex={chosen ? 0 : -1}
+            className="wallpaper-styles__item"
+            onClick={() => onChange(wallpaper.id)}
+          >
+            <span className="wallpaper-styles__frame">
+              {previews[wallpaper.id] && <img className="wallpaper-styles__canvas" src={previews[wallpaper.id]} alt="" />}
+            </span>
+            <span className="wallpaper-styles__label">{wallpaper.name}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }

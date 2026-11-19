@@ -405,8 +405,10 @@ export interface SeeThrough {
   texture: boolean
   /** Unset on installs from before it, which follow `texture` instead. */
   style?: SeeThroughStyle
-  /** The desktop's own wallpaper, or a picture or video the user chose. */
-  source: 'desktop' | 'custom'
+  /** The desktop's own wallpaper, one of Eaon's (shared/wallpaper.ts), or a picture or video the user chose. */
+  source: 'desktop' | 'eaon' | 'custom'
+  /** Which of Eaon's wallpapers, for `eaon`. Unset is the first. */
+  wallpaper?: string
   /** The chosen picture or video, as Eaon's own copy of it (see main/features/wallpaper.ts). */
   custom: string | null
   /** A video wallpaper plays (muted, looping); off, it holds still on a frame. Unset is on. */

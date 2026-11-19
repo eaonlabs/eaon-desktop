@@ -7,9 +7,9 @@ import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMo
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
 import { THEMES, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
-import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { desktopKnown as knowsDesktop, wallpaperOf, wallpaperSource, wallpaperVideoUrl } from '@shared/wallpaper'
 import { styleInfo } from '../../seeThrough/styles'
-import { WallpaperStyles } from './WallpaperStyles'
+import { EaonWallpapers, WallpaperStyles } from './WallpaperStyles'
 import defaultIcon from '../../../assets/app-icons/default.png'
 import agentIcon from '../../../assets/app-icons/agent.png'
 import lightIcon from '../../../assets/app-icons/light.png'
@@ -335,9 +335,9 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
 
 /**
  * See-through: a picture behind the app (components/SeeThrough) — the
- * desktop's own wallpaper, or a picture or video the user picks. The OS only
- * says which picture the desktop shows on macOS and Windows; anywhere, a
- * chosen one works.
+ * desktop's own wallpaper, one of Eaon's, or a picture or video the user
+ * picks. The OS only says which picture the desktop shows on macOS and
+ * Windows; anywhere, Eaon's and a chosen one work.
  */
 function SeeThroughSection(): JSX.Element | null {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -360,8 +360,8 @@ function SeeThroughSection(): JSX.Element | null {
 
   if (!see) return null
   const style = see.style ?? (see.texture ? 'halftone' : 'photo')
-  const desktopKnown = window.api.platform === 'darwin' || window.api.platform === 'win32'
-  const usable = desktopKnown || hasCustom
+  const desktopKnown = knowsDesktop(window.api.platform)
+  const from = wallpaperSource(see, window.api.platform)
   const set = (patch: Partial<typeof see>): void => void patchSettings({ appearance: { seeThrough: { ...see, ...patch } } })
 
   const choose = async (): Promise<void> => {
@@ -383,25 +383,24 @@ function SeeThroughSection(): JSX.Element | null {
   return (
     <Section label="Window">
       <Card>
-        <Row
-          title="See-through"
-          description={
-            usable
-              ? 'Show a wallpaper through the window, with the panels as frosted glass over it'
-              : 'Choose a picture below: on Linux the desktop doesn’t say which wallpaper it shows'
-          }
-        >
-          <Switch label="See-through" checked={see.enabled && usable} disabled={!usable} onChange={(enabled) => set({ enabled })} />
+        <Row title="See-through" description="Show a wallpaper through the window, with the panels as frosted glass over it">
+          <Switch label="See-through" checked={see.enabled} onChange={(enabled) => set({ enabled })} />
         </Row>
-        {(see.enabled || !desktopKnown) && (
+        {see.enabled && (
           <Row
             title="Wallpaper"
             description={
-              see.source === 'custom' ? (video ? 'A video of your own, filling the screen' : 'A picture of your own, filling the screen') : 'Your desktop’s wallpaper, lined up with the screen'
+              from === 'custom'
+                ? video
+                  ? 'A video of your own, filling the screen'
+                  : 'A picture of your own, filling the screen'
+                : from === 'eaon'
+                  ? 'One of Eaon’s, in its light or dark version to go with the theme'
+                  : 'Your desktop’s wallpaper, lined up with the screen'
             }
           >
             <Segmented
-              value={see.source}
+              value={from}
               onChange={(source) => {
                 // Custom with nothing chosen yet goes straight to choosing one.
                 if (source === 'custom' && !see.custom) void choose()
@@ -409,12 +408,14 @@ function SeeThroughSection(): JSX.Element | null {
               }}
               options={[
                 ...(desktopKnown ? [{ value: 'desktop' as const, label: 'Desktop' }] : []),
+                { value: 'eaon' as const, label: 'Eaon' },
                 { value: 'custom' as const, label: 'Custom' }
               ]}
             />
           </Row>
         )}
-        {see.source === 'custom' && (see.enabled || !desktopKnown) && (
+        {see.enabled && from === 'eaon' && <EaonWallpapers value={wallpaperOf(see.wallpaper).id} onChange={(wallpaper) => set({ source: 'eaon', wallpaper })} />}
+        {see.enabled && see.source === 'custom' && (
           <Row title={video ? 'Video' : 'Picture'} description={error ?? 'A picture (JPEG, PNG, HEIC, WebP…) or a video (MP4, MOV, WebM). Eaon keeps its own copy'}>
             <div className="wallpaper-pick">
               {video ? (
@@ -433,7 +434,7 @@ function SeeThroughSection(): JSX.Element | null {
             <Switch label="Play the video" checked={see.videoPlays !== false} onChange={(videoPlays) => set({ videoPlays })} />
           </Row>
         )}
-        {see.enabled && usable && (
+        {see.enabled && (
           <>
             <Row title="Keep text readable" description="Softens a busy wallpaper behind the text and tones down its brightest (or darkest) parts, only as much as it needs, so the text is always easy to read">
               <Switch label="Keep text readable" checked={see.readable !== false} onChange={(readable) => set({ readable })} />
@@ -446,7 +447,7 @@ function SeeThroughSection(): JSX.Element | null {
               value={style}
               tint={see.tint}
               video={video}
-              source={hasCustom ? (see.custom ?? 'custom') : 'desktop'}
+              source={from === 'custom' ? (see.custom ?? 'custom') : from === 'eaon' ? `eaon:${wallpaperOf(see.wallpaper).id}` : 'desktop'}
               // `texture` follows along for builds from before `style`.
               onChange={(next) => set({ style: next, texture: next === 'halftone' })}
             />

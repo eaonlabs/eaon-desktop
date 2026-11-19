@@ -5,6 +5,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Six wallpapers of Eaon's own for See-through:** Dusk, Tide, Dune, Moss, Ember and Slate. They're soft and quiet so they stay out of the way of your work, and each comes in a dark and a light version that follows the theme. Pick one in Settings → Appearance → Wallpaper → Eaon. On Linux, where Eaon can't tell which wallpaper the desktop shows, See-through now works without choosing a picture first.
+
 ### Changed
 - **Chat's sidebar has Settings, Pull requests and Issues as icons along its bottom, with your two plans' usage rings at the other end.** Settings moved there from the list at the top, and Pull requests and Issues can now be reached from Chat. The day's token count is no longer under Chat's list (Workers and the ADE keep their footer).
 - **A plainer code panel.** A file opens full width under a row with where it sits (src › app › page.tsx) and its tools at the end: wrap, history, open in another app, and the project's files, which now start hidden. There's no status bar under the editor; who last changed the caret's line is at the top of History. In the tab strip, + follows the tabs, and a tab's × shows under the pointer.
