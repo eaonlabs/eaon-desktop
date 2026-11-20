@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronRight, ExternalLink, GitPullRequest, Loader2, MessageSquarePlus, Pencil, RefreshCw, ScanSearch, Send, X } from 'lucide-react'
+import { ChevronRight, ExternalLink, GitCompareArrows, Loader2, MessageSquarePlus, Pencil, RefreshCw, ScanSearch, Send, X } from 'lucide-react'
 import { Code } from '../agent/FileDiff'
 import { Markdown } from '../agent/Markdown'
 import { Segmented, Select } from '../ui'
@@ -42,7 +42,7 @@ const NO_COMMENTS: ReviewComment[] = []
 /** A file this big starts folded: opening it is a choice. */
 const FOLD_OVER = 400
 
-/** The top bar's Review button. */
+/** The top bar's Review button, with Chat's mark for reviewing changes: Pull requests (the sidebar's foot) has the pull request mark. */
 export function ReviewButton(): JSX.Element | null {
   const cwd = useCode((s) => s.cwd)
   const { open, toggle } = useReview(useShallow((s) => ({ open: s.open, toggle: s.toggle })))
@@ -50,7 +50,7 @@ export function ReviewButton(): JSX.Element | null {
   if (!cwd) return null
   return (
     <button type="button" className="header-btn review-btn" data-open={open || undefined} aria-pressed={open} onClick={toggle} title="Review this session’s changes">
-      <GitPullRequest size={14} strokeWidth={2} />
+      <GitCompareArrows size={14} strokeWidth={2} />
       <span>Review</span>
       {pending > 0 && <span className="review-btn__count">{pending}</span>}
     </button>
