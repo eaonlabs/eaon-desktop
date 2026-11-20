@@ -1,8 +1,8 @@
 /**
- * The ADE's sidebar holds only what coding needs: Pull requests, Issues and
- * Settings, and New session on the search row over its sessions. Trading,
- * Models and Plugins are in the Chat sidebar (its Settings, Pull requests and
- * Usage along its foot), and a session over SSH starts from the New session dialog.
+ * The ADE's sidebar holds only what coding needs: Settings, Pull requests and
+ * Issues as icons along its foot, as in Chat, and New session on the search
+ * row over its sessions. Trading, Models and Plugins are in the Chat sidebar,
+ * and a session over SSH starts from the New session dialog.
  */
 import assert from 'node:assert/strict'
 import { scenario } from './fixtures.mjs'
@@ -19,7 +19,14 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.reload()
   await page.find('.sidebar .side-find__tool[aria-label="New session"]')
   const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Usage', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
-  assert.deepEqual(adeItems, ['Pull requests', 'Issues', 'Settings'])
+  assert.deepEqual(adeItems, ['Settings', 'Pull requests', 'Issues'])
+  // Along the foot, with no count of the day's tokens under the sessions: the plans' rings are in the ADE's header.
+  const foot = await page.eval(() => ({
+    places: [...document.querySelectorAll('.sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()),
+    rings: Boolean(document.querySelector('.sidebar .foot-bar .usage-rings')),
+    tokens: /No tokens yet|\d tokens/.test(document.querySelector('.sidebar')?.textContent ?? '')
+  }))
+  assert.deepEqual(foot, { places: ['Settings', 'Pull requests', 'Issues'], rings: false, tokens: false })
   await s.shot(page, 'ade-sidebar')
 
   // SSH from the New session dialog.

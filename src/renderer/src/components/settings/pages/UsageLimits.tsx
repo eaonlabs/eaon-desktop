@@ -8,7 +8,6 @@ import { ensureLimits, refreshLimits, signedIn, useLimitsSources, useProviderUsa
 import { useCliAccounts } from '../../../state/cliAccounts'
 import { LimitsCard } from '../../LimitsCard'
 import { ProviderMark } from '../../composer/ProviderMark'
-import { FOOT_DEFAULTS } from '../../SidebarFoot'
 import { Card, Row, Section, Segmented, Switch } from '../../ui'
 import '../../../styles/limits.css'
 
@@ -17,11 +16,10 @@ import '../../../styles/limits.css'
  * this computer — Claude Code and Codex, Cursor, GitHub Copilot, Grok,
  * OpenCode Go, Devin, and the balances of OpenRouter and DeepSeek keys saved
  * in Eaon — which two the rings show (the ADE header's and the sidebar's),
- * what their cards hold, and what the sidebar's foot shows.
+ * and what their cards hold.
  */
 
 type Limits = Settings['usageLimits']
-type Foot = Settings['sidebarFoot']
 
 const DEFAULTS: Limits = { sidebar: ['codex', 'claude'], ring: 'both', details: false, banked: true, tokens: true }
 const MAX_SIDEBAR = 2
@@ -30,8 +28,6 @@ export function UsageLimitsPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const limits: Limits = { ...DEFAULTS, ...settings?.usageLimits }
   const set = (patch: Partial<Limits>): void => void patchSettings({ usageLimits: { ...limits, ...patch } })
-  const foot: Foot = { ...FOOT_DEFAULTS, ...settings?.sidebarFoot }
-  const setFoot = (patch: Partial<Foot>): void => void patchSettings({ sidebarFoot: { ...foot, ...patch } })
   const { cli, provider } = useLimitsSources()
   const readingProviders = useProviderUsage((s) => s.state?.loading ?? false)
   const readingCli = useCliAccounts((s) => Boolean(s.state?.loading.length))
@@ -58,7 +54,7 @@ export function UsageLimitsPage(): JSX.Element {
     <>
       <div className="settings__title-row">
         <h1 className="settings__h1">Usage & limits</h1>
-        <button className="btn btn--ghost btn--sm limits-restore" onClick={() => void patchSettings({ usageLimits: DEFAULTS, sidebarFoot: FOOT_DEFAULTS })}>
+        <button className="btn btn--ghost btn--sm limits-restore" onClick={() => void patchSettings({ usageLimits: DEFAULTS })}>
           <RotateCcw size={13} strokeWidth={2} />
           Restore defaults
         </button>
@@ -93,47 +89,6 @@ export function UsageLimitsPage(): JSX.Element {
               onChange={(ring) => set({ ring })}
             />
           </Row>
-        </Card>
-      </Section>
-
-      <Section label="Sidebar footer">
-        <Card>
-          <Row title="Show the footer" description="Under the Workers and ADE lists: what you’ve used across Eaon, Claude Code and Codex. Chat has the rings on its row of icons. Right-click the footer to change it there.">
-            <Switch label="Show the footer" checked={foot.show} onChange={(show) => setFoot({ show })} />
-          </Row>
-          {foot.show && (
-            <>
-              <Row title="Numbers" description="Which comes first; the other goes under it. Dollars are spend plus plan use at API rates.">
-                <Segmented
-                  value={foot.figure}
-                  options={[
-                    { value: 'tokens', label: 'Tokens' },
-                    { value: 'dollars', label: 'Dollars' },
-                    { value: 'none', label: 'None' }
-                  ]}
-                  onChange={(figure) => setFoot({ figure })}
-                />
-              </Row>
-              {foot.figure !== 'none' && (
-                <Row title="Add up" description="Today’s use, or the last seven days’.">
-                  <Segmented
-                    value={foot.period}
-                    options={[
-                      { value: 'today', label: 'Today' },
-                      { value: 'week', label: '7 days' }
-                    ]}
-                    onChange={(period) => setFoot({ period })}
-                  />
-                </Row>
-              )}
-              <Row title="Week chart" description="A bar a day for the last seven days, today’s highlighted.">
-                <Switch label="Week chart" checked={foot.chart} onChange={(chart) => setFoot({ chart })} />
-              </Row>
-              <Row title="Rings" description="The accounts picked under Usage rings. The ADE has its own in its header.">
-                <Switch label="Rings in the sidebar" checked={foot.rings} onChange={(rings) => setFoot({ rings })} />
-              </Row>
-            </>
-          )}
         </Card>
       </Section>
 

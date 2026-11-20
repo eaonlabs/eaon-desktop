@@ -6,7 +6,6 @@ import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickCha
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
-import { SidebarFoot } from './SidebarFoot'
 import { UsageRings } from './UsageRings'
 import { AdeDock, AdeFind, CodeSidebar } from './code/CodeSidebar'
 import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
@@ -59,23 +58,14 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Each tab's places stay put; its list scrolls under them and fades at its edges.
-          Chat's other places are icons along the foot. */}
+          Chat's and the ADE's other places are icons along the foot. */}
       <div className="sidebar__menu" data-kind={kind}>
-        {kind === 'workers' ? (
-          <WorkersNav part="menu" />
-        ) : kind === 'code' ? (
-          <>
-            <AdeMenu />
-            <AdeFind />
-          </>
-        ) : (
-          <ChatMenu />
-        )}
+        {kind === 'workers' ? <WorkersNav part="menu" /> : kind === 'code' ? <AdeFind /> : <ChatMenu />}
       </div>
       <FadingBody key={kind}>{kind === 'workers' ? <WorkersNav part="list" /> : kind === 'code' ? <CodeSidebar /> : <ChatNav />}</FadingBody>
       {kind === 'code' ? <AdeDock /> : kind !== 'workers' && <ChatDock />}
       {/* The ADE has the plans' rings in its header already; Chat has them on its row of places. */}
-      {kind === 'code' || kind === 'workers' ? <SidebarFoot rings={kind !== 'code'} /> : <FootBar />}
+      {kind !== 'workers' && <FootBar ade={kind === 'code'} />}
       </div>
       </div>
     </aside>
@@ -168,16 +158,20 @@ export function NavItem({
 const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
- * Chat's places along the sidebar's foot, as a row of icons: Settings, Pull
- * requests and Issues, with the two plans' usage rings at its other end.
- * Their names are in the tooltips, and for screen readers.
+ * Chat's and the ADE's places along the sidebar's foot, as a row of icons:
+ * Settings, Pull requests and Issues (and in the ADE Computers, where they're
+ * on). Chat has the two plans' usage rings at its other end; the ADE has them
+ * in its header. Their names are in the tooltips, and for screen readers.
  */
-function FootBar(): JSX.Element {
+function FootBar({ ade }: { ade: boolean }): JSX.Element {
   const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
   const places: { label: string; icon: JSX.Element; active: boolean; go: () => void }[] = [
     { label: 'Settings', icon: <SettingsIcon size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('general') },
     { label: 'Pull requests', icon: <GitPullRequest size={16} strokeWidth={1.8} />, active: view === 'pull-requests', go: () => setView('pull-requests') },
-    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') }
+    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') },
+    ...(ade && COMPUTERS_IN_SIDEBAR
+      ? [{ label: 'Computers', icon: <Monitor size={16} strokeWidth={1.8} />, active: view === 'computers', go: () => setView('computers') }]
+      : [])
   ]
   return (
     <nav className="foot-bar" aria-label="Places">
@@ -195,27 +189,13 @@ function FootBar(): JSX.Element {
           <span className="foot-bar__label">{place.label}</span>
         </button>
       ))}
-      <span className="foot-bar__spacer" />
-      <UsageRings placement="top-end" />
+      {!ade && (
+        <>
+          <span className="foot-bar__spacer" />
+          <UsageRings placement="top-end" />
+        </>
+      )}
     </nav>
-  )
-}
-
-/** The ADE's places, over the search row of its sessions (New session is on that row). */
-function AdeMenu(): JSX.Element {
-  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
-  return (
-    <>
-      <NavItem
-        icon={<GitPullRequest {...ICON} />}
-        label="Pull requests"
-        active={view === 'pull-requests'}
-        onClick={() => setView('pull-requests')}
-      />
-      <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
-      {COMPUTERS_IN_SIDEBAR && <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />}
-      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
-    </>
   )
 }
 

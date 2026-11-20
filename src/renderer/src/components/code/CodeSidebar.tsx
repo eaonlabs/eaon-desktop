@@ -96,14 +96,19 @@ export function CodeSidebar(): JSX.Element | null {
   useBranchPrsForAll(loaded)
 
   if (error) return <div className="sidebar__empty">{error}</div>
+  // With nothing open yet, New session on the search row still opens its dialog (SSH is in it).
   if (loaded && sessions.length === 0)
     return (
-      <button type="button" className="nav-item ade-open-first" onClick={() => void chooseFolder()}>
-        <span className="nav-item__icon">
-          <FolderPlus size={15} strokeWidth={1.9} />
-        </span>
-        <span className="nav-item__label code-sidebar__muted">Open a project folder…</span>
-      </button>
+      <>
+        <button type="button" className="nav-item ade-open-first" onClick={() => void chooseFolder()}>
+          <span className="nav-item__icon">
+            <FolderPlus size={15} strokeWidth={1.9} />
+          </span>
+          <span className="nav-item__label code-sidebar__muted">Open a project folder…</span>
+        </button>
+        <NewSessionDialog />
+        <RemoteSessionDialog />
+      </>
     )
   return (
     <>
