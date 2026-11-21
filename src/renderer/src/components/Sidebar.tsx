@@ -115,7 +115,7 @@ function FootBar({ ade }: { ade: boolean }): JSX.Element {
       : [])
   ]
   return (
-    <nav className="foot-bar" aria-label="Places">
+    <nav className="foot-bar" data-centered={ade || undefined} aria-label="Places">
       {places.map((place) => (
         <button
           key={place.label}

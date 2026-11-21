@@ -465,6 +465,10 @@ body[data-reduce-motion='on'] .thread-status__ring {
   gap: 10px;
   padding: 6px 12px 10px;
 }
+/* The ADE's has no usage rings at its other end (its header has them), so its icons sit in the middle. */
+.foot-bar[data-centered] {
+  justify-content: center;
+}
 .foot-bar__btn {
   width: 30px;
   height: 30px;
