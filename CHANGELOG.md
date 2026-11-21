@@ -5,6 +5,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+- **No seam beside the sidebar where the top of a chat blurs.** The blur behind the chat's top bar, and the one over the message box, stopped at the edge of the chat, so the strip of wallpaper between it and the sidebar stayed sharp. Both now run on under the sidebar.
+
 ## [2026.7.8] — 2026-11-22
 
 ### Added

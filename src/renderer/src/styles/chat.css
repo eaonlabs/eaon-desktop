@@ -1110,7 +1110,10 @@
   position: absolute;
   top: calc(-1 * var(--veil-over));
   right: 0;
-  left: 0;
+  /* On under the sidebar, which sits above it (app.css), and past the
+     window's left edge as past its top: stopping at the pane's edge left the
+     sidebar's gutter sharp beside the blur, a seam down the picture. */
+  left: calc(-1 * (var(--sidebar-w) + var(--veil-over)));
   z-index: 3;
   height: var(--veil-h);
   pointer-events: none;
