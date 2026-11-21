@@ -581,8 +581,80 @@ export function SeeThrough(): JSX.Element | null {
     <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': wash } as CSSProperties} aria-hidden="true">
       <div ref={layer} className="see-through__layer" />
       <div className="see-through__tint" />
+      {options?.fade && <FadeOut />}
     </div>
   )
+}
+
+/** Where Fade out begins and where it is solid, as shares of the window's height. */
+const FADE_FROM = 0.34
+const FADE_TO = 0.7
+/** Its dot screen's pitch, in points, and how much the picture dims under the dots on the way down. */
+const FADE_PITCH = 4
+const FADE_VEIL = 0.55
+
+/**
+ * Fade out (SeeThrough.fade): the wallpaper shows at the top of the window
+ * and dissolves into the page's own colour toward the bottom, where the text
+ * and the box are. The page's colour comes in as a dot screen whose dots
+ * grow until they close up, over a veil that dims the picture as it goes.
+ * It belongs to the window, not the picture, so it stays put as the picture
+ * slides: drawn once at the window's size, again on a resize or a change of theme.
+ */
+function FadeOut(): JSX.Element {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    const ctx = el?.getContext('2d')
+    if (!el || !ctx) return
+    let frame = 0
+    const draw = (): void => {
+      frame = 0
+      const w = window.innerWidth
+      const h = window.innerHeight
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
+      el.width = Math.round(w * dpr)
+      el.height = Math.round(h * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+      ctx.fillStyle = getComputedStyle(el).color
+      const from = Math.round(h * FADE_FROM)
+      const rows = Math.ceil((h * FADE_TO - from) / FADE_PITCH)
+      const solid = from + rows * FADE_PITCH
+      for (let y = from; y < solid; y++) {
+        ctx.globalAlpha = FADE_VEIL * ((y - from) / (solid - from))
+        ctx.fillRect(0, y, w, 1)
+      }
+      ctx.globalAlpha = 1
+      for (let row = 0; row < rows; row++) {
+        const t = (row + 0.5) / rows
+        // From a speck to just past touching (a dot of 0.72 the pitch closes the gaps between four).
+        const r = FADE_PITCH * (0.1 + 0.62 * t * t * (3 - 2 * t))
+        const cy = from + (row + 0.5) * FADE_PITCH
+        ctx.beginPath()
+        for (let cx = FADE_PITCH / 2; cx < w + FADE_PITCH; cx += FADE_PITCH) {
+          ctx.moveTo(cx + r, cy)
+          ctx.arc(cx, cy, r, 0, Math.PI * 2)
+        }
+        ctx.fill()
+      }
+      ctx.fillRect(0, solid, w, h - solid)
+    }
+    const later = (): void => {
+      if (!frame) frame = requestAnimationFrame(draw)
+    }
+    draw()
+    window.addEventListener('resize', later)
+    // A change of theme (or of its colours) changes the page's colour.
+    const theme = new MutationObserver(later)
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'style', 'class'] })
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', later)
+      theme.disconnect()
+    }
+  }, [])
+  return <canvas ref={ref} className="see-through__fade" />
 }
 
 /** What getKeyframes() reports beside the animated properties. */
