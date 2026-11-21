@@ -44,7 +44,7 @@ import { SideQuestion } from './chat/SideQuestion'
 import { useSideQuestion } from '../state/sideQuestion'
 import { parseSideQuestion } from '@shared/sideQuestion'
 import { ScreenshotPicker } from './composer/ScreenshotPicker'
-import { clampEffort, EFFORT_LABEL, orderEfforts } from '@shared/effort'
+import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ENGINE_LABEL } from '@shared/engines'
 import { LinkAccounts } from './LinkAccounts'
 import { ModelPicker } from './composer/ModelPicker'
@@ -220,10 +220,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const signedIn = useSignedInEngine(needsConnect)
   // What the request will actually use: the chosen effort, clamped to the model; Adaptive sets its own.
   const effort = adaptive ? undefined : clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
-  // The highest level the model takes (Extra high or Max): its name lights up on the model button.
-  const efforts = orderEfforts((engineChoice ? engineChoice.efforts : model?.efforts) ?? [])
-  const topEffort = efforts.length >= 2 && effort === efforts[efforts.length - 1]
-
 
   useEffect(() => {
     if (!draftId) return
@@ -747,7 +743,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       )}
       <span className="chip__model">{adaptive ? 'Adaptive' : engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
       {effort && (
-        <span key={effort} className="chip__effort" data-top={topEffort || undefined}>
+        <span key={effort} className="chip__effort">
           {EFFORT_LABEL[effort]}
         </span>
       )}

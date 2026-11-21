@@ -97,7 +97,7 @@
     filter: blur(3px);
   }
 }
-/* The top level lights up as it does on the model button (chat.css): a flare, then a band of light now and then. */
+/* The top level lights up: a band of light through its name now and then, with a soft glow of the accent. */
 /* Its resting colour is nearly the plain name's, so between bands it never reads as dimmed. */
 .effort-track[data-top] .effort-track__level:not([data-leaving]) {
   --lit-base: color-mix(in srgb, var(--text) 90%, transparent);
@@ -113,7 +113,7 @@
   filter: drop-shadow(0 0 3px var(--lit-glow));
   animation:
     effort-roll-in-up 260ms var(--et-ease) both,
-    effort-lit 3.6s linear 0.8s infinite;
+    effort-track-lit 3.6s linear 0.8s infinite;
 }
 [data-theme='light'] .effort-track[data-top] .effort-track__level:not([data-leaving]) {
   --lit-base: var(--text-2);
@@ -217,6 +217,16 @@
     0 0 0 1px rgb(0 0 0 / 0.18),
     0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent),
     0 4px 10px rgb(0 0 0 / 0.45);
+}
+
+@keyframes effort-track-lit {
+  0% {
+    background-position: 130% 0;
+  }
+  55%,
+  100% {
+    background-position: -30% 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
