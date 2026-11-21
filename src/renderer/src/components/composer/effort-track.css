@@ -1,0 +1,124 @@
+/* Reasoning effort in the model picker (EffortTrack.tsx): a small-caps label
+   with the level under it, and a flat track whose fill is drawn in
+   characters, densest by the white handle. */
+
+.effort-track {
+  --et-track: rgb(0 0 0 / 0.5);
+  --et-line: color-mix(in srgb, var(--fg) 7%, transparent);
+  --et-fill: color-mix(in srgb, var(--accent) 28%, transparent);
+  --et-chars: color-mix(in srgb, var(--accent) 45%, var(--text));
+  --et-stop: color-mix(in srgb, var(--fg) 22%, transparent);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  user-select: none;
+}
+[data-theme='light'] .effort-track {
+  --et-track: color-mix(in srgb, var(--fg) 6%, transparent);
+  --et-line: color-mix(in srgb, var(--fg) 10%, transparent);
+  --et-fill: color-mix(in srgb, var(--accent) 16%, transparent);
+  --et-chars: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+.effort-track__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 2px;
+}
+.effort-track__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mp-text-3, var(--text-3));
+}
+.effort-track__level {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--mp-text, var(--text));
+  animation: effort-level-in 160ms ease-out;
+}
+@keyframes effort-level-in {
+  from {
+    opacity: 0.3;
+    filter: blur(2px);
+  }
+}
+
+.effort-track__track {
+  position: relative;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--et-track);
+  box-shadow: inset 0 0 0 1px var(--et-line);
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+.effort-track__track:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px var(--et-line),
+    0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.effort-track__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--et-fill);
+}
+.effort-track__chars {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-mono);
+  color: var(--et-chars);
+  pointer-events: none;
+}
+.effort-track__stop {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--et-stop);
+  pointer-events: none;
+}
+/* The handle: a white tab with a notch, like a fader's. */
+.effort-track__thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 22px;
+  margin: -11px 0 0 -6px;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.18),
+    0 1px 3px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+  transition: transform 120ms ease-out;
+}
+.effort-track__thumb::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 50%;
+  width: 1.5px;
+  margin-left: -0.75px;
+  border-radius: 1px;
+  background: rgb(0 0 0 / 0.7);
+}
+.effort-track[data-dragging] .effort-track__thumb {
+  transform: scaleY(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .effort-track__level {
+    animation: none;
+  }
+}
