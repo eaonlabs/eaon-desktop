@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useRef, useState, useSyncExternalStore, type JSX, type ReactNode } from 'react'
-import { ChevronDown, CircleCheck, Pin, Search, X } from 'lucide-react'
-import { heldOrder, hueOf, initialsOf, workingFor } from '@shared/threadList'
+import { ChevronDown, CircleCheck, Folder, Pin, Search, X } from 'lucide-react'
+import { heldOrder, workingFor } from '@shared/threadList'
 
 /**
  * The pieces of the sidebar's thread list (shared/threadList.ts): a search
@@ -71,7 +71,7 @@ function useProjectAvatar(folder: string | null | undefined): string | null {
 /**
  * A project's tag: the picture of the account or organisation that owns its
  * repository on GitHub (or GitLab, Codeberg, Bitbucket), given its folder;
- * else its initials on its own tint. No project: a dashed square.
+ * else a plain folder. No project: a dashed square.
  */
 export function ProjectBadge({ name, folder }: { name: string | null; folder?: string | null }): JSX.Element {
   const avatar = useProjectAvatar(name ? folder : null)
@@ -80,8 +80,8 @@ export function ProjectBadge({ name, folder }: { name: string | null; folder?: s
   if (avatar && avatar !== broken)
     return <img className="thread-badge thread-badge--picture" src={avatar} alt="" aria-hidden="true" draggable={false} onError={() => setBroken(avatar)} />
   return (
-    <span className="thread-badge" data-hue={hueOf(name)} aria-hidden="true">
-      {initialsOf(name)}
+    <span className="thread-badge thread-badge--folder" aria-hidden="true">
+      <Folder size={16} strokeWidth={1.8} />
     </span>
   )
 }
