@@ -177,7 +177,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
     // The ADE's Pull requests page: the PR asked of us, and Start review.
     await page.click('.mode-switch__option', { text: 'ADE' })
     await page.click('.sidebar .nav-item, .sidebar .foot-bar__btn', { text: /^Pull requests$/ })
-    await page.click('.pr-row__title', { text: 'Retry the login three times', timeout: 20_000 })
+    await page.click('.gh-row__title', { text: 'Retry the login three times', timeout: 20_000 })
     await page.find('.pr-review', { text: /Agent review/ })
     await s.shot(page, 'pr-review-offered')
     await page.click('.pr-review button', { text: /^Start review$/ })
@@ -202,7 +202,7 @@ if (fs.existsSync('.eaon/review-task.md')) {
 
     // Back on the page, the review the agent wrote, to edit and post.
     await page.click('.sidebar .nav-item, .sidebar .foot-bar__btn', { text: /^Pull requests$/ })
-    await page.click('.pr-row__title', { text: 'Retry the login three times' })
+    await page.click('.gh-row__title', { text: 'Retry the login three times' })
     await page.find('.pr-review__summary', { timeout: 20_000 })
     const shown = await page.eval(() => ({
       summary: document.querySelector('.pr-review__summary')?.value,
