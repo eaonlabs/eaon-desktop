@@ -1,6 +1,8 @@
 /* Reasoning effort in the model picker (EffortTrack.tsx): a small-caps label
    with the level under it, and a flat track whose fill is drawn in
-   characters, densest by the white handle. */
+   characters, densest by the white handle. The handle, the fill and the
+   canvas are moved by the component's own loop; what's here is how they
+   look, and the few things that ease on their own (the name, the stops). */
 
 .effort-track {
   --et-track: rgb(0 0 0 / 0.5);
@@ -8,6 +10,7 @@
   --et-fill: color-mix(in srgb, var(--accent) 28%, transparent);
   --et-chars: color-mix(in srgb, var(--accent) 45%, var(--text));
   --et-stop: color-mix(in srgb, var(--fg) 22%, transparent);
+  --et-ease: cubic-bezier(0.22, 1, 0.36, 1);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -33,18 +36,89 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mp-text-3, var(--text-3));
+  transition: color 300ms var(--et-ease);
+}
+.effort-track[data-top] .effort-track__eyebrow {
+  color: color-mix(in srgb, var(--accent) 55%, var(--mp-text-2, var(--text-2)));
+}
+
+/* The level's name: the new one rolls in the way the handle went, the old one out the other side. */
+.effort-track__levels {
+  display: grid;
+  height: 18px;
+  overflow: hidden;
 }
 .effort-track__level {
+  grid-area: 1 / 1;
+  align-self: center;
+  justify-self: start;
   font-size: var(--fs-sm);
   font-weight: 500;
+  line-height: 18px;
   color: var(--mp-text, var(--text));
-  animation: effort-level-in 160ms ease-out;
 }
-@keyframes effort-level-in {
+.effort-track__level[data-entering='up'] {
+  animation: effort-roll-in-up 260ms var(--et-ease) both;
+}
+.effort-track__level[data-entering='down'] {
+  animation: effort-roll-in-down 260ms var(--et-ease) both;
+}
+.effort-track__level[data-leaving='up'] {
+  animation: effort-roll-out-up 200ms var(--et-ease) both;
+}
+.effort-track__level[data-leaving='down'] {
+  animation: effort-roll-out-down 200ms var(--et-ease) both;
+}
+@keyframes effort-roll-in-up {
   from {
-    opacity: 0.3;
-    filter: blur(2px);
+    opacity: 0;
+    transform: translateY(85%);
+    filter: blur(3px);
   }
+}
+@keyframes effort-roll-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-85%);
+    filter: blur(3px);
+  }
+}
+@keyframes effort-roll-out-up {
+  to {
+    opacity: 0;
+    transform: translateY(-85%);
+    filter: blur(3px);
+  }
+}
+@keyframes effort-roll-out-down {
+  to {
+    opacity: 0;
+    transform: translateY(85%);
+    filter: blur(3px);
+  }
+}
+/* The top level lights up as it does on the model button (chat.css): a flare, then a band of light now and then. */
+/* Its resting colour is nearly the plain name's, so between bands it never reads as dimmed. */
+.effort-track[data-top] .effort-track__level:not([data-leaving]) {
+  --lit-base: color-mix(in srgb, var(--text) 90%, transparent);
+  --lit: #ffffff;
+  --lit-glow: color-mix(in srgb, color-mix(in srgb, var(--accent) 55%, #ffffff) 40%, transparent);
+  font-weight: 600;
+  background: linear-gradient(100deg, var(--lit-base) 0%, var(--lit-base) 36%, var(--lit) 50%, var(--lit-base) 64%, var(--lit-base) 100%);
+  background-size: 260% 100%;
+  background-position: 130% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 3px var(--lit-glow));
+  animation:
+    effort-roll-in-up 260ms var(--et-ease) both,
+    effort-lit 3.6s linear 0.8s infinite;
+}
+[data-theme='light'] .effort-track[data-top] .effort-track__level:not([data-leaving]) {
+  --lit-base: var(--text-2);
+  --lit: color-mix(in srgb, var(--accent) 85%, #ffffff);
+  --lit-glow: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .effort-track__track {
@@ -57,16 +131,26 @@
   cursor: pointer;
   touch-action: none;
   outline: none;
+  transition: box-shadow 200ms var(--et-ease);
+}
+.effort-track__track:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 12%, transparent);
+}
+.effort-track[data-dragging] .effort-track__track {
+  cursor: grabbing;
 }
 .effort-track__track:focus-visible {
   box-shadow:
     inset 0 0 0 1px var(--et-line),
     0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
 }
+/* Scaled to the handle by the loop: one transform, no layout. */
 .effort-track__fill {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: 0;
   background: var(--et-fill);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 .effort-track__chars {
   position: absolute;
@@ -77,6 +161,7 @@
   color: var(--et-chars);
   pointer-events: none;
 }
+/* The levels, as dots: the fill takes each in as the handle passes, and the one under the pointer swells. */
 .effort-track__stop {
   position: absolute;
   top: 50%;
@@ -86,21 +171,34 @@
   border-radius: 50%;
   background: var(--et-stop);
   pointer-events: none;
+  transition:
+    opacity 220ms var(--et-ease),
+    transform 260ms var(--et-ease),
+    background-color 200ms var(--et-ease);
 }
-/* The handle: a white tab with a notch, like a fader's. */
+.effort-track__stop[data-covered='true'] {
+  opacity: 0;
+  transform: scale(0.2);
+}
+.effort-track__stop[data-hovered='true'] {
+  transform: scale(1.9);
+  background: color-mix(in srgb, var(--fg) 55%, transparent);
+}
+/* The handle: a white tab with a notch, like a fader's. The loop places, leans and squashes it. */
 .effort-track__thumb {
   position: absolute;
   top: 50%;
+  left: 0;
   width: 12px;
   height: 22px;
-  margin: -11px 0 0 -6px;
+  margin-top: -11px;
   border-radius: 4px;
   background: #ffffff;
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.18),
     0 1px 3px rgb(0 0 0 / 0.35);
   pointer-events: none;
-  transition: transform 120ms ease-out;
+  will-change: transform;
 }
 .effort-track__thumb::after {
   content: '';
@@ -113,12 +211,24 @@
   border-radius: 1px;
   background: rgb(0 0 0 / 0.7);
 }
+/* Held, it lifts: a deeper shadow, and a ring of the accent. */
 .effort-track[data-dragging] .effort-track__thumb {
-  transform: scaleY(1.08);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.18),
+    0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent),
+    0 4px 10px rgb(0 0 0 / 0.45);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .effort-track__level {
+  .effort-track__level,
+  .effort-track[data-top] .effort-track__level:not([data-leaving]) {
     animation: none;
   }
+  .effort-track__stop {
+    transition: none;
+  }
+}
+body[data-reduce-motion='on'] .effort-track__level,
+body[data-reduce-motion='on'] .effort-track[data-top] .effort-track__level:not([data-leaving]) {
+  animation: none;
 }
