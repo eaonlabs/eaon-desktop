@@ -1,6 +1,6 @@
 /* Home hero, composer, tray and the conversation view. */
 
-/* The mark, the title, the box and the chips, as one group in the middle of
+/* The mark, the title and the box, as one group in the middle of
    the page (a little above it, where the eye rests). Sending the first
    message glides the box down to the conversation's foot ([data-composer-glide]). */
 .home {
