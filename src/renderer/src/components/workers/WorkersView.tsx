@@ -50,6 +50,7 @@ import { useChannels } from '../channels/channelsStore'
 import { WorkerCreate } from './WorkerCreate'
 import { VaultPage } from './WorkerVault'
 import { SignInSheet, WorkerThreadContext } from './WorkerCards'
+import { CardDeckContext, useCardDeck } from './WorkerUi'
 import { WorkerHoldBanner } from './WorkerLimits'
 import { duplicateWorker, exportWorker, WorkerImport } from './WorkerTransfer'
 import { WorkerVersions } from './WorkerVersions'
@@ -352,6 +353,8 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
   )
   const mentions = useMemo(() => mentionValue(JSON.parse(looks)), [looks])
   const threadContext = useMemo(() => ({ workerId: worker.id, threadId: active === 'new' ? MAIN_THREAD : active }), [worker.id, active])
+  // The cards the worker keeps in this thread (show_ui with an id), each drawn where it first appeared, as it is now.
+  const cardDeck = useCardDeck(thread?.messages)
 
   // Scrolled off the top: Chat's veil of graded blur builds over what passes
   // under the top bar and the name pill (see ChatView).
@@ -404,6 +407,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         }}
       >
         <WorkerThreadContext.Provider value={threadContext}>
+        <CardDeckContext.Provider value={cardDeck}>
         <MentionContext.Provider value={mentions}>
         <div className="thread__inner thread__inner--worker" style={{ ['--worker' as string]: worker.color }}>
           {isMain ? <WorkerProfile worker={worker} now={now} mood={mood} /> : <ThreadHeader worker={worker} info={info} />}
@@ -464,6 +468,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
           <WorkerAsks worker={worker} />
         </div>
         </MentionContext.Provider>
+        </CardDeckContext.Provider>
         </WorkerThreadContext.Provider>
       </div>
 

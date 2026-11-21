@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeUi } from '@shared/workerUi'
+import { cardDeck, cardId, markChanges, normalizeUi } from '@shared/workerUi'
 import { uiTool } from '../src/main/features/workers/apps'
 import { workLog } from '../src/renderer/src/components/chat/workLog'
 
@@ -63,7 +63,7 @@ test('tabs hold blocks one level deep; tables come out square; nonsense is refus
   assert.deepEqual(table.rows, [['NVDA', '+2.1%'], ['AMD', '']], 'short rows padded, empty ones gone')
   assert.match(result.skipped.join('|'), /block 3: stock needs a US ticker/)
   assert.match(result.skipped.join('|'), /block 4: unknown block type "hologram"/)
-  assert.deepEqual(normalizeUi({ blocks: [{ type: 'hologram' }] }), { error: 'Nothing on the card could be drawn: block 1: unknown block type "hologram" (use heading, text, stats, chart, stock, table, list, progress, badges, tabs, buttons, divider).' })
+  assert.deepEqual(normalizeUi({ blocks: [{ type: 'hologram' }] }), { error: 'Nothing on the card could be drawn: block 1: unknown block type "hologram" (use heading, metric, text, stats, fields, route, chart, stock, table, list, progress, badges, tabs, buttons, divider).' })
   assert.ok('error' in normalizeUi('a card please'))
 })
 
@@ -90,4 +90,84 @@ test('a worker that looks a stock up shows it live, once, unless its own card al
   assert.deepEqual(drawn.filter((i) => i.kind === 'stocks').map((i) => (i.kind === 'stocks' ? i.symbols : [])), [['AMD']])
   assert.deepEqual(workLog([tool('q', 'trading_quote', { symbols: ['NVDA'] }, 'error')], true).map((i) => i.kind), ['tools'], 'a failed look shows nothing')
   assert.deepEqual(workLog([tool('q', 'trading_quote', { symbols: ['NVDA'] })], false).map((i) => i.kind), ['tools'], 'a chat is left as it was')
+})
+
+test('a boarding pass: a header with its icon and status, a route, fields with what they were, a ticket edge', () => {
+  const result = normalizeUi({
+    id: 'flight-nw214',
+    icon: 'plane',
+    title: 'Northwind',
+    subtitle: 'NW 214',
+    status: { label: 'Delayed', tone: 'bad' },
+    blocks: [
+      { type: 'route', mode: 'plane', from: { code: 'LIS', name: 'Lisbon', time: '11:05' }, to: { code: 'CPH', name: 'Copenhagen', time: '15:30' } },
+      { type: 'fields', items: [{ label: 'Gate', value: 'B31', was: 'B12', tone: 'warn' }, { label: 'Seat', value: '14A' }, { label: 'Group', value: 2 }, { label: 'Empty' }] },
+      { type: 'divider', style: 'ticket' },
+      { type: 'route', from: 'LIS', to: {} }
+    ]
+  })
+  assert.ok(!('error' in result))
+  if ('error' in result) return
+  assert.equal(result.ui.id, 'flight-nw214')
+  assert.equal(result.ui.icon, 'plane')
+  assert.deepEqual(result.ui.status, { label: 'Delayed', tone: 'bad' })
+  assert.deepEqual(result.ui.blocks.map((b) => b.type), ['route', 'fields', 'divider'])
+  const fields = result.ui.blocks[1]
+  assert.ok(fields.type === 'fields')
+  assert.deepEqual(fields.items.map((f) => `${f.label}=${f.value}${f.was ? `<-${f.was}` : ''}`), ['Gate=B31<-B12', 'Seat=14A', 'Group=2'], 'a field with no value is left out')
+  assert.deepEqual(result.ui.blocks[2], { type: 'divider', style: 'ticket' })
+  assert.match(result.skipped.join(), /route needs from and to/)
+})
+
+test('a revenue card: a big figure with its change, switched by week, month and year at the bottom', () => {
+  const view = (label: string, value: string, change: string) => ({
+    label,
+    blocks: [
+      { type: 'metric', label: 'Revenue', value, change },
+      { type: 'chart', style: 'area', points: [1, 3, 2, 5] }
+    ]
+  })
+  const result = normalizeUi({ id: 'revenue', blocks: [{ type: 'tabs', at: 'bottom', tabs: [view('Week', '$11.2k', '+3.1%'), view('Month', '$48.6k', '+12.4%'), view('Year', '$512k', '-2.0%')] }] })
+  assert.ok(!('error' in result))
+  if ('error' in result) return
+  const tabs = result.ui.blocks[0]
+  assert.ok(tabs.type === 'tabs' && tabs.at === 'bottom')
+  const metric = tabs.tabs[2].blocks[0]
+  assert.deepEqual(metric, { type: 'metric', label: 'Revenue', value: '$512k', change: '-2.0%', tone: 'down' }, 'a falling figure reads as down without a tone')
+})
+
+test('a card an agent keeps: shown again by its id, it changes where it first was, and what moved shows its old value', () => {
+  const v1 = { id: 'flight', title: 'NW 214', blocks: [{ type: 'fields', items: [{ label: 'Gate', value: 'B12' }, { label: 'Seat', value: '14A' }] }, { type: 'route', from: { code: 'LIS', time: '10:40' }, to: { code: 'CPH', time: '15:05' } }] }
+  const v2 = { id: 'flight', title: 'NW 214', status: 'Delayed', blocks: [{ type: 'fields', items: [{ label: 'Gate', value: 'B31' }, { label: 'Seat', value: '14A' }] }, { type: 'route', from: { code: 'LIS', time: '11:05' }, to: { code: 'CPH', time: '15:05' } }] }
+  const deck = cardDeck([
+    { id: 'call-1', input: v1 },
+    { id: 'call-2', input: { title: 'No id', blocks: [{ type: 'text', text: 'x' }] } },
+    { id: 'call-3', input: v2 }
+  ])
+  assert.equal(deck.cards.get('flight')?.first, 'call-1', 'drawn where it first appeared')
+  assert.equal(deck.cards.get('flight')?.versions.length, 2)
+  assert.equal(deck.byCall.get('call-3'), 'flight')
+  assert.equal(deck.byCall.has('call-2'), false, 'a card with no id is its own')
+
+  const now = normalizeUi(v2)
+  const before = normalizeUi(v1)
+  assert.ok(!('error' in now) && !('error' in before))
+  if ('error' in now || 'error' in before) return
+  const marked = markChanges(now.ui, before.ui)
+  const fields = marked.blocks[0]
+  const route = marked.blocks[1]
+  assert.ok(fields.type === 'fields' && route.type === 'route')
+  assert.deepEqual(fields.items.map((f) => f.was ?? null), ['B12', null], 'the gate moved; the seat didn’t')
+  assert.equal(route.from.was, '10:40')
+  assert.equal(route.to.was, undefined)
+  assert.equal(markChanges(now.ui, null), now.ui, 'a first version has nothing to compare')
+})
+
+test('in a chat, a card is drawn as a card; ids are kept to names an agent would give', () => {
+  const card = { type: 'tool' as const, id: 'c', name: 'show_ui', input: { blocks: [{ type: 'text', text: 'x' }] }, output: 'Shown', status: 'done' as const }
+  assert.deepEqual(workLog([card], false).map((i) => i.kind), ['card'])
+  assert.deepEqual(workLog([{ ...card, name: 'show_card' }], false).map((i) => i.kind), ['tools'], 'a worker’s ready-made cards stay theirs')
+  assert.equal(cardId('ci:main-build.2'), 'ci:main-build.2')
+  assert.equal(cardId('has spaces'), undefined)
+  assert.equal(cardId(42), '42')
 })
