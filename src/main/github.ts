@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { homedir } from 'node:os'
-import type { PullRequestAction, PullRequestDetail, PullRequestsResult, PullRequestSummary } from '@shared/types'
+import type { PullRequestAction, PullRequestComment, PullRequestDetail, PullRequestLabel, PullRequestsResult, PullRequestSummary } from '@shared/types'
 
 /**
  * Pull requests for the "Pull requests" nav item in Eaon Work, sourced from
@@ -29,12 +29,17 @@ interface SearchRow {
   number: number
   title: string
   updatedAt: string
+  createdAt?: string
+  closedAt?: string | null
   state: string
   isDraft: boolean
   url: string
+  author?: { login?: string }
+  commentsCount?: number
+  labels?: { name?: string; color?: string }[]
 }
 
-const SEARCH_FIELDS = 'repository,number,title,updatedAt,state,isDraft,url'
+const SEARCH_FIELDS = 'repository,number,title,updatedAt,createdAt,closedAt,state,isDraft,url,author,commentsCount,labels'
 const DETAIL_FIELDS = 'additions,deletions,headRefName'
 const ENRICH_CONCURRENCY = 6
 
@@ -53,6 +58,14 @@ async function searchPrs(filter: string): Promise<SearchRow[]> {
   return JSON.parse(stdout) as SearchRow[]
 }
 
+/** Labels as GitHub gives them; a colour that isn't six hex digits reads as grey. */
+function labelsOf(list: unknown): PullRequestLabel[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .map((l: { name?: unknown; color?: unknown }) => ({ name: String(l?.name ?? ''), color: /^[0-9a-f]{6}$/i.test(String(l?.color)) ? String(l.color) : '9198a1' }))
+    .filter((l) => l.name)
+}
+
 async function enrichOne(row: SearchRow): Promise<PullRequestSummary | null> {
   try {
     const { stdout } = await run(gh(), ['pr', 'view', row.url, '--json', DETAIL_FIELDS])
@@ -66,7 +79,13 @@ async function enrichOne(row: SearchRow): Promise<PullRequestSummary | null> {
       updatedAt: row.updatedAt,
       additions: detail.additions,
       deletions: detail.deletions,
-      state: row.isDraft ? 'draft' : (row.state as PullRequestSummary['state'])
+      state: row.isDraft ? 'draft' : (row.state as PullRequestSummary['state']),
+      number: row.number,
+      author: row.author?.login ?? '',
+      createdAt: row.createdAt ?? row.updatedAt,
+      closedAt: row.closedAt || null,
+      comments: row.commentsCount ?? 0,
+      labels: labelsOf(row.labels)
     }
   } catch {
     // A PR the search API can see but `gh pr view` can't (rare — e.g. a repo
@@ -128,7 +147,34 @@ const runGh = (args: string[], timeout = GH_TIMEOUT_MS): Promise<{ stdout: strin
   execFileAsync(gh(), args, { timeout, maxBuffer: 64 * 1024 * 1024, windowsHide: true, cwd: homedir(), env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' } })
 
 const DETAIL_VIEW_FIELDS =
-  'number,title,body,author,state,isDraft,baseRefName,headRefName,additions,deletions,changedFiles,createdAt,updatedAt,mergeable,mergeStateStatus,reviewDecision,latestReviews,statusCheckRollup,url'
+  'number,title,body,author,state,isDraft,baseRefName,headRefName,additions,deletions,changedFiles,createdAt,updatedAt,mergeable,mergeStateStatus,reviewDecision,latestReviews,statusCheckRollup,url,' +
+  'comments,reviews,commits,labels,assignees,reviewRequests,milestone,mergedAt,mergedBy,closedAt,mergeCommit'
+
+const login = (who: any): string => String(who?.login ?? '')
+
+/**
+ * The conversation: comments and reviews, oldest first. A review with
+ * nothing written and no verdict (a reply in a code thread) isn't a turn in
+ * it, as on GitHub, where it shows only beside the code.
+ */
+function conversationOf(v: Record<string, any>): PullRequestComment[] {
+  const comments: PullRequestComment[] = (v.comments ?? []).map((c: any) => ({
+    author: login(c.author),
+    association: String(c.authorAssociation ?? ''),
+    body: String(c.body ?? ''),
+    at: String(c.createdAt ?? '')
+  }))
+  const reviews: PullRequestComment[] = (v.reviews ?? [])
+    .filter((r: any) => String(r.body ?? '').trim() || (r.state && r.state !== 'COMMENTED' && r.state !== 'PENDING'))
+    .map((r: any) => ({
+      author: login(r.author),
+      association: String(r.authorAssociation ?? ''),
+      body: String(r.body ?? ''),
+      at: String(r.submittedAt ?? ''),
+      review: String(r.state ?? 'COMMENTED')
+    }))
+  return [...comments, ...reviews].sort((a, b) => a.at.localeCompare(b.at))
+}
 
 function checkStatus(c: Record<string, unknown>): PullRequestDetail['checks'][number]['status'] {
   const word = String(c.conclusion || c.state || '').toUpperCase()
@@ -167,6 +213,22 @@ export async function pullRequestDetail(url: unknown): Promise<PullRequestDetail
     mergeState: v.mergeStateStatus ?? 'UNKNOWN',
     reviewDecision: v.reviewDecision ?? '',
     reviews: (v.latestReviews ?? []).map((r: any) => ({ author: r.author?.login ?? '', state: r.state ?? '' })),
+    comments: conversationOf(v),
+    // The account when git's author is one, else the name in the commit; never the email address.
+    commits: (v.commits ?? []).map((c: any) => ({
+      oid: String(c.oid ?? ''),
+      headline: String(c.messageHeadline ?? ''),
+      author: login(c.authors?.[0]) || String(c.authors?.[0]?.name ?? ''),
+      at: String(c.committedDate ?? c.authoredDate ?? '')
+    })),
+    labels: labelsOf(v.labels),
+    assignees: (v.assignees ?? []).map(login).filter(Boolean),
+    reviewRequests: (v.reviewRequests ?? []).map((r: any) => String(r?.login || r?.name || r?.slug || '')).filter(Boolean),
+    milestone: v.milestone?.title ? String(v.milestone.title) : null,
+    mergedAt: v.mergedAt || null,
+    mergedBy: login(v.mergedBy) || null,
+    closedAt: v.closedAt || null,
+    mergeCommit: v.mergeCommit?.oid ? String(v.mergeCommit.oid) : null,
     checks: (v.statusCheckRollup ?? []).map((c: any) => ({
       name: c.name || c.context || 'Check',
       status: checkStatus(c),
@@ -212,6 +274,19 @@ export async function mergePullRequest(url: unknown, options: MergeOptions): Pro
     return { ok: true, message: options.auto ? 'It will merge once its checks and reviews pass.' : 'Merged.' }
   } catch (error) {
     return actionError(error, 'GitHub didn’t merge it.')
+  }
+}
+
+/** A comment on the pull request's conversation, as the signed-in GitHub user. */
+export async function commentOnPullRequest(url: unknown, body: unknown): Promise<PullRequestAction> {
+  const address = prUrl(url)
+  const text = String(body ?? '').trim()
+  if (!text) return { ok: false, error: 'Write something to comment.' }
+  try {
+    await runGh(['pr', 'comment', address, '--body', text.slice(0, 65_000)], 60_000)
+    return { ok: true, message: 'Commented.' }
+  } catch (error) {
+    return actionError(error, 'GitHub didn’t take the comment.')
   }
 }
 
