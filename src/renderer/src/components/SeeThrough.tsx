@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties, type JSX, type ReactNode } from 'react'
-import { isVideoWallpaper, type FadeStyle, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
+import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
 import { wallpaperSource, wallpaperVideoUrl } from '@shared/wallpaper'
 import {
@@ -223,23 +223,19 @@ export function SeeThrough(): JSX.Element | null {
   const [adjust, setAdjust] = useState<Adjustment>(UNADJUSTED)
   const readable = options?.readable !== false
   const blur = useSettled(blurOf(options?.blur), SETTLE_MS)
-  // Fade out in a pattern: the picture drawn again in it, for the lower part of the window. A video always blurs.
-  const fadeStyle: FadeStyle = options?.fadeStyle ?? 'blur'
-  const pattern = options?.fade === true && fadeStyle !== 'blur' && !video ? fadeStyle : null
-  const [fadePlate, setFadePlate] = useState<HTMLCanvasElement | null>(null)
   const layer = useRef<HTMLDivElement>(null)
-  const fadeLayer = useRef<HTMLDivElement>(null)
   const latest = useRef<WallpaperFrame | null>(null)
 
-  /** Slides the layers so the picture's corner sits on the display's, wherever the window is. */
+  /** Slides the layer so the picture's corner sits on the display's, wherever the window is. */
   const place = (): void => {
+    const el = layer.current
     const f = latest.current
-    if (!f) return
+    if (!el || !f) return
     // Hanging past the screen's edge, the picture stops at its own edge
     // rather than running off into black.
     const dx = Math.min(0, Math.max(window.innerWidth - f.display.width, f.display.x - f.content.x))
     const dy = Math.min(0, Math.max(window.innerHeight - f.display.height, f.display.y - f.content.y))
-    for (const el of [layer.current, fadeLayer.current]) if (el) el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
+    el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
   }
 
   // The window's place on the screen, as it moves: straight onto the layer.
@@ -418,42 +414,6 @@ export function SeeThrough(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plate, display])
 
-  // Fade out in a pattern: the same picture drawn in it, toned as the picture is (never blurred,
-  // which would smear the pattern), into the lower layer, which slides with the other.
-  useEffect(() => {
-    if (!on || !pattern || !picture || !display) {
-      setFadePlate(null)
-      return
-    }
-    let live = true
-    const image = new Image()
-    image.onload = () => {
-      if (!live) return
-      const next = document.createElement('canvas')
-      next.width = image.naturalWidth
-      next.height = image.naturalHeight
-      next.className = 'see-through__picture'
-      const ctx = next.getContext('2d')
-      if (!ctx) return
-      renderStyle(pattern, ctx, (c, w, h) => c.drawImage(image, 0, 0, w, h), next.width / display.width, light)
-      const tone = { ...adjust, blur: 0 }
-      setFadePlate(tone.contrast === 1 && tone.brightness === 1 && tone.saturate === 1 ? next : bake(next, tone, display.width))
-    }
-    image.src = picture
-    return () => {
-      live = false
-    }
-  }, [on, pattern, picture, light, display, adjust])
-  useEffect(() => {
-    const el = fadeLayer.current
-    if (!el || !fadePlate || !display) return
-    el.style.width = `${display.width}px`
-    el.style.height = `${display.height}px`
-    el.replaceChildren(fadePlate)
-    place()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fadePlate, display])
-
   // The page drops its own background while the picture is behind it.
   const ready = on && plate !== null
   useEffect(() => {
@@ -621,15 +581,7 @@ export function SeeThrough(): JSX.Element | null {
     <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': wash } as CSSProperties} aria-hidden="true">
       <div ref={layer} className="see-through__layer" />
       <div className="see-through__tint" />
-      {options?.fade && (
-        <FadeOut>
-          {pattern && (
-            <div className="see-through__fade-pattern">
-              <div ref={fadeLayer} className="see-through__layer" />
-            </div>
-          )}
-        </FadeOut>
-      )}
+      {options?.fade && <FadeOut />}
     </div>
   )
 }
@@ -641,21 +593,20 @@ const FADE_STEP = 10
 const FADE_BLURS = [1, 2, 4, 8, 16, 32]
 
 /**
- * Fade out (SeeThrough.fade): the wallpaper stays as it is at the top of the
- * window and turns, dimming a little, toward the bottom, where the text and
- * the box are. Blurred (the default): a stack of frosted layers, each
- * starting a step lower and blurring more, eased in over its step, so the
- * blur grows smoothly rather than in bands. In a pattern (dither, characters
- * and the rest): `pattern`, the picture drawn in it, faded in over the same
- * stretch. Either way a veil of the page's colour lies over the lower part.
- * It belongs to the window, not the picture, so it stays put as the picture
+ * Fade out (SeeThrough.fade): the wallpaper stays sharp at the top of the
+ * window and blurs, and dims a little, toward the bottom, where the text and
+ * the box are. A stack of frosted layers, each starting a step lower and
+ * blurring more, eased in over its step, so the blur grows smoothly rather
+ * than in bands; and a veil of the page's colour over the lower part. It
+ * belongs to the window, not the picture, so it stays put as the picture
  * slides, and the compositor does it all.
  */
-function FadeOut({ children }: { children?: ReactNode }): JSX.Element {
+function FadeOut(): JSX.Element {
   return (
     <div className="see-through__fade" style={{ '--fade-from': FADE_FROM, '--fade-step': FADE_STEP } as CSSProperties}>
-      {children ||
-        FADE_BLURS.map((blur, i) => <span key={blur} style={{ '--fade-i': i, '--fade-blur': `${blur}px` } as CSSProperties} />)}
+      {FADE_BLURS.map((blur, i) => (
+        <span key={blur} style={{ '--fade-i': i, '--fade-blur': `${blur}px` } as CSSProperties} />
+      ))}
       <i />
     </div>
   )

@@ -104,7 +104,6 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "appearance", title: "Tint", description: "How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable", section: "Window" },
   { page: "appearance", title: "Wallpaper blur", description: "How soft the wallpaper is behind the window, like frosted glass. At 0 it shows sharp", section: "Window" },
   { page: "appearance", title: "Fade out", description: "Keep the wallpaper sharp at the top of the window and blur it, a little darker, toward the bottom, where you read and type", section: "Window" },
-  { page: "appearance", title: "Fade style", description: "How the bottom turns: blurred, or the wallpaper breaking into a pattern. A video always blurs", section: "Window" },
   { page: "appearance", title: "Style", description: "", section: "Window" },
   { page: "appearance", title: "Blur", description: "How soft the page gets behind menus, popovers and frosted panels", section: "Glass" },
   { page: "appearance", title: "Transparency", description: "Solid while your system’s Reduce transparency is on With little blur, glass stays nearly solid so the page’s text never shows through sharp How much of the page shows through them. Lower is easier to read", section: "Glass" },
