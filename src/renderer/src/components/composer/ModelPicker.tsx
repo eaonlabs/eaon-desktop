@@ -523,6 +523,7 @@ export function ModelPicker({
               labels={efforts.map((level) => EFFORT_LABEL[level])}
               value={Math.max(0, efforts.indexOf(effort))}
               model={engineChoice?.label ?? current?.label ?? ''}
+              look={settings?.appearance.effortStyle}
               onChange={(index) => setEffort(efforts[index])}
             />
           </div>

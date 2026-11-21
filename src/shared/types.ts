@@ -395,6 +395,12 @@ export type SeeThroughStyle =
   | 'diamond'
   | 'lines'
 
+/** How Fade out turns the wallpaper toward the bottom of the window: blurred, or redrawn in one of the patterned styles. */
+export type FadeStyle = 'blur' | 'dither' | 'ascii' | 'braille' | 'blocks' | 'dots' | 'halftone'
+
+/** How the model menu's reasoning slider draws its fill. */
+export type EffortStyle = 'characters' | 'dither' | 'braille' | 'blocks' | 'dots'
+
 /** A chosen wallpaper that is a video rather than a picture, by its file's type. */
 export const isVideoWallpaper = (path: string | null | undefined): boolean => Boolean(path && /\.(mp4|m4v|mov|webm)$/i.test(path))
 
@@ -421,8 +427,10 @@ export interface SeeThrough {
   readable?: boolean
   /** How soft the wallpaper is behind the whole window, 0–100, as frosted glass is; 0 shows it sharp. Unset is 0. */
   blur?: number
-  /** Fade out: the wallpaper is sharp at the top of the window and blurs, a little darker, toward the bottom. Unset is off. */
+  /** Fade out: the wallpaper is as chosen at the top of the window and turns, a little darker, toward the bottom. Unset is off. */
   fade?: boolean
+  /** How Fade out turns: blurred (unset), or the picture breaking into a pattern. A video always blurs. */
+  fadeStyle?: FadeStyle
 }
 
 /**
@@ -479,6 +487,8 @@ export interface Settings {
     fontSize: number
     fontSmoothing: boolean
     appIcon: AppIcon
+    /** How the model menu's reasoning slider draws its fill. Unset is characters. */
+    effortStyle?: EffortStyle
     /**
      * See-through: the desktop's wallpaper drawn behind the app, lined up
      * with the screen, so the window reads as glass over the desktop.

@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
-import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
+import { isVideoWallpaper, type AppIcon, type EffortStyle, type FadeStyle, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
 import { THEMES, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
@@ -188,6 +188,14 @@ export function AppearancePage(): JSX.Element {
               ]}
             />
           </Row>
+          <Row title="Reasoning slider" description="How the model menu’s reasoning track draws its fill">
+            <Select
+              width={130}
+              value={a.effortStyle ?? 'characters'}
+              onChange={(effortStyle) => void patchSettings({ appearance: { effortStyle } })}
+              options={EFFORT_STYLES}
+            />
+          </Row>
           {/* macOS-only: font smoothing is a WebKit switch only macOS
               honours. Elsewhere the switch would do nothing. */}
           {isMac && (
@@ -339,6 +347,26 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
  * picks. The OS only says which picture the desktop shows on macOS and
  * Windows; anywhere, Eaon's and a chosen one work.
  */
+/** Fade out's ways to turn, in Settings' order. */
+const FADE_STYLES: { value: FadeStyle; label: string }[] = [
+  { value: 'blur', label: 'Blur' },
+  { value: 'dither', label: 'Dither' },
+  { value: 'ascii', label: 'Characters' },
+  { value: 'braille', label: 'Braille' },
+  { value: 'blocks', label: 'Blocks' },
+  { value: 'dots', label: 'Dots' },
+  { value: 'halftone', label: 'Halftone' }
+]
+
+/** The reasoning slider's fills. */
+const EFFORT_STYLES: { value: EffortStyle; label: string }[] = [
+  { value: 'characters', label: 'Characters' },
+  { value: 'dither', label: 'Dither' },
+  { value: 'braille', label: 'Braille' },
+  { value: 'blocks', label: 'Blocks' },
+  { value: 'dots', label: 'Dots' }
+]
+
 function SeeThroughSection(): JSX.Element | null {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const see = settings?.appearance.seeThrough
@@ -464,6 +492,11 @@ function SeeThroughSection(): JSX.Element | null {
             <Row title="Fade out" description="Keep the wallpaper sharp at the top of the window and blur it, a little darker, toward the bottom, where you read and type">
               <Switch label="Fade out" checked={see.fade === true} onChange={(fade) => set({ fade })} />
             </Row>
+            {see.fade && (
+              <Row title="Fade style" description="How the bottom turns: blurred, or the wallpaper breaking into a pattern. A video always blurs">
+                <Select width={130} value={see.fadeStyle ?? 'blur'} onChange={(fadeStyle) => set({ fadeStyle })} options={FADE_STYLES} />
+              </Row>
+            )}
             <Row title="Style" description={styleInfo(style).hint} />
             <WallpaperStyles
               value={style}
