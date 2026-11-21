@@ -263,7 +263,11 @@ export class ClaudeSession {
     const step = this.step
     if (!step) return
     this.step = null
-    const usage = sum(this.usage.values())
+    const responses = [...this.usage.values()]
+    const usage = sum(responses)
+    // The step's last response is how full Claude's context is now.
+    const last = responses.at(-1)
+    if (last) usage.context = last.input + last.cacheRead + last.cacheWrite + last.output
     this.usage.clear()
     step.resolve({ text: step.text, calls, stop, usage })
   }

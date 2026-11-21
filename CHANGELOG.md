@@ -5,8 +5,28 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Six wallpapers of Eaon's own for See-through:** Dusk, Tide, Dune, Moss, Ember and Slate. They're soft and quiet so they stay out of the way of your work, and each comes in a dark and a light version that follows the theme. Pick one in Settings → Appearance → Wallpaper → Eaon. On Linux, where Eaon can't tell which wallpaper the desktop shows, See-through now works without choosing a picture first.
+
+### Changed
+- **Chat's and the ADE's sidebars have Settings, Pull requests and Issues as icons along the bottom,** with your two plans' usage rings at the other end in Chat (the ADE keeps them in its header). They moved there from the lists at the top, and Pull requests and Issues can now be reached from Chat. The day's token count under the sidebar is gone, along with its settings in Usage & limits. The ADE's Review button has Chat's mark for reviewing changes (two arrows) instead of the pull request one, which is Pull requests' alone.
+- **A plainer code panel.** A file opens full width under a row with where it sits (src › app › page.tsx) and its tools at the end: wrap, history, open in another app, and the project's files, which now start hidden. There's no status bar under the editor; who last changed the caret's line is at the top of History. In the tab strip, + follows the tabs, and a tab's × shows under the pointer.
+- **A quieter top bar in Chat:** the editor button is gone (⌘P and the dock's Files open the editor), and the temporary chat switch is only on the ordinary start page, since a temporary chat can't be in a project.
+- **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
+- **Work in a project opens the folder picker straight away** on a new chat; once a project is chosen, its button still lists your projects.
+- **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
+- **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
+- **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
+
 ### Fixed
+- **Frosted glass is smooth again.** Over a see-through wallpaper, the sidebars, the message box, menus, dialogs and cards had a grain over them that looked like sandpaper on a Retina screen and made dark glass look grey and dirty. It's gone, so the glass is a clean blur.
+- **A usage ring for a signed-out account shows, dim, instead of vanishing.** Its card says how to sign in (for Claude, `claude /login`). An account whose tool isn't on this computer still shows no ring.
+- **The context meter counts what the provider counted.** Each reply keeps the size of its latest request, so the meter shows how full the context really is instead of an estimate that left out most of the system prompt and tools. Claude's models through your Claude plan now plan with their full 1M window instead of 200K, so a long chat is no longer summarized at 140K.
+- **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
+- **The marks along the right edge of a conversation stay sharp** near its top and foot, instead of being blurred with the text under the top bar.
 - **Update notices say what the release is called.** An update named with a fourth number on GitHub, such as 2026.7.7.1, was announced by the version underneath it (2026.7.8), because a copy of Eaon only knew the names of releases before it. Eaon now reads the name from the release itself, in the update toast, Downloads and Settings → General.
+- **The file finder (⌘P), Find in project and the command palette aren't see-through any more** with a see-through wallpaper on. The page behind them showed through and ran into their rows; they are frosted like Eaon's other dialogs now, as are the page preview and the editor's ask bar.
+- **Provider logos in Settings → Usage & limits** and the usage rings, instead of a letter in a circle.
 
 ## [2026.7.7.1] — 2026-11-16
 

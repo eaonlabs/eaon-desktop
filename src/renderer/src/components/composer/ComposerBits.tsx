@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, CircleAlert, Folder, FolderOpen, FolderPlus, Hand, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, CircleAlert, Folder, FolderOpen, FolderPlus, Hand, Lock, LockOpen, ShieldCheck, X } from 'lucide-react'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
 import { codeProject, useApp } from '../../state/store'
 import { fileName } from '../../lib/files'
@@ -22,10 +22,13 @@ const MODES: { id: ApprovalMode; title: string; description: string; icon: typeo
   { id: 'full', title: 'Full access', description: 'Asks only if it can’t be undone', icon: CircleAlert }
 ]
 
+/** In the message box a lock says it: shut while it asks, open (and orange) with Full access. */
+const BUTTON_ICON: Record<ApprovalMode, typeof Hand> = { ask: Lock, auto: ShieldCheck, full: LockOpen }
+
 /**
- * How much Eaon may do without asking, always in view beside the message box
+ * How much Eaon may do without asking, always in view in the message box
  * rather than tucked in a menu: it decides what happens when you press send.
- * Full access is set in orange, so it is never on by accident.
+ * Full access's open lock is orange, so it is never on by accident.
  */
 export function PermissionPicker({ compact = false }: { compact?: boolean } = {}): JSX.Element {
   const { mode, patchSettings } = useApp(useShallow((s) => ({ mode: (s.settings?.approvalMode ?? 'ask') as ApprovalMode, patchSettings: s.patchSettings })))
@@ -49,7 +52,10 @@ export function PermissionPicker({ compact = false }: { compact?: boolean } = {}
         </button>
       ) : (
         <button ref={anchor} className="composer-pill composer-pill--permission" data-tone={mode === 'full' ? 'warn' : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title="What Eaon may do without asking">
-          <current.icon size={14} strokeWidth={1.9} />
+          {(() => {
+            const Icon = BUTTON_ICON[mode]
+            return <Icon size={14} strokeWidth={1.9} className="composer-pill__icon" />
+          })()}
           <span className="composer-pill__label">{current.title}</span>
           <ChevronDown size={13} strokeWidth={2} className="composer-pill__chevron" />
         </button>
@@ -103,6 +109,8 @@ function rememberProject(path: string): void {
  * card beside a conversation (`row`), the card's first row. Choosing a
  * folder puts the chat in that folder's project (made for it the first
  * time); a chat in no project is an ordinary one, with no coding tools.
+ * The pill with no project yet opens the system's folder picker at once;
+ * with one, the menu of projects and folders (and the way back out).
  */
 export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Element {
   const { project, inChat, workIn } = useApp(useShallow((s) => ({ project: codeProject(s), inChat: s.activeChatId !== null, workIn: s.workIn })))
@@ -110,6 +118,13 @@ export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Elem
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const label = project && cwd ? project.name : 'Work in a project'
+  const pickFolder = (): void => {
+    void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => {
+      if (!paths[0]) return
+      rememberProject(paths[0])
+      workIn(paths[0])
+    })
+  }
   return (
     <>
       {row ? (
@@ -119,7 +134,7 @@ export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Elem
           <ChevronDown size={14} strokeWidth={2} className="ws-row__chev" />
         </button>
       ) : (
-        <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? 'Choose the folder Eaon works in'}>
+        <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={cwd ? menu.toggle : pickFolder} title={cwd ?? 'Choose the folder Eaon works in'}>
           {cwd ? <FolderOpen size={14} strokeWidth={1.9} /> : <Folder size={14} strokeWidth={1.9} />}
           <span className="composer-pill__label">{label}</span>
         </button>

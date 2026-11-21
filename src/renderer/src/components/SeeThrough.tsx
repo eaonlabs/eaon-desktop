@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
-import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { wallpaperSource, wallpaperVideoUrl } from '@shared/wallpaper'
 import {
   filterOf,
   LEGIBLE_CONTRAST,
@@ -31,7 +31,8 @@ import '../styles/seeThrough.css'
  * one of the styles (seeThrough/styles.ts): halftone, characters, dither,
  * mosaic and the rest. The app's panels frost over all of it (seeThrough.css).
  *
- * A wallpaper of the user's own can be a video. It plays muted and looping,
+ * The picture can also be one of Eaon's own, in its dark or light version
+ * with the theme. A wallpaper of the user's own can be a video. It plays muted and looping,
  * as it is or redrawn in the style a few times a second, and holds still
  * while the window is hidden, with Reduce motion on, or when its Play switch
  * is off.
@@ -186,15 +187,16 @@ const NO_DRAG = 'button, a, input, textarea, select, [role="button"], [role="tab
 
 export function SeeThrough(): JSX.Element | null {
   const options = useApp((s) => s.settings?.appearance.seeThrough)
-  // The desktop's own picture needs an OS that says what it is; a chosen one works anywhere.
-  const custom = options?.source === 'custom' && Boolean(options.custom)
-  const on = Boolean(options?.enabled) && (custom || window.api.platform === 'darwin' || window.api.platform === 'win32')
+  // Where the desktop doesn't say what it shows, one of Eaon's stands in.
+  const from = options ? wallpaperSource(options, window.api.platform) : 'desktop'
+  const custom = from === 'custom'
+  const on = Boolean(options?.enabled)
+  const light = useLightTheme()
   /** Which picture: a new choice reloads it. */
-  const source = custom ? options?.custom : 'desktop'
+  const source = custom ? options?.custom : from === 'eaon' ? `eaon:${options?.wallpaper ?? ''}` : 'desktop'
   const video = custom && isVideoWallpaper(options?.custom) ? (options?.custom ?? null) : null
   const style: SeeThroughStyle = options?.style ?? (options?.texture === false ? 'photo' : 'halftone')
   const tint = Math.min(100, Math.max(0, options?.tint ?? 55))
-  const light = useLightTheme()
   const stillness = useReducedMotion()
   const plays = options?.videoPlays !== false && !stillness
 
@@ -249,14 +251,15 @@ export function SeeThrough(): JSX.Element | null {
   }, [on])
 
   // The display's picture: again when the window changes display, and on
-  // coming back to the app, in case the wallpaper changed meanwhile. A video
-  // has no picture to ask main for.
+  // coming back to the app, in case the wallpaper changed meanwhile. One of
+  // Eaon's again when the theme turns, for its other version. A video has no
+  // picture to ask main for.
   const displayId = display?.id
   useEffect(() => {
     if (!on || video || displayId === undefined) return
     let live = true
     const load = (): void => {
-      void window.api.wallpaper.picture(displayId).then((url) => live && setPicture((current) => (current === url ? current : url)))
+      void window.api.wallpaper.picture(displayId, light).then((url) => live && setPicture((current) => (current === url ? current : url)))
     }
     load()
     window.addEventListener('focus', load)
@@ -264,7 +267,7 @@ export function SeeThrough(): JSX.Element | null {
       live = false
       window.removeEventListener('focus', load)
     }
-  }, [on, video, displayId, source])
+  }, [on, video, displayId, source, light])
 
   // A picture's plate: drawn once, in its style.
   useEffect(() => {

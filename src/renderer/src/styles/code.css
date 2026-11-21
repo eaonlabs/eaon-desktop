@@ -899,6 +899,11 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* Working, and waiting for you: the colours of a session's state, in the tree, the list, and the list's Working. */
+.ade-tree,
+.ade-threads,
+.thread-dock {
   --ade-working: #f0a33a;
   --ade-live: #34c759;
 }
@@ -916,7 +921,7 @@
   gap: 9px;
   width: 100%;
   min-height: 34px;
-  padding: 0 34px 0 8px;
+  padding: 0 10px 0 8px;
   border-radius: var(--r-sm);
   color: var(--text);
   font-size: var(--fs-base);
@@ -929,6 +934,12 @@
 .ade-project__icon {
   flex: none;
   color: var(--ade-working);
+}
+.ade-project__row .thread-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 8.5px;
 }
 .ade-project__name {
   min-width: 0;
@@ -946,6 +957,20 @@
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   text-align: center;
+}
+/* Open or folded; the + takes its place under the pointer. */
+.ade-project__chev {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-4);
+  transition: rotate var(--dur) var(--ease);
+}
+.ade-project__chev[data-open] {
+  rotate: 90deg;
+}
+.ade-project__head:hover .ade-project__chev,
+.ade-project__head:has(.ade-project__add:focus-visible) .ade-project__chev {
+  visibility: hidden;
 }
 .ade-project__add {
   position: absolute;
@@ -989,7 +1014,8 @@
   text-align: left;
   color: var(--text);
 }
-.ade-session:not([data-active='true']) .ade-session__row:hover {
+/* The whole session lights under the pointer: its row, its tray, the agents listed under it. */
+.ade-session:not([data-active='true']):hover {
   background: var(--hover);
 }
 .ade-session[data-active='true'] .ade-session__row {
@@ -1035,11 +1061,26 @@
 .ade-session__diff-del {
   color: var(--diff-del-fg);
 }
+/* Its uncommitted lines over its branch's pull request, at the row's end. */
+.ade-session__end {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-left: auto;
+}
+.ade-session__end .ade-session__diff {
+  margin-left: 0;
+}
+/* On the branch's line, with or without a count over it. */
+.ade-session__end .ade-pr {
+  margin-top: auto;
+  margin-bottom: 1px;
+}
 .ade-session:hover:has(> .ade-session__add) .ade-session__diff {
   visibility: hidden;
-}
-.ade-session[data-solo='true'] .ade-session__row {
-  padding-right: 34px;
 }
 .ade-session:hover > .ade-session__add {
   opacity: 1;
@@ -1087,26 +1128,98 @@ body[data-reduce-motion='on'] .ade-spinner {
 .ade-agents {
   padding: 0 6px 6px;
 }
-.ade-agents__head {
+/* Along the bottom of a session's row, under its title: its agents, by what they're doing. Opens the list of them. */
+.ade-tray {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 5px 6px 5px 26px;
-  border-radius: var(--r-sm);
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-}
-.ade-agents__head:hover {
-  background: var(--hover);
-}
-.ade-agents__chevron {
+  gap: 12px;
+  width: calc(100% - 40px);
+  height: 24px;
+  margin: -2px 10px 7px 30px;
+  padding: 0 5px 0 7px;
+  border-radius: var(--r-xs);
+  background: color-mix(in srgb, var(--fg) 4.5%, transparent);
   color: var(--text-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.ade-tray:hover {
+  background: var(--hover-strong);
+}
+.ade-tray:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.ade-tray__group {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ade-tray__marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ade-tray__marks .term-mark {
+  border-radius: 3px;
+}
+.ade-tray__status {
+  flex: none;
+  color: var(--text-4);
+}
+.ade-tray__group[data-kind='live'] .ade-tray__status {
+  color: var(--ade-live);
+}
+.ade-tray .ade-spinner {
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  margin: 1px;
+  border-radius: 50%;
+}
+/* Not started this run: it starts when the session is shown. */
+.ade-tray__dot {
+  width: 6px;
+  height: 6px;
+  margin: 0 3.5px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.ade-tray__chev {
+  flex: none;
+  margin-left: auto;
   transition: rotate var(--dur) var(--ease);
 }
-.ade-agents__head[aria-expanded='false'] .ade-agents__chevron {
-  rotate: -90deg;
+.ade-tray[aria-expanded='true'] .ade-tray__chev {
+  rotate: 90deg;
 }
+
+/* A branch's pull request, in GitHub's colours: open green (amber while checks run, red when one fails), draft grey, merged purple, closed red. */
+.ade-pr {
+  flex: none;
+  display: inline-flex;
+  color: var(--diff-add-fg);
+}
+.ade-pr[data-tone='pending'] {
+  color: var(--ade-working);
+}
+.ade-pr[data-tone='failed'],
+.ade-pr[data-tone='closed'] {
+  color: var(--diff-del-fg);
+}
+.ade-pr[data-tone='merged'] {
+  color: #a371f7;
+}
+[data-theme='light'] .ade-pr[data-tone='merged'] {
+  color: #8250df;
+}
+.ade-pr[data-tone='draft'] {
+  color: var(--text-3);
+}
+
 .ade-agent {
   display: grid;
   grid-template-columns: 14px 15px minmax(0, 1fr) auto;

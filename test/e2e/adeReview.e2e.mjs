@@ -139,7 +139,7 @@ scenario('ADE review and SSH sessions: diff, line comments to an agent, commit, 
 
   // A session over SSH: the host from ~/.ssh/config, a folder under the remote home.
   // From New session: the ADE's sidebar keeps only what coding needs.
-  await page.click('.sidebar .nav-item', { text: /^New session$/ })
+  await page.click('.sidebar .side-find__tool[aria-label="New session"]')
   await page.click('.modal .ade-dialog__ssh')
   await page.find('.modal', { text: /devbox/ })
   await page.fill('.modal input[placeholder="~/projects/app"]', '~/remote/app')

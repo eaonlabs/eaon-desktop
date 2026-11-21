@@ -88,7 +88,7 @@ const stops = (): Stop[] => [
   },
   {
     workspace: 'eaon-code',
-    selector: '.sidebar .nav-item',
+    selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
     title: 'Settings',
@@ -151,7 +151,7 @@ const whatsNewStops = (): Stop[] => [
   },
   {
     workspace: 'workers',
-    selector: '.sidebar .nav-item',
+    selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
     title: 'A worker computer, and more chat apps',
@@ -166,7 +166,7 @@ const whatsNewStops = (): Stop[] => [
   },
   {
     workspace: 'eaon-code',
-    selector: '.sidebar .nav-item',
+    selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
     title: 'And in Settings',

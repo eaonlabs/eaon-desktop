@@ -3,8 +3,9 @@ import { execFile } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join, relative, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { isVideoWallpaper, type WallpaperFrame } from '@shared/types'
-import { WALLPAPER_SCHEME } from '@shared/wallpaper'
+import { WALLPAPER_SCHEME, WALLPAPERS, wallpaperFile, wallpaperSource } from '@shared/wallpaper'
 import { fileResponse } from '../fileResponse'
 import { store } from '../store'
 import type { Feature } from './types'
@@ -23,6 +24,8 @@ import type { Feature } from './types'
  * it in its own folder, and that copy is the only custom file it will ever
  * read, so the page can't point it anywhere else on the disk. A video is
  * played by the page itself (components/SeeThrough.tsx, through eaon-file://).
+ * Or one of Eaon's own (resources/wallpapers, scripts/make-wallpapers.py),
+ * in its dark or light version, whichever the page says goes with the theme.
  *
  * A window that has the effect on asks to be told where it is; it then hears
  * its position as it moves and resizes, and which display it is on, since
@@ -56,6 +59,12 @@ const run = (file: string, args: string[]): Promise<string> =>
 
 /** Where Eaon keeps the user's own wallpaper. */
 const customDir = (): string => join(app.getPath('userData'), 'wallpapers')
+
+/** Eaon's own wallpapers: Contents/Resources/wallpapers in a packaged app. */
+const eaonDir = (): string => (app.isPackaged ? join(process.resourcesPath, 'wallpapers') : fileURLToPath(new URL('../../resources/wallpapers', import.meta.url)))
+
+/** Their thumbnails, made once: they never change while Eaon runs. */
+const eaonPreviews = new Map<string, Promise<string | null>>()
 
 /** `path`, if it is Eaon's own copy of a chosen picture and still there. */
 async function customPath(path: string | null): Promise<string | null> {
@@ -125,15 +134,20 @@ async function previewOf(path: string): Promise<string | null> {
   return `data:image/jpeg;base64,${image.resize({ width: 320, quality: 'good' }).toJPEG(80).toString('base64')}`
 }
 
-/** The picture behind the window on `display`: the user's own when they chose one, else the desktop's. */
-async function wallpaperPath(display: Display): Promise<string | null> {
+/**
+ * The picture behind the window on `display`: the user's own when they chose
+ * one, one of Eaon's in the version for the theme, or the desktop's.
+ */
+async function wallpaperPath(display: Display, light: boolean): Promise<string | null> {
   const see = store.getSettings().appearance.seeThrough
-  if (see.source === 'custom') {
+  const source = wallpaperSource(see, process.platform)
+  if (source === 'custom') {
     const own = await customPath(see.custom)
     // A video is the page's to play; there is no picture to make of it here.
     if (own && isVideoWallpaper(own)) return null
     if (own) return own
   }
+  if (source === 'eaon') return join(eaonDir(), wallpaperFile(see.wallpaper, light))
   return desktopPath(display)
 }
 
@@ -181,8 +195,8 @@ async function loadPicture(path: string, display: Display): Promise<string | nul
 /** One picture per display and file version: re-reading a 4K HEIC on every focus would show. */
 const cache = new Map<string, Promise<string | null>>()
 
-async function pictureFor(display: Display): Promise<string | null> {
-  const path = await wallpaperPath(display).catch(() => null)
+async function pictureFor(display: Display, light: boolean): Promise<string | null> {
+  const path = await wallpaperPath(display, light).catch(() => null)
   if (!path) return null
   const modified = await stat(path).then((s) => s.mtimeMs).catch(() => 0)
   const key = `${display.id}:${display.bounds.width}x${display.bounds.height}:${path}:${modified}`
@@ -329,16 +343,27 @@ export const wallpaperFeature: Feature = {
       return own && !isVideoWallpaper(own) ? previewOf(own) : null
     })
     // The picture behind the window now, small: what Settings' style previews are drawn from.
-    ipcMain.handle('wallpaper:thumbnail', async (event): Promise<string | null> => {
+    ipcMain.handle('wallpaper:thumbnail', async (event, light: unknown): Promise<string | null> => {
       const window = BrowserWindow.fromWebContents(event.sender)
       const display = window ? screen.getDisplayMatching(window.getContentBounds()) : screen.getPrimaryDisplay()
-      const path = await wallpaperPath(display).catch(() => null)
+      const path = await wallpaperPath(display, light === true).catch(() => null)
       return path ? previewOf(path) : null
     })
+    // Eaon's own wallpapers, small, in the version for the theme: their choices in Settings.
+    ipcMain.handle('wallpaper:eaon', async (_event, light: unknown): Promise<Record<string, string>> => {
+      const previews: Record<string, string> = {}
+      for (const { id } of WALLPAPERS) {
+        const path = join(eaonDir(), wallpaperFile(id, light === true))
+        if (!eaonPreviews.has(path)) eaonPreviews.set(path, previewOf(path))
+        const preview = await eaonPreviews.get(path)
+        if (preview) previews[id] = preview
+      }
+      return previews
+    })
 
-    ipcMain.handle('wallpaper:picture', async (_event, displayId: unknown): Promise<string | null> => {
+    ipcMain.handle('wallpaper:picture', async (_event, displayId: unknown, light: unknown): Promise<string | null> => {
       const display = screen.getAllDisplays().find((d) => d.id === displayId) ?? screen.getPrimaryDisplay()
-      return pictureFor(display)
+      return pictureFor(display, light === true)
     })
   }
 }

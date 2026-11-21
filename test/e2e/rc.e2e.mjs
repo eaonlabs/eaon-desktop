@@ -170,7 +170,7 @@ scenario('Eaon Remote: link with the website, then sessions, a live terminal and
     const linked = await page.eval(() => window.api.rc.info())
     assert.equal(linked.login, 'tester')
     assert.equal(linked.linked, true)
-    await page.click('.sidebar .nav-item', { text: /^Settings$/ })
+    await page.click('.sidebar .nav-item, .sidebar .foot-bar__btn', { text: /^Settings$/ })
     await page.click('.settings__nav-item, .settings-nav button, nav button', { text: /Remote devices/ }).catch(() => undefined)
     await s.shot(page, 'settings-linked')
     await page.click('button, a', { text: /Back to app/ })

@@ -1,25 +1,26 @@
 import { DotMatrix, Spinner, type DotState } from './Spinner'
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Monitor, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
-import { SidebarFoot } from './SidebarFoot'
-import { CodeSidebar } from './code/CodeSidebar'
-import { openNewSession, useAdeSessions } from './code/sessionsStore'
+import { UsageRings } from './UsageRings'
+import { AdeDock, AdeFind, CodeSidebar } from './code/CodeSidebar'
+import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { useTradingOn } from './trading/useTradingOn'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { FolderMenu } from './composer/ComposerBits'
 import { notify } from './Notice'
-import { CHAT_SORTS, PROJECT_SORTS, SIDEBAR_IS_NEW, sortChats, sortProjects, useChatSidebar, type ChatSort, type ProjectSort } from './chatSidebar'
-import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
+import { CHAT_SORTS, PROJECT_SORTS, SIDEBAR_IS_NEW, sortChats, sortProjects, useChatSidebar, type ChatSort, type ChatView, type ProjectSort } from './chatSidebar'
+import { DoneMark, FindTool, ProjectBadge, SidebarFind, ThreadLines, ThreadSection, useHeldOrder, useNow, WorkingFor } from './threads'
+import { matchesSearch } from '@shared/threadList'
+import { ageLabel } from '@shared/adeSessions'
+import { ConfirmDialog, MenuItem, Modal, Popover, useDisclosure } from './ui'
 import { RemoteFolderDialog } from './RemoteFolderDialog'
-import { COMPUTERS_IN_SIDEBAR } from './computers/ComputersPage'
 import type { Project } from '@shared/types'
-import { sessionSubtitle, sessionTitle, type AdeSession } from '@shared/adeSessions'
 import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
 
 export function Sidebar(): JSX.Element {
@@ -27,9 +28,6 @@ export function Sidebar(): JSX.Element {
     useShallow((s) => ({ sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar, goForward: s.goForward }))
   )
   const canGoForward = useApp((s) => s.canGoForward())
-
-  const searchAnchor = useRef<HTMLButtonElement>(null)
-  const searchMenu = useDisclosure()
 
   const kind = useWorkspaceKind()
   // Inert, not only aria-hidden: a hidden sidebar's buttons were still reached
@@ -45,17 +43,8 @@ export function Sidebar(): JSX.Element {
       <div className="titlebar">
         <WindowTitle />
         <DownloadsButton />
-        {kind === 'workers' ? (
-          <WorkersSearchButton />
-        ) : kind === 'code' ? (
-          <button ref={searchAnchor} className="icon-btn" onClick={searchMenu.toggle} aria-label="Search sessions" title="Search sessions and their conversations">
-            <Search size={16} strokeWidth={1.9} />
-          </button>
-        ) : (
-          <button ref={searchAnchor} className="icon-btn" onClick={searchMenu.toggle} aria-label="Search chats" title="Search chats">
-            <Search size={16} strokeWidth={1.9} />
-          </button>
-        )}
+        {/* Chat and the ADE search from the row over their lists. */}
+        {kind === 'workers' && <WorkersSearchButton />}
         <button className="icon-btn" onClick={toggleSidebar} title="Hide sidebar" aria-label="Hide sidebar">
           <PanelLeft size={16} strokeWidth={1.9} />
         </button>
@@ -68,17 +57,15 @@ export function Sidebar(): JSX.Element {
         )}
       </div>
 
-      {kind === 'code' ? (
-        <AdeSearchMenu anchor={searchAnchor} open={searchMenu.open} onClose={searchMenu.close} />
-      ) : (
-        <SearchMenu anchor={searchAnchor} open={searchMenu.open} onClose={searchMenu.close} />
-      )}
-
-      {/* Each tab's places stay put; its list scrolls under them and fades at its edges. */}
-      <div className="sidebar__menu">{kind === 'workers' ? <WorkersNav part="menu" /> : kind === 'code' ? <AdeMenu /> : <ChatMenu />}</div>
+      {/* Each tab's places stay put; its list scrolls under them and fades at its edges.
+          Chat's and the ADE's other places are icons along the foot. */}
+      <div className="sidebar__menu" data-kind={kind}>
+        {kind === 'workers' ? <WorkersNav part="menu" /> : kind === 'code' ? <AdeFind /> : <ChatMenu />}
+      </div>
       <FadingBody key={kind}>{kind === 'workers' ? <WorkersNav part="list" /> : kind === 'code' ? <CodeSidebar /> : <ChatNav />}</FadingBody>
-      {/* The ADE has the plans' rings in its header already. */}
-      <SidebarFoot rings={kind !== 'code'} />
+      {kind === 'code' ? <AdeDock /> : kind !== 'workers' && <ChatDock />}
+      {/* The ADE has the plans' rings in its header already; Chat has them on its row of places. */}
+      {kind !== 'workers' && <FootBar ade={kind === 'code'} />}
       </div>
       </div>
     </aside>
@@ -171,15 +158,57 @@ export function NavItem({
 const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
- * Chat mode, laid out like the design spec's sidebar: the five destinations,
+ * Chat's and the ADE's places along the sidebar's foot, as a row of icons:
+ * Settings, Pull requests and Issues (and in the ADE Computers, where they're
+ * on). Chat has the two plans' usage rings at its other end; the ADE has them
+ * in its header. Their names are in the tooltips, and for screen readers.
+ */
+function FootBar({ ade }: { ade: boolean }): JSX.Element {
+  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
+  const places: { label: string; icon: JSX.Element; active: boolean; go: () => void }[] = [
+    { label: 'Settings', icon: <SettingsIcon size={16} strokeWidth={1.8} />, active: false, go: () => setSettingsPage('general') },
+    { label: 'Pull requests', icon: <GitPullRequest size={16} strokeWidth={1.8} />, active: view === 'pull-requests', go: () => setView('pull-requests') },
+    { label: 'Issues', icon: <ListTodo size={16} strokeWidth={1.8} />, active: view === 'issues', go: () => setView('issues') },
+    ...(ade && COMPUTERS_IN_SIDEBAR
+      ? [{ label: 'Computers', icon: <Monitor size={16} strokeWidth={1.8} />, active: view === 'computers', go: () => setView('computers') }]
+      : [])
+  ]
+  return (
+    <nav className="foot-bar" aria-label="Places">
+      {places.map((place) => (
+        <button
+          key={place.label}
+          type="button"
+          className="icon-btn foot-bar__btn"
+          title={place.label}
+          aria-current={place.active ? 'page' : undefined}
+          data-active={place.active || undefined}
+          onClick={place.go}
+        >
+          {place.icon}
+          <span className="foot-bar__label">{place.label}</span>
+        </button>
+      ))}
+      {!ade && (
+        <>
+          <span className="foot-bar__spacer" />
+          <UsageRings placement="top-end" />
+        </>
+      )}
+    </nav>
+  )
+}
+
+/**
+ * Chat mode, laid out like the design spec's sidebar: its four destinations,
  * then Projects, then Chats, each under its own heading. Scheduled tasks
  * moved to the Workers tab — things that run on their own live together
  * there.
  */
 /** Chat's places, which stay put above its projects and chats. */
 function ChatMenu(): JSX.Element {
-  const { view, setView, setModelsRepo, newChat, setSettingsPage } = useApp(
-    useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, setSettingsPage: s.setSettingsPage }))
+  const { view, setView, setModelsRepo, newChat } = useApp(
+    useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat }))
   )
   const { on: tradingOn } = useTradingOn()
   return (
@@ -202,33 +231,287 @@ function ChatMenu(): JSX.Element {
         active={view === 'plugins' || view === 'integrations'}
         onClick={() => setView('plugins')}
       />
-      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
+      <ChatFind />
     </>
   )
 }
 
-/** Chat's projects, then its chats outside them: the part of the sidebar that scrolls. */
+/**
+ * Chat's list, the part of the sidebar that scrolls: Projects, each folding
+ * over its chats, over Chats (ChatTree); or the chats in projects as one
+ * list, each tagged with its project, over Chats (ChatThreads), as the
+ * search row's view menu has it. A search always lists what it finds as one list.
+ */
 function ChatNav(): JSX.Element {
-  const { view, activeChatId, runs, newChat } = useApp(
-    useShallow((s) => ({
-      view: s.view,
-      activeChatId: s.activeChatId,
-      runs: s.runs,
-      newChat: s.newChat
-    }))
+  const view = useChatSidebar((s) => s.view)
+  const searching = useChatSidebar((s) => s.query.trim() !== '')
+  return view === 'list' || searching ? <ChatThreads /> : <ChatTree />
+}
+
+/** How long a reply runs before its chat joins Working under the list: a quick answer stays where it is. */
+const CHAT_WORKING_AFTER_MS = 10_000
+
+interface ChatThreadsData {
+  /** Chats in a project, as the list's rows. */
+  rows: ChatListItem[]
+  /** Chats outside a project, for the Chats section under the list. */
+  loose: ChatListItem[]
+  /** Replies running past CHAT_WORKING_AFTER_MS, longest first, with when each began. */
+  working: { chat: ChatListItem; since: number }[]
+  /** Each chat's project's name, by chat id; none for a chat outside a project. */
+  project: Record<string, string>
+  /** Each project chat's project, by chat id, and its folder (for its owner's picture) where it has one. */
+  projectId: Record<string, string>
+  folder: Record<string, string>
+  /** When each chat was last active, to the minute (so streaming doesn't re-render the list), by id. */
+  at: Record<string, number>
+  /** When each running reply began, by chat id. */
+  starts: Record<string, number>
+  now: number
+}
+
+/**
+ * Chat's chats as the list shows them (ChatThreads, ChatDock): searched, and
+ * split into the project chats' rows, the ones of those working, and the
+ * chats outside a project (which keep their one-line rows under Chats).
+ */
+function useChatThreads(): ChatThreadsData {
+  const chats = useSortedChats()
+  const query = useChatSidebar((s) => s.query)
+  const project = useApp(
+    useShallow((s) => {
+      const names = new Map(s.projects.map((p) => [p.id, p.name]))
+      const out: Record<string, string> = {}
+      for (const chat of s.chats) {
+        const name = chat.projectId && !chat.archived ? names.get(chat.projectId) : undefined
+        if (name) out[chat.id] = name
+      }
+      return out
+    })
   )
-  // Keeps its identity while a reply streams (see `chatList`), so tokens do
-  // not re-render the sidebar.
+  const projectId = useApp(
+    useShallow((s) => {
+      const out: Record<string, string> = {}
+      for (const chat of s.chats) if (chat.projectId && !chat.archived) out[chat.id] = chat.projectId
+      return out
+    })
+  )
+  const folder = useApp(
+    useShallow((s) => {
+      const folders = new Map(s.projects.map((p) => [p.id, p.folder]))
+      const out: Record<string, string> = {}
+      for (const chat of s.chats) {
+        const at = chat.projectId && !chat.archived ? folders.get(chat.projectId) : null
+        if (at) out[chat.id] = at
+      }
+      return out
+    })
+  )
+  const at = useApp(useShallow((s) => Object.fromEntries(s.visibleChats().map((c) => [c.id, Math.floor(c.updatedAt / 60_000) * 60_000]))))
+  const starts = useApp(
+    useShallow((s) => {
+      const out: Record<string, number> = {}
+      for (const [chatId, messageId] of Object.entries(s.runs)) {
+        out[chatId] = s.chats.find((c) => c.id === chatId)?.messages.find((m) => m.id === messageId)?.createdAt ?? 0
+      }
+      return out
+    })
+  )
+  const now = useNow(Object.keys(starts).length > 0)
+  // Titles, projects and what was said, read when the search changes rather than subscribed:
+  // a subscription re-ran a full-text search of every chat on every streamed token.
+  const found = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return null
+    return new Set(
+      useApp
+        .getState()
+        .visibleChats()
+        .filter(
+          (chat) =>
+            matchesSearch(q, [chat.title, project[chat.id]]) ||
+            chat.messages.some((m) => m.parts.some((part) => part.type !== 'tool' && part.text.toLowerCase().includes(q)))
+        )
+        .map((chat) => chat.id)
+    )
+  }, [query, chats, project])
+  const rows: ChatListItem[] = []
+  const loose: ChatListItem[] = []
+  const working: ChatThreadsData['working'] = []
+  for (const chat of chats) {
+    if (found && !found.has(chat.id)) continue
+    if (!(chat.id in project)) {
+      loose.push(chat)
+      continue
+    }
+    const since = starts[chat.id]
+    if (since && now - since >= CHAT_WORKING_AFTER_MS) working.push({ chat, since })
+    else rows.push(chat)
+  }
+  working.sort((a, b) => a.since - b.since)
+  return { rows, loose, working, project, projectId, folder, at, starts, now }
+}
+
+/** The project a chat is in, for its menu's Edit project. */
+function projectOfChat(chatId: string): Project | null {
+  const { chats, projects } = useApp.getState()
+  const id = chats.find((c) => c.id === chatId)?.projectId
+  return projects.find((p) => p.id === id) ?? null
+}
+
+/**
+ * The chats in projects, one list, each tagged with its project, its order
+ * held still under the pointer; then the chats outside a project under
+ * Chats, a line each, as they always were.
+ */
+function ChatThreads(): JSX.Element {
+  const { view, activeChatId, runs } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, runs: s.runs })))
+  const searching = useChatSidebar((s) => s.query.trim() !== '')
+  const threads = useChatThreads()
+  const { order, hold } = useHeldOrder(threads.rows.map((chat) => chat.id))
+  const byId = new Map(threads.rows.map((chat) => [chat.id, chat]))
+  const [editing, setEditing] = useState<Project | null>(null)
+  const editProject = useCallback((chatId: string) => setEditing(projectOfChat(chatId)), [])
+  const nothing = searching && threads.rows.length === 0 && threads.loose.length === 0
+  return (
+    <>
+      {nothing && <div className="sidebar__empty">{threads.working.length > 0 ? 'Only working chats match' : 'No chats match'}</div>}
+      {threads.rows.length > 0 && (
+        <div className="chat-threads" {...hold}>
+          {order.map((id, index) => {
+            const chat = byId.get(id)
+            if (!chat) return null
+            return (
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                index={index}
+                active={chat.id === activeChatId && view === 'chat'}
+                streaming={chat.id in runs}
+                inProject
+                look="thread"
+                project={threads.project[chat.id] ?? null}
+                projectId={threads.projectId[chat.id] ?? null}
+                folder={threads.folder[chat.id] ?? null}
+                at={threads.at[chat.id] ?? 0}
+                now={threads.now}
+                since={threads.starts[chat.id] ?? 0}
+                onEditProject={editProject}
+              />
+            )
+          })}
+        </div>
+      )}
+      <LooseChats loose={threads.loose} divided={threads.rows.length > 0} searching={searching} />
+      {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} />}
+    </>
+  )
+}
+
+/** Under Chat's list, out of its scroll: the project chats whose replies have been running a while. */
+function ChatDock(): JSX.Element | null {
+  const view = useChatSidebar((s) => s.view)
+  const searching = useChatSidebar((s) => s.query.trim() !== '')
+  if (view !== 'list' && !searching) return null
+  return <ChatWorking />
+}
+
+function ChatWorking(): JSX.Element | null {
+  const { view, activeChatId } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId })))
+  const { open, setOpen } = useChatSidebar(useShallow((s) => ({ open: s.workingOpen, setOpen: s.setWorkingOpen })))
+  const threads = useChatThreads()
+  const [editing, setEditing] = useState<Project | null>(null)
+  const editProject = useCallback((chatId: string) => setEditing(projectOfChat(chatId)), [])
+  if (threads.working.length === 0) return null
+  return (
+    <div className="thread-dock scroll">
+      <ThreadSection label="Working" count={threads.working.length} open={open} onToggle={() => setOpen(!open)} id="chat-working">
+        {threads.working.map(({ chat, since }, index) => (
+          <ChatRow
+            key={chat.id}
+            chat={chat}
+            index={index}
+            active={chat.id === activeChatId && view === 'chat'}
+            streaming
+            inProject
+            look="thread"
+            project={threads.project[chat.id] ?? null}
+            projectId={threads.projectId[chat.id] ?? null}
+            folder={threads.folder[chat.id] ?? null}
+            at={0}
+            now={threads.now}
+            since={since}
+            onEditProject={editProject}
+          />
+        ))}
+      </ThreadSection>
+      {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} />}
+    </div>
+  )
+}
+
+/** The search row under Chat's places: the search, how the list is shown, and a new project. */
+function ChatFind(): JSX.Element {
+  const { query, setQuery } = useChatSidebar(useShallow((s) => ({ query: s.query, setQuery: s.setQuery })))
+  const addAnchor = useRef<HTMLButtonElement>(null)
+  const adding = useDisclosure()
+  const start = (folder: string | null): void => {
+    if (!folder) return
+    const app = useApp.getState()
+    app.newChat(app.projectForFolder(folder).id)
+  }
+  return (
+    <>
+      <SidebarFind value={query} onChange={setQuery} label="Search chats and what was said in them">
+        <ChatViewMenu />
+        <FindTool ref={addAnchor} label="New project: choose a folder to code in" open={adding.open} onClick={adding.toggle}>
+          <FolderPlus size={15} strokeWidth={1.8} />
+        </FindTool>
+      </SidebarFind>
+      <FolderMenu anchor={addAnchor} open={adding.open} onClose={adding.close} onChoose={start} />
+    </>
+  )
+}
+
+const CHAT_VIEWS: Record<ChatView, string> = { projects: 'By project', list: 'One list' }
+
+function ChatViewMenu(): JSX.Element {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const menu = useDisclosure()
+  const { view, setView } = useChatSidebar(useShallow((s) => ({ view: s.view, setView: s.setView })))
+  return (
+    <>
+      <FindTool ref={anchor} label="Sort and view" open={menu.open} onClick={menu.toggle}>
+        <ListFilter size={15} strokeWidth={1.8} />
+      </FindTool>
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-end" width={200}>
+        <div className="menu__label">Show chats</div>
+        {(Object.entries(CHAT_VIEWS) as [ChatView, string][]).map(([value, title]) => (
+          <MenuItem
+            key={value}
+            title={title}
+            checked={value === view}
+            onClick={() => {
+              setView(value)
+              menu.close()
+            }}
+          />
+        ))}
+        <div className="menu__label">Sort chats by</div>
+        <ChatSortItems close={menu.close} />
+      </Popover>
+    </>
+  )
+}
+
+/** Chat's projects, then its chats outside them. */
+function ChatTree(): JSX.Element {
   const chats = useSortedChats()
   const projectChatIds = useApp(useShallow((s) => s.chats.filter((c) => c.projectId && !c.archived).map((c) => c.id)))
   const loose = useMemo(() => {
     const inProject = new Set(projectChatIds)
     return chats.filter((c) => !inProject.has(c.id))
   }, [chats, projectChatIds])
-  const { folded, setFolded } = useChatSidebar(useShallow((s) => ({ folded: s.chatsFolded, setFolded: s.setChatsFolded })))
-  // A chat opened (or just started) outside a project must be visible, so
-  // Chats unfolds for it; folding it again is the user's call, and so is a
-  // fold kept from last time.
   // Its first showing with nothing under Chats (an update from 2026.6 moved
   // them into the project made from its folder): the projects holding chats
   // open, or the chats would look gone behind a folded project.
@@ -239,24 +522,53 @@ function ChatNav(): JSX.Element {
     const holding = [...new Set(useApp.getState().chats.filter((c) => c.projectId && !c.archived).map((c) => c.projectId!))]
     for (const id of holding.slice(0, 3)) useChatSidebar.getState().setProjectOpen(id, true)
   }, [loose.length, projectChatIds.length])
+
+  return (
+    <>
+      <Projects />
+      <LooseChats loose={loose} divided />
+    </>
+  )
+}
+
+/**
+ * Chats outside a project, under their own folding heading, a line each:
+ * the title, and a mark at the end while it replies, failed, has a new
+ * reply, or is pinned. Under the projects in either view.
+ */
+function LooseChats({ loose, divided, searching = false }: { loose: ChatListItem[]; divided: boolean; searching?: boolean }): JSX.Element | null {
+  const { view, activeChatId, runs, newChat } = useApp(
+    useShallow((s) => ({
+      view: s.view,
+      activeChatId: s.activeChatId,
+      runs: s.runs,
+      newChat: s.newChat
+    }))
+  )
+  const { folded, setFolded } = useChatSidebar(useShallow((s) => ({ folded: s.chatsFolded, setFolded: s.setChatsFolded })))
+  // A chat opened (or just started) outside a project must be visible, so
+  // Chats unfolds for it; folding it again is the user's call, and so is a
+  // fold kept from last time.
   const activeLoose = loose.some((c) => c.id === activeChatId) ? activeChatId : null
   const shownActive = useRef(activeLoose)
   useEffect(() => {
     if (activeLoose && activeLoose !== shownActive.current) setFolded(false)
     shownActive.current = activeLoose
   }, [activeLoose, setFolded])
+  // A search that finds none of them leaves the heading out.
+  if (searching && loose.length === 0) return null
+  // What a search finds shows even in a folded section.
+  const open = !folded || searching
 
   return (
     <>
-      <Projects />
-
-      <SidebarHead label="Chats" folded={folded} onFold={() => setFolded(!folded)} list="sidebar-chats" divided>
+      <SidebarHead label="Chats" folded={!open} onFold={() => setFolded(!folded)} list="sidebar-chats" divided={divided}>
         <ChatSortButton />
         <button className="sidebar-head__tool" aria-label="New chat" title="New chat" onClick={() => newChat()}>
           <SquarePen size={14} strokeWidth={1.9} />
         </button>
       </SidebarHead>
-      {!folded && (
+      {open && (
         <div id="sidebar-chats">
           {loose.length === 0 ? (
             <div className="sidebar__empty">No chats</div>
@@ -365,31 +677,6 @@ function ChatSortButton(): JSX.Element {
 }
 
 /**
- * The ADE: only what coding needs. Starting a session (on this computer, or
- * over SSH from the same dialog), the pull requests and Linear issues it works
- * from, and Settings; then its sessions. Models, Plugins and Trading live in
- * the Chat sidebar, where they are used.
- */
-/** The ADE's places, which stay put above its sessions. */
-function AdeMenu(): JSX.Element {
-  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
-  return (
-    <>
-      <NavItem icon={<SquarePen {...ICON} />} label="New session" onClick={() => void openNewSession()} />
-      <NavItem
-        icon={<GitPullRequest {...ICON} />}
-        label="Pull requests"
-        active={view === 'pull-requests'}
-        onClick={() => setView('pull-requests')}
-      />
-      <NavItem icon={<ListTodo {...ICON} />} label="Issues" active={view === 'issues'} onClick={() => setView('issues')} />
-      {COMPUTERS_IN_SIDEBAR && <NavItem icon={<Monitor {...ICON} />} label="Computers" active={view === 'computers'} onClick={() => setView('computers')} />}
-      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
-    </>
-  )
-}
-
-/**
  * Projects are where Chat codes: each is a folder, and its chats are coding
  * sessions in it, with the workspace card, terminal, Git and the dock's
  * files and diff. + picks a folder and starts a session there. A project
@@ -402,7 +689,7 @@ function Projects(): JSX.Element {
   const order = useApp(useShallow((s) => sortProjects(s.visibleProjects(), s.chats, sort).map((p) => p.id)))
   const all = useApp((s) => s.projects)
   const projects = useMemo(() => order.map((id) => all.find((p) => p.id === id)).filter((p): p is Project => Boolean(p)), [order, all])
-  const anyOpen = useChatSidebar((s) => order.some((id) => s.open[id]))
+  const anyOpen = useChatSidebar((s) => order.some((id) => !s.folded[id]))
   const collapseProjects = useChatSidebar((s) => s.collapseProjects)
   const [editing, setEditing] = useState<Project | null>(null)
   const addAnchor = useRef<HTMLButtonElement>(null)
@@ -416,7 +703,7 @@ function Projects(): JSX.Element {
     <>
       <SidebarHead label="Projects">
         {anyOpen && (
-          <button className="sidebar-head__tool" aria-label="Collapse all projects" title="Collapse all projects" onClick={collapseProjects}>
+          <button className="sidebar-head__tool" aria-label="Collapse all projects" title="Collapse all projects" onClick={() => collapseProjects(order)}>
             <ChevronsDownUp size={14} strokeWidth={1.9} />
           </button>
         )}
@@ -478,7 +765,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
   const ids = useApp(useShallow((s) => s.chats.filter((c) => c.projectId === project.id && !c.archived).map((c) => c.id)))
   const inProject = useMemo(() => chats.filter((c) => ids.includes(c.id)), [chats, ids])
   const containsActive = inProject.some((c) => c.id === activeChatId)
-  const open = useChatSidebar((s) => Boolean(s.open[project.id]))
+  const open = useChatSidebar((s) => !s.folded[project.id])
   const setProjectOpen = useChatSidebar((s) => s.setProjectOpen)
   const setOpen = (next: boolean): void => setProjectOpen(project.id, next)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -513,7 +800,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
         }}
       >
         <span className="nav-item__icon">
-          <FolderClosed size={15} strokeWidth={1.9} />
+          <ProjectBadge name={project.name} folder={project.folder && !project.folder.startsWith('ssh://') ? project.folder : null} />
         </span>
         <span className="nav-item__label" title={project.folder ?? 'No folder yet: Edit project to choose the one its chats code in'}>
           {project.name}
@@ -719,7 +1006,15 @@ const ChatRow = memo(function ChatRow({
   index,
   active,
   streaming,
-  inProject = false
+  inProject = false,
+  look = 'tree',
+  project = null,
+  projectId = null,
+  folder = null,
+  at = 0,
+  now = 0,
+  since = 0,
+  onEditProject
 }: {
   chat: ChatListItem
   index: number
@@ -727,14 +1022,29 @@ const ChatRow = memo(function ChatRow({
   streaming: boolean
   /** Under a project rather than in Chats: it can move back out. */
   inProject?: boolean
+  /** "thread": the list's row (ThreadLines), its project's tag and name over its title. */
+  look?: 'tree' | 'thread'
+  /** Its project's name, in the list. */
+  project?: string | null
+  /** Its project, for New chat in it, and that project's folder, for the picture on its tag. */
+  projectId?: string | null
+  folder?: string | null
+  /** When it was last active, and the time now, for its age in the list. */
+  at?: number
+  now?: number
+  /** When its running reply began. */
+  since?: number
+  /** Opens its project's Edit project (the list has no project rows to do it from). */
+  onEditProject?: (chatId: string) => void
 }): JSX.Element {
   // Read here rather than take an `onOpen` prop: `openChat` is a stable
   // reference from the store, so `chat`/`index`/`active`/`streaming` are now
   // the only props ChatRow ever receives, and they only change for a row
   // whose own chat actually changed — memo() can finally do its job.
-  const { openChat, renameChat, togglePin, archiveChat, deleteChat } = useApp(
+  const { openChat, newChat, renameChat, togglePin, archiveChat, deleteChat } = useApp(
     useShallow((st) => ({
       openChat: st.openChat,
+      newChat: st.newChat,
       renameChat: st.renameChat,
       togglePin: st.togglePin,
       archiveChat: st.archiveChat,
@@ -760,7 +1070,7 @@ const ChatRow = memo(function ChatRow({
   // Waiting out a rate limit or a retry: the only change of pace while a reply runs.
   const retrying = useApp((st) => {
     const run = st.runs[chat.id]
-    if (!inProject || !run) return false
+    if ((!inProject && look !== 'thread') || !run) return false
     return Boolean(st.chats.find((c) => c.id === chat.id)?.messages.find((m) => m.id === run)?.notice)
   })
   const asking = useApp((st) => {
@@ -778,76 +1088,109 @@ const ChatRow = memo(function ChatRow({
     else setDraft(chat.title)
   }
 
+  const renameInput = (
+    <input aria-label="Name"
+      autoFocus
+      className="nav-item__label"
+      value={draft}
+      style={{ background: 'transparent', border: 0, outline: 'none' }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commitRename}
+      onKeyDown={(e) => {
+        // Not while an input method is composing: that Enter picks the characters.
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitRename()
+        if (e.key === 'Escape') {
+          setDraft(chat.title)
+          setRenaming(false)
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+    />
+  )
+  const thread = look === 'thread'
+  // In the list: what it is doing, or how long ago it was active, at the end of its first line.
+  const when = !thread ? null : streaming ? (
+    asking ? (
+      <span className="thread-status thread-status--asking">Needs you</span>
+    ) : (
+      <WorkingFor since={since} label={retrying ? 'Retrying' : 'Working'} />
+    )
+  ) : failed ? (
+    <span className="thread-status thread-status--failed">
+      <CircleAlert size={12} strokeWidth={2.2} aria-hidden="true" />
+      Failed
+    </span>
+  ) : unread ? (
+    <DoneMark />
+  ) : at > 0 && now > 0 ? (
+    <span className="trow__age">{ageLabel(at, now)}</span>
+  ) : null
+
+  // The list has no project headings to start one from: each project chat's row offers another chat in its project.
+  const addChat = thread && projectId ? () => newChat(projectId) : undefined
+
   return (
     <>
-      <div
-        ref={anchor}
-        className="nav-item nav-item--staggered"
-        data-active={active || undefined}
-        // Only the first dozen carry a delay; past that the cascade would feel
-        // like lag rather than sequence.
-        style={{ ['--i' as string]: Math.min(index, 12) }}
-        role="button"
-        tabIndex={0}
-        aria-current={active ? 'page' : undefined}
-        onClick={() => openChat(chat.id)}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return
-          if (e.key === 'Enter' || e.key === ' ') {
+      <RowWithAdd add={addChat} label={`New chat in ${project ?? 'this project'}`}>
+        <div
+          ref={anchor}
+          className={thread ? 'chat-thread nav-item--staggered' : 'nav-item nav-item--staggered'}
+          data-active={active || undefined}
+          // Only the first dozen carry a delay; past that the cascade would feel
+          // like lag rather than sequence.
+          style={{ ['--i' as string]: Math.min(index, 12) }}
+          role="button"
+          tabIndex={0}
+          aria-current={active ? 'page' : undefined}
+          onClick={() => openChat(chat.id)}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              openChat(chat.id)
+            } else if (isMenuKey(e)) {
+              // The keyboard's way to the right-click menu (Shift+F10, or the Menu key).
+              e.preventDefault()
+              setMenu(menuAt(e.currentTarget))
+            }
+          }}
+          onContextMenu={(e) => {
             e.preventDefault()
-            openChat(chat.id)
-          } else if (isMenuKey(e)) {
-            // The keyboard's way to the right-click menu (Shift+F10, or the Menu key).
-            e.preventDefault()
-            setMenu(menuAt(e.currentTarget))
-          }
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          setMenu({ x: e.clientX, y: e.clientY })
-        }}
-      >
-        {renaming ? (
-          <input aria-label="Name"
-            autoFocus
-            className="nav-item__label"
-            value={draft}
-            style={{ background: 'transparent', border: 0, outline: 'none' }}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              // Not while an input method is composing: that Enter picks the characters.
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitRename()
-              if (e.key === 'Escape') {
-                setDraft(chat.title)
-                setRenaming(false)
-              }
-            }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <span className="nav-item__label">{chat.title}</span>
-        )}
-        <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
-          {dotState ? (
-            <DotMatrix state={dotState} />
-          ) : streaming && asking ? (
-            <span className="nav-item__asking" title="Waiting for your answer">
-              Needs you
-            </span>
-          ) : streaming ? (
-            <Spinner size={14} label="Replying" />
-          ) : unread && !failed ? (
-            <span className="nav-item__unread" role="img" aria-label="New reply" />
-          ) : failed ? (
-            <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
-              <title>The last reply failed</title>
-            </CircleAlert>
-          ) : pinned ? (
-            <Pin size={13} strokeWidth={2} role="img" aria-label="Pinned" />
-          ) : null}
-        </span>
-      </div>
+            setMenu({ x: e.clientX, y: e.clientY })
+          }}
+        >
+          {thread ? (
+            <ThreadLines project={project} folder={folder} pinned={pinned} when={when} title={renaming ? renameInput : chat.title} />
+          ) : (
+            <>
+              {renaming ? (
+                renameInput
+              ) : (
+                <span className="nav-item__label">{chat.title}</span>
+              )}
+              <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
+                {dotState ? (
+                  <DotMatrix state={dotState} />
+                ) : streaming && asking ? (
+                  <span className="nav-item__asking" title="Waiting for your answer">
+                    Needs you
+                  </span>
+                ) : streaming ? (
+                  <Spinner size={14} label="Replying" />
+                ) : unread && !failed ? (
+                  <span className="nav-item__unread" role="img" aria-label="New reply" />
+                ) : failed ? (
+                  <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
+                    <title>The last reply failed</title>
+                  </CircleAlert>
+                ) : pinned ? (
+                  <Pin size={13} strokeWidth={2} role="img" aria-label="Pinned" />
+                ) : null}
+              </span>
+            </>
+          )}
+        </div>
+      </RowWithAdd>
 
       {menu && (
         <ContextMenu
@@ -855,6 +1198,8 @@ const ChatRow = memo(function ChatRow({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            // Its project's name is in the row and the + button's tooltip; the menu is too narrow for it.
+            ...(addChat ? [{ icon: <SquarePen size={15} strokeWidth={1.9} />, label: 'New chat in project', action: addChat }] : []),
             {
               icon: <PencilLine size={15} strokeWidth={1.9} />,
               label: 'Rename',
@@ -864,10 +1209,13 @@ const ChatRow = memo(function ChatRow({
               }
             },
             {
-              icon: <Pin size={15} strokeWidth={1.9} />,
-              label: pinned ? 'Unpin' : 'Pin',
+              icon: pinned ? <PinOff size={15} strokeWidth={1.9} /> : <Pin size={15} strokeWidth={1.9} />,
+              label: pinned ? 'Unpin' : thread ? 'Pin to the top' : 'Pin',
               action: () => togglePin(chat.id)
             },
+            ...(thread && inProject && onEditProject
+              ? [{ icon: <ScrollText size={15} strokeWidth={1.9} />, label: 'Edit project', action: () => onEditProject(chat.id) }]
+              : []),
             {
               icon: <FolderInput size={15} strokeWidth={1.9} />,
               label: inProject ? 'Move to another project' : 'Move to a project',
@@ -922,6 +1270,19 @@ const ChatRow = memo(function ChatRow({
   )
 })
 
+/** A list row with a button to start another chat in its project beside it, shown while the pointer is on the row. */
+function RowWithAdd({ add, label, children }: { add?: () => void; label: string; children: ReactNode }): JSX.Element {
+  if (!add) return <>{children}</>
+  return (
+    <div className="chat-thread-slot">
+      {children}
+      <button type="button" className="chat-thread__add" aria-label={label} title={label} onClick={add}>
+        <Plus size={14} strokeWidth={2} />
+      </button>
+    </div>
+  )
+}
+
 /** Shift+F10 or the Menu key: the keyboard's right click. */
 const isMenuKey = (e: { key: string; shiftKey: boolean }): boolean => e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')
 
@@ -964,110 +1325,5 @@ export function ContextMenu({
         ))}
       </Popover>
     </>
-  )
-}
-
-function SearchMenu({
-  anchor,
-  open,
-  onClose
-}: {
-  anchor: React.RefObject<HTMLElement>
-  open: boolean
-  onClose: () => void
-}): JSX.Element {
-  const [query, setQuery] = useState('')
-  const openChat = useApp((s) => s.openChat)
-
-  // Read when the query changes, not subscribed: this stays mounted while
-  // closed, and a subscription re-ran a full-text search of every chat on
-  // every streamed token whenever an earlier query was still in the box.
-  const results = useMemo(() => {
-    if (!open) return []
-    const chats = useApp.getState().visibleChats()
-    const q = query.trim().toLowerCase()
-    if (!q) return chats.slice(0, 8)
-    return chats
-      .filter(
-        (chat) =>
-          chat.title.toLowerCase().includes(q) ||
-          chat.messages.some((m) => m.parts.some((p) => p.type !== 'tool' && p.text.toLowerCase().includes(q)))
-      )
-      .slice(0, 12)
-  }, [query, open])
-
-  return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-end" width={300}>
-      <MenuSearch value={query} onChange={setQuery} placeholder="Search chats" />
-      {results.length === 0 ? (
-        <div className="menu__empty">No chats found</div>
-      ) : (
-        results.map((chat) => (
-          <MenuItem
-            key={chat.id}
-            title={chat.title}
-            onClick={() => {
-              openChat(chat.id)
-              onClose()
-            }}
-          />
-        ))
-      )}
-    </Popover>
-  )
-}
-
-/**
- * The ADE's search: its sessions by name, branch or folder, and the
- * conversations their agents had, by title. Picking either shows the
- * session.
- */
-function AdeSearchMenu({ anchor, open, onClose }: { anchor: React.RefObject<HTMLElement>; open: boolean; onClose: () => void }): JSX.Element {
-  const [query, setQuery] = useState('')
-  const { sessions, conversations } = useAdeSessions(useShallow((s) => ({ sessions: s.sessions, conversations: s.conversations })))
-  // Conversations are read per folder as sessions are shown; opening the search reads the rest.
-  useEffect(() => {
-    if (!open) return
-    const store = useAdeSessions.getState()
-    for (const session of store.sessions) if (!session.host && !session.missing && !store.conversations[session.cwd]) void store.loadConversations(session.cwd)
-  }, [open])
-  const found = useMemo(() => {
-    if (!open) return { hits: [], talks: [] }
-    const q = query.trim().toLowerCase()
-    const has = (text: string | null | undefined): boolean => Boolean(text && text.toLowerCase().includes(q))
-    const hits = q ? sessions.filter((s) => has(sessionTitle(s)) || has(s.branch) || has(s.cwd) || has(s.host)) : sessions.slice(0, 8)
-    const talks = q
-      ? sessions.flatMap((session) => (conversations[session.cwd] ?? []).filter((c) => has(c.title)).map((conversation) => ({ session, conversation })))
-      : []
-    return { hits: hits.slice(0, 12), talks: talks.sort((a, b) => b.conversation.touched - a.conversation.touched).slice(0, 12) }
-  }, [query, open, sessions, conversations])
-  const show = (session: AdeSession): void => {
-    void useAdeSessions.getState().show(session)
-    onClose()
-  }
-  return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-end" width={300}>
-      <MenuSearch value={query} onChange={setQuery} placeholder="Search sessions" />
-      {found.hits.length === 0 && found.talks.length === 0 ? (
-        <div className="menu__empty">{sessions.length === 0 ? 'No sessions yet' : 'No sessions or conversations found'}</div>
-      ) : (
-        <>
-          {found.hits.length > 0 && found.talks.length > 0 && <div className="menu__label">Sessions</div>}
-          {found.hits.map((session) => (
-            <MenuItem key={session.id} icon={<FolderOpen size={15} strokeWidth={1.8} />} title={sessionTitle(session)} description={sessionSubtitle(session)} onClick={() => show(session)} />
-          ))}
-          {found.talks.length > 0 && <div className="menu__label">Conversations</div>}
-          {found.talks.map(({ session, conversation }) => (
-            <MenuItem
-              key={`${session.id}:${conversation.id}`}
-              icon={<ScrollText size={15} strokeWidth={1.8} />}
-              title={conversation.title}
-              description={sessionTitle(session)}
-              onClick={() => show(session)}
-            />
-          ))}
-        </>
-      )}
-    </Popover>
   )
 }

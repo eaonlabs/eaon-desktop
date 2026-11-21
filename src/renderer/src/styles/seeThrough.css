@@ -76,9 +76,9 @@ body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
   --glass-edge: color-mix(in srgb, #fff 11%, transparent);
   --glass-rim: color-mix(in srgb, #fff 16%, transparent);
   --glass-drop: 0 16px 40px -14px rgb(0 0 0 / 0.55), 0 3px 10px -4px rgb(0 0 0 / 0.3);
-  /* Frost is grain as well as blur: a faint, fine noise over the pane, which
-     also keeps a smooth blurred gradient from banding. */
-  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.09 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* Frosted glass has no grain (see "the glass itself" below); kept as none
+     so a background that names it stays valid. */
+  --glass-grain: none;
   /* Blur alone only softens the picture and greys it under the panel's tone.
      What makes glass look like glass (the lift other apps' vibrancy has) is
      the backdrop pushed brighter and more saturated before that tone goes on. */
@@ -140,12 +140,11 @@ body[data-see-through='on'] :is(pre, code, kbd, .xterm, .cm-editor, .monaco-edit
   --sunken: color-mix(in srgb, #fff 40%, transparent);
   --halo-split: 0.9;
   /* Light glass is milky: the page's colour lifted toward white, a darker
-     hairline, a bright rim, a lighter shadow and darker grain. */
+     hairline, a bright rim and a lighter shadow. */
   --glass-base: color-mix(in srgb, var(--canvas), #fff 35%);
   --glass-edge: color-mix(in srgb, #000 9%, transparent);
   --glass-rim: color-mix(in srgb, #fff 80%, transparent);
   --glass-drop: 0 16px 40px -16px rgb(0 0 0 / 0.22), 0 3px 10px -4px rgb(0 0 0 / 0.1);
-  --glass-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.07 0 0 0 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Text that sits straight on the picture — page titles, section labels,
@@ -198,8 +197,12 @@ body[data-see-through='on'] .edge-veil {
   display: none;
 }
 
-/* What floats over everything is read, not looked through: near opaque. */
-body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card) {
+/* What floats over everything is read, not looked through: near opaque.
+   The finders (⌘P, Find in project, the command palette), the page preview
+   and the editor's ask bar are solid colours elsewhere, from --surface-2 and
+   --surface-3, which are light tints here: the text under them showed
+   through and ran into their rows. */
+body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card, .code-search, .html-preview, .ide-ask) {
   background: var(--glass-float);
   -webkit-backdrop-filter: var(--glass-blur-float);
   backdrop-filter: var(--glass-blur-float);
@@ -374,6 +377,11 @@ body[data-see-through='on'] .home__field {
 .wallpaper-styles__canvas[data-empty] {
   visibility: hidden;
 }
+/* Eaon's own wallpapers, as pictures rather than drawn previews. */
+img.wallpaper-styles__canvas {
+  object-fit: cover;
+  animation: chip-in 220ms var(--ease) both;
+}
 .wallpaper-styles__tint {
   position: absolute;
   inset: 0;
@@ -400,17 +408,17 @@ body[data-see-through='on'] .ask-card {
 }
 
 /* ---- the glass itself ----
-   Every frosted pane gets the same finish: grain over its tint, a hairline
-   edge in place of its border, and light along the top rim. What floats
+   Every frosted pane gets the same finish: a hairline edge in place of its
+   border, and light along the top rim. No grain: over a Retina screen it
+   read as sandpaper and greyed dark glass, and the blur doesn't band without it. What floats
    over the page (the sidebars, the message box, menus, dialogs) also casts
    a shadow; what sits in the page (cards, code) doesn't. */
 body[data-see-through='on']
   :is(
     .sidebar__panel, .settings__nav-panel, .composer, .queued, .elsewhere-ask, .mode-switch, .thread-jump,
     .menu, .modal, .approval, .usage-card, .update-toast, .peek, .star-card, .usage-pill, .suggestion-chip,
-    .composer__above .composer-pill
+    .composer__above .composer-pill, .code-search, .html-preview
   ) {
-  background-image: var(--glass-grain);
   border-color: transparent;
   box-shadow:
     inset 0 1px 0 var(--glass-rim),
@@ -434,15 +442,9 @@ body[data-see-through='on']
     .code-block, .cfiles, .step-card__box, .card, .plugin-list, .skills__list, .worker-card, .model-card, .provider-detail__section,
     .usage-hero, .usage-tile, .usage-chart, .usage-table, .template-card, .credits-hero, .model-notice, .mlib-card, .plan-card
   ) {
-  background-image: var(--glass-grain);
   border-color: transparent;
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--glass-rim) 60%, transparent),
     0 0 0 0.5px var(--glass-edge);
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  body[data-see-through='on'] {
-    --glass-grain: none;
-  }
-}

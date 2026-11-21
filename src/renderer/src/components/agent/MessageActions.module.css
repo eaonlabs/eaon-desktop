@@ -190,12 +190,23 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   cursor: default;
+}
+
+/* Copy, reply and the time are always there; the votes, reactions, More and
+   what the turn cost join them under the pointer (MessageActions `extras`),
+   and stay once the reply has a vote or a reaction. */
+.extras {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
   opacity: 0;
   transition: opacity 200ms ease;
 }
-
-.root:hover .ago,
-.root:focus-within .ago {
+.root:hover .extras,
+.root:focus-within .extras,
+:global(.msg-row:hover) .extras,
+.extras[data-kept] {
   opacity: 1;
 }
 

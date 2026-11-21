@@ -7,10 +7,10 @@ import { MenuItem, Popover, useDisclosure } from '../../ui'
 import { useDockPlace } from '../dockPlace'
 
 /**
- * The open file's git history in the editor: a History button listing the
- * commits that touched it (each opens in the Diff, on this file), and, in the
- * status bar, who last changed the line the caret is on. Both are read only,
- * and neither shows outside a git repository.
+ * The open file's git history in the editor: a History button whose menu
+ * says who last changed the line the caret is on, then lists the commits
+ * that touched the file (each opens in the Diff, on this file). Read only,
+ * and not shown outside a git repository.
  */
 
 /** Opens the Diff on one commit, scrolled to the file. */
@@ -18,14 +18,32 @@ function showCommit(store: ReturnType<typeof useDockPlace>['store'], sha: string
   store.getState().reviewChanges({ kind: 'commit', sha, short, subject }, rel)
 }
 
-export function FileHistoryButton({ path, rel }: { path: string; rel: string }): JSX.Element | null {
+/**
+ * `line`: the caret's, whose last change heads the menu; `ready` is false while
+ * the file has edits not saved (git blames the file on disk).
+ */
+export function FileHistoryButton({ path, rel, line, ready }: { path: string; rel: string; line: number; ready: boolean }): JSX.Element | null {
   const place = useDockPlace()
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const [commits, setCommits] = useState<ChatCommit[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  const [blame, setBlame] = useState<LineBlame | null>(null)
   const folder = place.folder
   const repo = Boolean(place.status?.repo)
+
+  // Who last changed the caret's line, asked as the menu opens.
+  useEffect(() => {
+    if (!menu.open || !folder || !ready) return setBlame(null)
+    let live = true
+    window.api.gitHistory
+      .blame(folder, path, line)
+      .then((res) => live && setBlame(res.ok ? res.blame : null))
+      .catch(() => live && setBlame(null))
+    return () => {
+      live = false
+    }
+  }, [menu.open, folder, path, line, ready])
 
   // Read each time the menu opens: a commit made since changes the list.
   useEffect(() => {
@@ -57,6 +75,21 @@ export function FileHistoryButton({ path, rel }: { path: string; rel: string }):
         <History size={15} strokeWidth={1.8} />
       </button>
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-end" width={320}>
+        {blame && (
+          <>
+            <div className="menu__label">Line {line}</div>
+            <MenuItem
+              icon={<GitCommitHorizontal size={15} strokeWidth={1.8} />}
+              title={blameLabel(blame)}
+              description={blame.committed ? `${blame.short}: last changed this line` : 'Changed since the last commit'}
+              disabled={!blame.committed}
+              onClick={() => {
+                menu.close()
+                showCommit(place.store, blame.sha, blame.short, blame.subject, rel)
+              }}
+            />
+          </>
+        )}
         <div className="menu__label">History of {rel.split('/').pop()}</div>
         {commits === null ? (
           <div className="menu__empty">
@@ -80,39 +113,5 @@ export function FileHistoryButton({ path, rel }: { path: string; rel: string }):
         )}
       </Popover>
     </>
-  )
-}
-
-/** Who last changed the caret's line, asked once the caret rests; nothing while the file has edits not saved (git blames the file on disk). */
-export function BlameItem({ path, rel, line, ready, version }: { path: string; rel: string; line: number; ready: boolean; version: unknown }): JSX.Element | null {
-  const place = useDockPlace()
-  const [blame, setBlame] = useState<LineBlame | null>(null)
-  const folder = place.folder
-  const repo = Boolean(place.status?.repo)
-  // A commit moves what a line was last changed by: asked again when git's status changes.
-  const moved = `${place.status?.changes?.files ?? ''}:${place.status?.ahead ?? ''}`
-
-  useEffect(() => {
-    if (!repo || !folder || !ready) return setBlame(null)
-    let live = true
-    const timer = window.setTimeout(() => {
-      window.api.gitHistory
-        .blame(folder, path, line)
-        .then((res) => live && setBlame(res.ok ? res.blame : null))
-        .catch(() => live && setBlame(null))
-    }, 250)
-    return () => {
-      live = false
-      window.clearTimeout(timer)
-    }
-  }, [repo, folder, path, line, ready, version, moved])
-
-  if (!blame) return null
-  const label = blameLabel(blame)
-  if (!blame.committed) return <span className="file-status__item file-status__blame">{label}</span>
-  return (
-    <button type="button" className="file-status__item file-status__blame" title={`${blame.short}: ${blame.subject}. Show what this commit changed in the file`} onClick={() => showCommit(place.store, blame.sha, blame.short, blame.subject, rel)}>
-      {label}
-    </button>
   )
 }

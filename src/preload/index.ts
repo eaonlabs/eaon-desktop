@@ -63,6 +63,7 @@ import { linkAccountsApi } from './features/linkAccounts'
 import { importAppsApi } from './features/importApps'
 import { agentAppsApi } from './features/agentApps'
 import { providerLogosApi } from './features/providerLogos'
+import { projectAvatarsApi } from './features/projectAvatars'
 import { usageApi } from './features/usage'
 import { personalizeApi } from './features/personalize'
 import { chatExportApi } from './features/chatExport'
@@ -391,6 +392,7 @@ const fullApi = {
   importApps: importAppsApi,
   agentApps: agentAppsApi,
   providerLogos: providerLogosApi,
+  projectAvatars: projectAvatarsApi,
   usage: usageApi,
   personalize: personalizeApi,
   chatExport: chatExportApi,

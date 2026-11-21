@@ -157,7 +157,8 @@ test('Claude Code starts as Eaon’s model: its own tools and settings off, Eaon
   assert.match(prompt.append, /running in Eaon[\s\S]*You are Eaon\./)
   assert.equal(options.env?.ENABLE_TOOL_SEARCH, 'false', 'tool search would hide every Eaon tool')
   assert.equal(options.env?.CLAUDE_CODE_DISABLE_CLAUDE_MDS, '1')
-  assert.deepEqual(result.usage, { input: 100, output: 20, cacheRead: 50, cacheWrite: 0 })
+  // The step's sum, and its last response's size: how full Claude's context is now.
+  assert.deepEqual(result.usage, { input: 100, output: 20, cacheRead: 50, cacheWrite: 0, context: 170 })
 })
 
 test('a tool call ends the step; the loop runs it; its result goes back into the waiting session, which goes on', async () => {

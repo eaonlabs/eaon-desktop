@@ -209,7 +209,7 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   await s.shot(page, 'session-past-conversations')
 
   // New session: a branch from the title, in a worktree of its own, with a shell started in it.
-  await page.click('.sidebar .nav-item', { text: /^New session$/ })
+  await page.click('.sidebar .side-find__tool[aria-label="New session"]')
   await page.find('.modal', { text: /New session/ })
   await page.fill('.modal input[placeholder="Fix CI checks detail link"]', 'Fix CI checks detail link')
   const branchShown = await page.eval(() => document.querySelector('.ade-dialog__branch input')?.value)

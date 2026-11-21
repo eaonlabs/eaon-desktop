@@ -1,16 +1,27 @@
 import { useMemo, useRef, type JSX } from 'react'
 import { useApp } from '../../state/store'
-import { estimateContext } from '../../state/contextUse'
+import { contextUse, type ContextParts } from '../../state/contextUse'
 import { Popover, useDisclosure } from '../ui'
 import { ChatUsage } from './ChatUsage'
 
 /**
- * A small ring by the model in a conversation's message box: about how much
- * of the model's context the chat fills. Opens to the numbers, and to when
- * Eaon starts summarizing older messages to make room. Hidden when the model
- * doesn't say how big its context is.
+ * A small ring by the model in a conversation's message box: how much of the
+ * model's context the chat fills. Opens to what fills it, a colour each
+ * (what was said, the tools' calls, pictures, the summary of older messages,
+ * the system prompt and tools), how much is free, how much is kept back for
+ * summarizing, and how far off that is. Hidden when the model doesn't say how
+ * big its context is.
  */
-export function ContextMeter({ contextWindow }: { contextWindow: number | undefined }): JSX.Element | null {
+
+const PARTS: { key: keyof ContextParts; label: string }[] = [
+  { key: 'messages', label: 'Messages' },
+  { key: 'tools', label: 'Tool calls' },
+  { key: 'files', label: 'Pictures' },
+  { key: 'summary', label: 'Summary' },
+  { key: 'system', label: 'System prompt and tools' }
+]
+
+export function ContextMeter({ contextWindow, modelName }: { contextWindow: number | undefined; modelName?: string }): JSX.Element | null {
   const chat = useApp((s) => s.activeChat())
   const compactAt = useApp((s) => s.settings?.context?.compactAt ?? 0.7)
   const autoCompact = useApp((s) => s.settings?.context?.autoCompact !== false)
@@ -19,15 +30,26 @@ export function ContextMeter({ contextWindow }: { contextWindow: number | undefi
   // Estimating walks the whole chat, so only when the messages change, not on every store update.
   const messages = chat?.messages
   const summary = chat?.summary
-  const used = useMemo(() => (chat ? estimateContext(chat) : 0), [messages, summary]) // eslint-disable-line react-hooks/exhaustive-deps
+  const use = useMemo(() => (chat ? contextUse(chat) : null), [messages, summary]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!chat || !contextWindow || contextWindow <= 0) return null
-  const share = Math.min(1, used / contextWindow)
+  if (!chat || !use || !contextWindow || contextWindow <= 0) return null
+  const window = contextWindow
+  const used = use.total
+  const share = Math.min(1, used / window)
   const percent = share * 100
   const full = autoCompact && share >= compactAt
   const radius = 7
   const circumference = 2 * Math.PI * radius
   const shown = percent < 10 ? percent.toFixed(1).replace(/\.0$/, '') : String(Math.round(percent))
+  // Kept back for summarizing: the room past where it starts. Free: what's left before it.
+  const summarizeAt = autoCompact ? window * compactAt : window
+  const kept = autoCompact ? Math.max(0, window - Math.max(used, summarizeAt)) : 0
+  const free = Math.max(0, summarizeAt - used)
+  // Shares of the window; of what's there when the chat has outgrown it.
+  const whole = Math.max(window, used)
+  const of = (n: number): string => `${((n / whole) * 100).toFixed(1)}%`
+  const parts = PARTS.filter((p) => use.parts[p.key] >= 1)
+  const over = used > window
 
   return (
     <>
@@ -53,32 +75,59 @@ export function ContextMeter({ contextWindow }: { contextWindow: number | undefi
           />
         </svg>
       </button>
-      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="top-end" width={250}>
+      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="top-end" width={300} className="context-pop">
         <div className="context-panel">
+          <div className="context-panel__title">Context</div>
           <div className="context-panel__head">
-            <span>Context window</span>
-            <span className="context-panel__numbers">
-              {shown}% · {compactTokens(used)} / {compactTokens(contextWindow)}
+            <span className="context-panel__used">{shown}% used</span>
+            <span className="context-panel__numbers" title={use.counted ? 'As the provider counted the latest request' : 'Estimated'}>
+              {use.counted ? '' : '~'}
+              {compactTokens(used)} / {compactTokens(window)}
             </span>
           </div>
-          <div
-            className="context-panel__bar"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(percent)}
-            aria-label="Context window used"
-          >
-            <span style={{ width: `${percent}%` }} data-full={full || undefined} />
+          <div className="context-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)} aria-label="Context window used">
+            {parts.map((p) => (
+              <span key={p.key} className="context-bar__part" data-part={p.key} style={{ width: `${(use.parts[p.key] / whole) * 100}%` }} />
+            ))}
             {autoCompact && <i style={{ left: `${compactAt * 100}%` }} aria-hidden="true" />}
           </div>
-          <p className="context-panel__note">
-            {!autoCompact
-              ? 'Summarizing older messages is off, so a long chat can run out of room. The count is an estimate.'
-              : full
-                ? 'Next turn, Eaon summarizes the older messages to make room. Nothing in the chat is removed.'
-                : `At ${Math.round(compactAt * 100)}%, Eaon summarizes the older messages to make room. The count is an estimate.`}
-          </p>
+          <ul className="context-rows">
+            {parts.map((p) => (
+              <li key={p.key}>
+                <span className="context-rows__swatch" data-part={p.key} />
+                <span className="context-rows__label">{p.label}</span>
+                <span className="context-rows__count">{compactTokens(use.parts[p.key])}</span>
+                <span className="context-rows__share">{of(use.parts[p.key])}</span>
+              </li>
+            ))}
+          </ul>
+          {!over && (
+            <ul className="context-rows context-rows--room">
+              <li>
+                <span className="context-rows__swatch" data-part="free" />
+                <span className="context-rows__label">Free space</span>
+                <span className="context-rows__count">{compactTokens(free)}</span>
+                <span className="context-rows__share">{of(free)}</span>
+              </li>
+              {autoCompact && (
+                <li>
+                  <span className="context-rows__swatch" data-part="kept" />
+                  <span className="context-rows__label">Kept for summarizing</span>
+                  <span className="context-rows__count">{compactTokens(kept)}</span>
+                  <span className="context-rows__share">{of(kept)}</span>
+                </li>
+              )}
+            </ul>
+          )}
+          <div className="context-panel__foot">
+            {over
+              ? `Too big for ${modelName ?? 'this model'} (${compactTokens(window)}): ${autoCompact ? 'older messages are summarized before the next one' : 'summarizing is off'}`
+              : !autoCompact
+                ? 'Summarizing older messages is off'
+                : full
+                  ? 'Older messages are summarized next turn'
+                  : `${compactTokens(free)} until older messages are summarized`}
+          </div>
           <ChatUsage messages={chat.messages} />
         </div>
       </Popover>
@@ -86,9 +135,10 @@ export function ContextMeter({ contextWindow }: { contextWindow: number | undefi
   )
 }
 
-/** 54,210 → "54k", 1,048,576 → "1M". */
+/** 54,210 → "54.2k", 1,048,576 → "1M". */
 export function compactTokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(count >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
-  if (count >= 1000) return `${Math.round(count / 1000)}k`
-  return String(count)
+  const n = Math.round(count)
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
+  return String(n)
 }

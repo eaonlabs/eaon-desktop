@@ -276,7 +276,8 @@ export async function waitForReply(page, { text, streaming, error, timeout = 20_
  * @param {Page} page
  */
 export async function openSettings(page, label) {
-  await page.click('.sidebar .nav-item', { text: /^Settings$/ })
+  // The ADE's and Workers' places, or Chat's foot.
+  await page.click('.sidebar .nav-item, .sidebar .foot-bar__btn', { text: /^Settings$/ })
   await page.find('.settings__nav')
   if (label) {
     await page.click('.settings__nav .nav-item', { text: new RegExp(`^${label}$`) })
