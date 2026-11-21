@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { SessionBook, type SavedSessions } from '../src/main/features/ade/sessions'
 import { homeRepoFor } from '../src/main/features/ade/git'
-import { groupSessions, isSoloProject, keepOrder, type AdeSession } from '@shared/adeSessions'
+import { groupSessions, keepOrder, type AdeSession } from '@shared/adeSessions'
 
 /**
  * A home folder that is itself a git repository (an empty `git init` in ~, as
@@ -105,12 +105,10 @@ test('the sidebar keeps its order while it is on screen; a project not shown yet
   assert.deepEqual(added.map((g) => g.project), ['/p/d', '/p/a', '/p/b', '/p/c'])
 })
 
-test('a project that is just its own folder is one row; one with sessions of its own keeps its heading', () => {
-  const groups = groupSessions([session('a', '/p/a'), session('b', '/p/b'), session('w', '/p/b', '/wt/b-fix', 2)], [])
-  const solo = groups.find((g) => g.project === '/p/a')!
-  const withWorktree = groups.find((g) => g.project === '/p/b')!
-  assert.equal(isSoloProject(solo), true)
-  assert.equal(isSoloProject(withWorktree), false)
-  // A worktree on its own, without the project folder's session, keeps the heading that names its project.
-  assert.equal(isSoloProject({ project: '/p/c', sessions: [session('x', '/p/c', '/wt/c-x')] }), false)
+test('every project is a heading over its sessions, one that is just its own folder too', () => {
+  const groups = groupSessions([session('a', '/p/a'), session('b', '/p/b'), session('w', '/p/b', '/wt/b-fix', 2), session('x', '/p/c', '/wt/c-x')], [])
+  assert.deepEqual(
+    Object.fromEntries(groups.map((g) => [g.project, g.sessions.map((s) => s.id).sort()])),
+    { '/p/a': ['a'], '/p/b': ['b', 'w'], '/p/c': ['x'] }
+  )
 })

@@ -3,6 +3,7 @@ import { adeKeyAction, paneAfter, sessionAfter } from '@shared/adeKeys'
 import { visibleSessions } from '@shared/adeSessions'
 import { useCode } from './codeStore'
 import { orderedGroups, openNewSession, useAdeSessions } from './sessionsStore'
+import { listedSessions } from './CodeSidebar'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
 import { onboardingShowing } from '../onboarding/onboardingStore'
@@ -63,7 +64,9 @@ export function useAdeKeys(): void {
         default: {
           event.preventDefault()
           const { sessions, collapsed } = useAdeSessions.getState()
-          const list = visibleSessions(orderedGroups(sessions, useCode.getState().recents), collapsed)
+          // The rows as the sidebar lists them, so "3" is the third row you see.
+          const shown = listedSessions()
+          const list = shown.length > 0 ? shown : visibleSessions(orderedGroups(sessions, useCode.getState().recents), collapsed)
           const session =
             action.do === 'session'
               ? list[action.index]

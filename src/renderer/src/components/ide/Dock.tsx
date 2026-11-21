@@ -279,12 +279,13 @@ function Dock({ closing }: { closing: boolean }): JSX.Element {
       {/* Full width from the first frame of the slide, so nothing inside (a terminal above all) reflows as the column grows. */}
       <div className="dock__frame">
         <div className="dock__bar">
-          <AddMenu />
           <div className="dock__tabs" role="tablist" aria-label="Open in the dock">
             {shown.map((surface) => (
               <SurfaceTab key={surface.id} surface={surface} active={surface.id === active?.id} onSelect={() => select(surface)} onClose={() => close(surface)} />
             ))}
           </div>
+          {/* After the tabs, as a browser's new-tab button is. */}
+          <AddMenu />
           <div className="dock__tools">
             <button
               type="button"

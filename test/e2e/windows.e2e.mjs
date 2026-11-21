@@ -33,7 +33,7 @@ scenario('two windows on one chat: the reply streams in both, settings and appro
   const b = await app.openWindow()
   const sizes = await app.main(() => require('electron').BrowserWindow.getAllWindows().map((w) => w.getBounds()))
   s.t.diagnostic(`windows: ${JSON.stringify(sizes)}`)
-  await b.click('.nav-item', { text: 'Shared chat' })
+  await b.click('.nav-item, .chat-thread', { text: 'Shared chat' })
   await waitForReply(b, { text: 'First answer', streaming: false })
 
   // A reply written in A shows in B as it streams.
@@ -72,7 +72,7 @@ scenario('two windows on one chat: the reply streams in both, settings and appro
 
   // An approval answered in A is gone from both.
   await a.eval(() => window.api.settings.patch({ approvalMode: 'ask' }))
-  await a.click('.nav-item', { text: 'Shared chat' })
+  await a.click('.nav-item, .chat-thread', { text: 'Shared chat' })
   fake.route((req) =>
     req.toolResultsSinceUser === 0 ? reply.tool('write_file', { path: 'two-windows.txt', content: 'ok\n' }) : reply.text('Wrote it from the first window.')
   )

@@ -175,6 +175,13 @@ export interface TokenUsage {
   cacheRead: number
   /** Input tokens written to the prompt cache this turn. */
   cacheWrite: number
+  /**
+   * The size of the turn's latest request with its reply, as the provider
+   * counted it: how much of the model's context the chat fills now. The
+   * fields above add up every call in the turn; this is only the last one.
+   * Absent on replies from before it was kept, and where nothing reports it.
+   */
+  context?: number
 }
 
 /** A plan the agent proposed in plan mode, waiting for the user's go-ahead. */
@@ -398,8 +405,10 @@ export interface SeeThrough {
   texture: boolean
   /** Unset on installs from before it, which follow `texture` instead. */
   style?: SeeThroughStyle
-  /** The desktop's own wallpaper, or a picture or video the user chose. */
-  source: 'desktop' | 'custom'
+  /** The desktop's own wallpaper, one of Eaon's (shared/wallpaper.ts), or a picture or video the user chose. */
+  source: 'desktop' | 'eaon' | 'custom'
+  /** Which of Eaon's wallpapers, for `eaon`. Unset is the first. */
+  wallpaper?: string
   /** The chosen picture or video, as Eaon's own copy of it (see main/features/wallpaper.ts). */
   custom: string | null
   /** A video wallpaper plays (muted, looping); off, it holds still on a frame. Unset is on. */
@@ -560,18 +569,6 @@ export interface Settings {
     banked: boolean
     /** Credit balances and recent token totals in the details. */
     tokens: boolean
-  }
-  /** The foot of the sidebar (SidebarFoot.tsx): Settings → Usage & limits, or right-click it. */
-  sidebarFoot: {
-    show: boolean
-    /** What its figures add up: today, or the last seven days. */
-    period: 'today' | 'week'
-    /** The figure on top, the other under it: tokens, or dollars (spend plus plan use at API rates). Or neither. */
-    figure: 'tokens' | 'dollars' | 'none'
-    /** A bar a day for the last week. */
-    chart: boolean
-    /** The plan usage rings, for the accounts picked above them in Usage & limits. */
-    rings: boolean
   }
   /** Settings → Agent providers. */
   agentProviders: {

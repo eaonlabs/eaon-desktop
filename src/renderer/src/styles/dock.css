@@ -58,7 +58,8 @@
   -webkit-app-region: no-drag;
 }
 .dock__tabs {
-  flex: 1;
+  /* As wide as its tabs, so + sits right after the last; the tools keep to the far end. */
+  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -105,6 +106,7 @@
 .dock__tools {
   flex: none;
   display: flex;
+  margin-left: auto;
   align-items: center;
   gap: 2px;
 }
@@ -235,8 +237,8 @@
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
+/* Only under the pointer, so the strip is the tabs' names. */
 .dock-tab:hover .dock-tab__close,
-.dock-tab[data-active] .dock-tab__close,
 .dock-tab__close:focus-visible {
   opacity: 1;
 }
@@ -747,63 +749,6 @@
   .file-surface__tree {
     display: none;
   }
-}
-
-/* The status bar under the editor. */
-.file-status {
-  flex: none;
-  display: flex;
-  align-items: center;
-  height: 26px;
-  padding: 0 6px;
-  border-top: 1px solid color-mix(in srgb, var(--fg) 6%, transparent);
-  background: color-mix(in srgb, var(--ide-editor-bg, var(--canvas)), var(--sink-color) 8%);
-  color: var(--text-4, var(--text-3));
-  font-size: var(--fs-xxs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  container: file-status / inline-size;
-}
-.file-status__item {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 5px;
-}
-.file-status__branch {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.file-status__branch svg {
-  flex: none;
-}
-/* A narrow editor: the indent and line ending go first, then who last changed the line. */
-@container file-status (max-width: 520px) {
-  .file-status__item--minor {
-    display: none;
-  }
-}
-@container file-status (max-width: 400px) {
-  .file-status .file-status__blame {
-    display: none;
-  }
-}
-@container file-status (max-width: 250px) {
-  .file-status__item--lang {
-    display: none;
-  }
-}
-.file-status__dim {
-  color: var(--text-4, var(--text-3));
-}
-.file-status__spacer {
-  flex: 1;
 }
 
 /* Git's marks in the project's files: changed, new and untracked, and the folders they are in. */

@@ -10,7 +10,7 @@ import type {
 } from '@shared/adeSessions'
 import type { PrFeedbackResult } from '@shared/prFeedback'
 import type { ManualHostInput, NewRemoteSessionRequest, NewRemoteSessionResult, RemoteFolderResult, SshHost } from '@shared/adeRemote'
-import type { ReviewAction, ReviewCheck, ReviewFileText, ReviewLog, ReviewResult } from '@shared/adeReview'
+import type { BranchPr, ReviewAction, ReviewCheck, ReviewFileText, ReviewLog, ReviewResult } from '@shared/adeReview'
 
 /** Renderer bridge for the ADE's sessions. Exposed as `window.api.ade`. */
 export const adeApi = {
@@ -42,6 +42,8 @@ export const adeApi = {
   resolveRemote: (req: NewRemoteSessionRequest): Promise<RemoteFolderResult> => ipcRenderer.invoke('ade:resolve-remote', req),
   /** What a session changed since its branch left the default branch, its pull request, and where it stands. */
   review: (cwd: string): Promise<ReviewResult> => ipcRenderer.invoke('ade:review', cwd),
+  /** The pull requests of the repository's recent branches, by branch, for the sidebar's rows; null when GitHub couldn't be asked. */
+  branchPrs: (cwd: string): Promise<Record<string, BranchPr> | null> => ipcRenderer.invoke('ade:branch-prs', cwd),
   commit: (cwd: string, message: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:commit', cwd, message),
   push: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:push', cwd),
   /** Pushes, then opens a pull request into `base` (the default branch when not given). */

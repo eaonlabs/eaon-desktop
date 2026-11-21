@@ -141,6 +141,8 @@ export interface PaneInfo {
   task: string | null
   /** When it last printed anything; 0 before it has. */
   lastData: number
+  /** When its current stretch of work began, while it is working; 0 otherwise. */
+  workingSince: number
   /** Whether this window has the pane's terminal (it has been shown since launch). */
   known: boolean
 }
@@ -408,7 +410,13 @@ class TerminalRegistry {
 
   infoOf(paneId: string): PaneInfo {
     const rt = this.panes.get(paneId)
-    return { status: rt?.status ?? 'starting', task: rt?.task ?? null, lastData: rt?.lastData ?? 0, known: Boolean(rt) }
+    return {
+      status: rt?.status ?? 'starting',
+      task: rt?.task ?? null,
+      lastData: rt?.lastData ?? 0,
+      workingSince: rt?.status === 'working' ? rt.workingSince : 0,
+      known: Boolean(rt)
+    }
   }
 
   statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null; privacy: boolean } {

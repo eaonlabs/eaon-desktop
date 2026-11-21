@@ -207,13 +207,6 @@ export const defaultSettings: Settings = {
     banked: true,
     tokens: true
   },
-  sidebarFoot: {
-    show: false,
-    period: 'today',
-    figure: 'tokens',
-    chart: true,
-    rings: true
-  },
   agentProviders: {
     hidden: [],
     order: [],

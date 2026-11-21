@@ -16,6 +16,7 @@ import { resolveRemoteFolder } from './ade/ssh'
 import {
   abortMerge,
   baseBranches,
+  branchPullRequests,
   checkLog,
   prFeedback,
   commitAll,
@@ -33,6 +34,7 @@ import {
 import { parseChanges, type AdeChanges, type AdeConversation, type AdeImportCandidate, type AdeSession, type NewSessionRequest } from '@shared/adeSessions'
 import { hostLabel, isRemote, remoteCwd, type ManualHostInput, type NewRemoteSessionRequest, type NewRemoteSessionResult, type RemoteFolderResult } from '@shared/adeRemote'
 import type { TerminalLayout } from '@shared/terminals'
+import type { BranchPr } from '@shared/adeReview'
 
 /**
  * The ADE's sessions (see `shared/adeSessions.ts`): the list, making one on a
@@ -43,6 +45,8 @@ import type { TerminalLayout } from '@shared/terminals'
 const FILE = 'ade-sessions.json'
 /** The terminals feature's saved grid, per folder: the folders that had terminals before sessions. */
 const LAYOUT_FILE = 'ade-terminals.json'
+/** A project's pull requests, once asked, are given again for this long. */
+const BRANCH_PRS_FOR_MS = 30_000
 
 /** Where new sessions' worktrees go: Eaon's own folder in the home folder, where the user can find them. */
 export const worktreesRoot = (): string => path.join(os.homedir(), 'Eaon', 'worktrees')
@@ -242,6 +246,16 @@ export const adeFeature: Feature = {
       throw new Error('That folder isn’t one of the ADE’s sessions.')
     }
     ipcMain.handle('ade:review', async (_e, cwd: unknown) => reviewState(run, await sessionCwd(cwd)))
+    // The sidebar asks once per project every few minutes, from every window: one gh for all of them.
+    const branchPrs = new Map<string, { at: number; prs: Promise<Record<string, BranchPr> | null> }>()
+    ipcMain.handle('ade:branch-prs', async (_e, cwd: unknown) => {
+      const dir = await sessionCwd(cwd)
+      const kept = branchPrs.get(dir)
+      if (kept && Date.now() - kept.at < BRANCH_PRS_FOR_MS) return kept.prs
+      const prs = branchPullRequests(run, dir).catch(() => null)
+      branchPrs.set(dir, { at: Date.now(), prs })
+      return prs
+    })
     ipcMain.handle('ade:commit', async (_e, cwd: unknown, message: unknown) => commitAll(run, await sessionCwd(cwd), typeof message === 'string' ? message.slice(0, 20_000) : ''))
     ipcMain.handle('ade:push', async (_e, cwd: unknown) => push(run, await sessionCwd(cwd)))
     /** A branch name to hand git or gh: never something they would read as an option. */

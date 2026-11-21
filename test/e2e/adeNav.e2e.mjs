@@ -1,7 +1,8 @@
 /**
- * The ADE's sidebar holds only what coding needs (New session, Pull requests,
- * Linear, Settings); Trading, Models and Plugins are in the Chat sidebar, and
- * a session over SSH starts from the New session dialog.
+ * The ADE's sidebar holds only what coding needs: Settings, Pull requests and
+ * Issues as icons along its foot, as in Chat, and New session on the search
+ * row over its sessions. Trading, Models and Plugins are in the Chat sidebar,
+ * and a session over SSH starts from the New session dialog.
  */
 import assert from 'node:assert/strict'
 import { scenario } from './fixtures.mjs'
@@ -16,13 +17,20 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
 
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
   await page.reload()
-  await page.find('.sidebar .nav-item', { text: /^New session$/ })
-  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
-  assert.deepEqual(adeItems, ['New session', 'Pull requests', 'Issues', 'Settings'])
+  await page.find('.sidebar .side-find__tool[aria-label="New session"]')
+  const adeItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()).filter((t) => ['New session', 'Session over SSH', 'Pull requests', 'Issues', 'Usage', 'Trading', 'Models', 'Plugins', 'Settings'].includes(t)))
+  assert.deepEqual(adeItems, ['Settings', 'Pull requests', 'Issues'])
+  // Along the foot, with no count of the day's tokens under the sessions: the plans' rings are in the ADE's header.
+  const foot = await page.eval(() => ({
+    places: [...document.querySelectorAll('.sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()),
+    rings: Boolean(document.querySelector('.sidebar .foot-bar .usage-rings')),
+    tokens: /No tokens yet|\d tokens/.test(document.querySelector('.sidebar')?.textContent ?? '')
+  }))
+  assert.deepEqual(foot, { places: ['Settings', 'Pull requests', 'Issues'], rings: false, tokens: false })
   await s.shot(page, 'ade-sidebar')
 
   // SSH from the New session dialog.
-  await page.click('.sidebar .nav-item', { text: /^New session$/ })
+  await page.click('.sidebar .side-find__tool[aria-label="New session"]')
   await page.click('.modal .ade-dialog__ssh', { text: /On another machine \(SSH\)/ })
   await page.find('.modal', { text: /Session over SSH/ })
   await s.shot(page, 'ssh-from-new-session')
@@ -32,8 +40,8 @@ scenario('ADE sidebar: only what coding needs; the rest is in Chat, SSH is in Ne
   await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), chat.id)
   await page.reload()
   await page.find('.sidebar .nav-item', { text: /^New chat$/ })
-  const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item')].map((n) => n.textContent?.trim()))
-  for (const item of ['Models', 'Library', 'Plugins', 'Settings']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
+  const chatItems = await page.eval(() => [...document.querySelectorAll('.sidebar .nav-item, .sidebar .foot-bar__btn')].map((n) => n.textContent?.trim()))
+  for (const item of ['Models', 'Library', 'Plugins', 'Settings', 'Pull requests', 'Issues']) assert.ok(chatItems.includes(item), `${item} in Chat: ${JSON.stringify(chatItems)}`)
   assert.ok(!chatItems.includes('Trading'), `Trading is off by default: ${JSON.stringify(chatItems)}`)
   // Switching it on takes effect at the next start: the trading desk is only set up when Eaon opens.
   await page.eval(() => window.api.settings.patch({ general: { trading: true } }))

@@ -65,7 +65,7 @@ scenario('chat streams a reply, Stop ends one mid-stream, and both survive quit 
   const page2 = again.page
   // Both messages are in the one chat: the fox reply is the first answer and
   // the stopped one is the last, so the last reply can't be used to find it.
-  await page2.click('.nav-item', { text: 'Tell me about the fox' })
+  await page2.click('.nav-item, .chat-thread', { text: 'Tell me about the fox' })
   await page2.waitFor(() => [...document.querySelectorAll('.msg--assistant')].some((el) => /over the lazy dog/.test(el.textContent ?? '')), {
     message: 'the fox reply to come back after the relaunch'
   })
@@ -109,7 +109,7 @@ scenario('a crash mid-stream leaves nothing stuck streaming after relaunch', { t
   fake.route(() => reply.text('Back after the crash.'))
   const again = await s.relaunch(app)
   const page2 = again.page
-  await page2.click('.nav-item', { text: 'Start something long' })
+  await page2.click('.nav-item, .chat-thread', { text: 'Start something long' })
   const after = await page2.waitFor(
     () => {
       const rows = [...document.querySelectorAll('.msg-row')].filter((row) => !row.matches('.msg-user-block'))

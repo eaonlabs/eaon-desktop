@@ -302,6 +302,75 @@ export function prFromGh(raw: unknown): PullRequestInfo | null {
   }
 }
 
+/** A session branch's pull request, as the ADE's sidebar marks it on the session's row. */
+export interface BranchPr {
+  number: number
+  title: string
+  url: string
+  state: PullRequestInfo['state']
+  draft: boolean
+  /** Its checks together: failing when any failed, running while any still run, else passed; null with none. */
+  checks: 'passed' | 'failed' | 'pending' | null
+  /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or '' */
+  reviewDecision: string
+}
+
+export function branchPrOf(pr: PullRequestInfo): BranchPr {
+  const { passed, failed, pending } = pr.checks
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    state: pr.state,
+    draft: pr.draft,
+    checks: failed > 0 ? 'failed' : pending > 0 ? 'pending' : passed > 0 ? 'passed' : null,
+    reviewDecision: pr.reviewDecision
+  }
+}
+
+const STATE_RANK: Record<BranchPr['state'], number> = { OPEN: 2, MERGED: 1, CLOSED: 0 }
+
+/**
+ * Each branch's pull request, from `gh pr list --state all --json
+ * number,title,url,state,isDraft,headRefName,isCrossRepository,headRepositoryOwner,reviewDecision,statusCheckRollup`:
+ * an open one before a merged one before a closed one, then the newest. One
+ * from a fork counts only when the fork is `owner`'s (the owner of the
+ * repository's origin): someone else's fork can have a branch of the same name.
+ */
+export function branchPrsFromGh(raw: unknown, owner: string | null): Record<string, BranchPr> {
+  const out: Record<string, BranchPr> = {}
+  if (!Array.isArray(raw)) return out
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const v = row as Record<string, unknown>
+    const branch = typeof v.headRefName === 'string' ? v.headRefName : ''
+    if (!branch) continue
+    if (v.isCrossRepository === true) {
+      const login = (v.headRepositoryOwner as { login?: unknown } | null)?.login
+      if (!owner || typeof login !== 'string' || login.toLowerCase() !== owner.toLowerCase()) continue
+    }
+    const info = prFromGh(v)
+    if (!info) continue
+    const pr = branchPrOf(info)
+    const held = out[branch]
+    const rank = STATE_RANK[pr.state] - (held ? STATE_RANK[held.state] : -1)
+    if (rank > 0 || (rank === 0 && pr.number > held!.number)) out[branch] = pr
+  }
+  return out
+}
+
+/** What a pull request's mark says: "Pull request #12 · Open · Checks failing · Approved". */
+export function branchPrLabel(pr: BranchPr): string {
+  const state = pr.state === 'MERGED' ? 'Merged' : pr.state === 'CLOSED' ? 'Closed' : pr.draft ? 'Draft' : 'Open'
+  const said = [`Pull request #${pr.number}`, state]
+  if (pr.state === 'OPEN') {
+    if (pr.checks) said.push({ failed: 'Checks failing', pending: 'Checks running', passed: 'Checks passed' }[pr.checks])
+    const review = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Review required' }[pr.reviewDecision]
+    if (review) said.push(review)
+  }
+  return said.join(' · ')
+}
+
 /** A branch's workflow runs as `gh run list --json databaseId,name,workflowName,status,conclusion,url` gives them. */
 export function runsFromGh(raw: unknown): ReviewCheck[] {
   if (!Array.isArray(raw)) return []

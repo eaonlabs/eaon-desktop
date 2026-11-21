@@ -81,6 +81,13 @@
   text-align: center;
   animation: hero-in 520ms var(--ease) 60ms both;
 }
+/* The project the start page asks about, by name, underlined in dots (its folder on hover). */
+.home__project {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-4);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
 .home__icon {
   color: var(--text-3);
   margin-bottom: 18px;
@@ -1286,12 +1293,16 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   --foot-len: calc(24px + 48px * var(--veil-foot));
 }
 
-/* The foot's veil: the top's, turned over, standing on the message box's dock
-   over the last of the thread. Built as the reader scrolls up from the end. */
+/* The foot's veil: the top's, turned over, building over the last of the
+   thread as the reader scrolls up from the end. It fades in over its first
+   76px and then runs on, at its fullest, behind the message box's dock and
+   past the window's foot: stopping at the dock's top it drew a hard line where
+   the blurred picture under it (a see-through wallpaper) met the sharp one. */
 .scroll-veil--foot {
-  --veil-h: 76px;
-  top: auto;
-  bottom: 100%;
+  --veil-ramp: 76px;
+  top: calc(-1 * var(--veil-ramp));
+  bottom: -40px;
+  height: auto;
   background: linear-gradient(
     to top,
     color-mix(in srgb, var(--canvas) calc(55% * var(--veil)), transparent) 0%,
@@ -1302,22 +1313,28 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
 .scroll-veil--foot > span {
   -webkit-mask-image: linear-gradient(
     to bottom,
-    transparent calc(var(--i) * 16.66%),
-    #000 calc((var(--i) + 1) * 16.66%),
-    #000 calc((var(--i) + 2) * 16.66%),
-    transparent calc((var(--i) + 3) * 16.66%)
+    transparent calc(var(--i) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 1) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 2) * var(--veil-ramp) / 6),
+    transparent calc((var(--i) + 3) * var(--veil-ramp) / 6)
   );
   mask-image: linear-gradient(
     to bottom,
-    transparent calc(var(--i) * 16.66%),
-    #000 calc((var(--i) + 1) * 16.66%),
-    #000 calc((var(--i) + 2) * 16.66%),
-    transparent calc((var(--i) + 3) * 16.66%)
+    transparent calc(var(--i) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 1) * var(--veil-ramp) / 6),
+    #000 calc((var(--i) + 2) * var(--veil-ramp) / 6),
+    transparent calc((var(--i) + 3) * var(--veil-ramp) / 6)
   );
 }
 .scroll-veil--foot > span:last-child {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
-  mask-image: linear-gradient(to bottom, transparent 66%, #000 92%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--veil-ramp) * 0.66), #000 calc(var(--veil-ramp) * 0.92));
+  mask-image: linear-gradient(to bottom, transparent calc(var(--veil-ramp) * 0.66), #000 calc(var(--veil-ramp) * 0.92));
+}
+/* The box and what is pinned over it stay above the veil that runs on behind them. */
+.composer-dock > .composer-stack,
+.composer-dock > .composer-dock__pinned {
+  position: relative;
+  z-index: 4;
 }
 body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
   .main:has(> .chat-header--float)
@@ -1549,4 +1566,154 @@ body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
 .chip--model .chip__adaptive {
   flex: none;
   color: var(--text-2);
+}
+
+/* ---------------- The message box, plain and quiet (Composer.tsx, data-shape="box") ----------------
+   One box on the start page and in a conversation: the text over a single
+   row. On the left the model (with its effort) and what Eaon may do, with a
+   hairline between them; on the right how full the context is, +, the mic and send.
+   Under it in a project, a quiet strip with the folder and the branch. Later
+   than the shapes above and more specific, so the earlier ones stay for the
+   workers' box (WorkerComposer.tsx), which keeps its own. */
+
+.composer[data-shape='box'][data-variant] {
+  padding: 2px 12px 10px;
+  border-radius: 22px;
+}
+.composer[data-shape='box'][data-variant] .composer__input {
+  min-height: 54px;
+  padding: 15px 6px 6px;
+}
+.composer[data-shape='box'][data-variant='home'] .composer__input {
+  min-height: 78px;
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar {
+  height: 36px;
+  gap: 2px;
+}
+
+/* The model and what Eaon may do: plain words with their icons, a hairline between them. */
+.composer__controls {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.composer__controls > :not(:first-child) {
+  position: relative;
+  margin-left: 13px;
+}
+.composer__controls > :not(:first-child)::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+.composer[data-shape='box'] .composer__controls > .chip,
+.composer[data-shape='box'] .composer__controls > .composer-pill {
+  height: 30px;
+  min-width: 0;
+  padding: 0 8px;
+  gap: 7px;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+.composer[data-shape='box'] .composer__controls > .chip:hover,
+.composer[data-shape='box'] .composer__controls > .chip[data-open='true'],
+.composer[data-shape='box'] .composer__controls > .composer-pill:hover,
+.composer[data-shape='box'] .composer__controls > .composer-pill[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer[data-shape='box'] .composer__controls .chip__chevron,
+.composer[data-shape='box'] .composer__controls .composer-pill__chevron {
+  display: block;
+  color: var(--text-4);
+}
+.composer[data-shape='box'] .composer__controls > .chip--model .chip__effort {
+  color: var(--text-3);
+}
+/* Full access: the open lock in orange, the words as quiet as the others. */
+.composer[data-shape='box'] .composer__controls > .composer-pill[data-tone='warn'] {
+  color: var(--text-2);
+}
+.composer[data-shape='box'] .composer__controls > .composer-pill[data-tone='warn'] .composer-pill__icon {
+  color: var(--warn);
+}
+.composer[data-shape='box'] .composer__controls > .composer-pill[data-tone='warn']:hover,
+.composer[data-shape='box'] .composer__controls > .composer-pill[data-tone='warn'][data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* + and the mic: bare icons. Send: a solid disc in the accent; Stop, in red. */
+.composer[data-shape='box'][data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon),
+.composer[data-shape='box'][data-variant] .composer__toolbar > .composer__mic {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-3);
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon):hover,
+.composer[data-shape='box'][data-variant] .composer__toolbar > .composer__round:not(.composer__mic):not(.composer-permission-icon)[data-open='true'],
+.composer[data-shape='box'][data-variant] .composer__toolbar > .composer__mic:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar > .send {
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar > .send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent), #ffffff 12%);
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar > .send--stop {
+  background: var(--danger);
+  color: #fff;
+}
+.composer[data-shape='box'][data-variant] .composer__toolbar > .send--stop:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger), #ffffff 12%);
+}
+.composer[data-shape='box'] .composer__toolbar > .context-meter {
+  margin-right: 2px;
+}
+
+/* Under the box in a project: its folder at one end and the branch at the other, small and quiet. */
+.composer[data-shape='box'] + .composer__tray,
+.composer[data-shape='box'][data-variant='home'] + .composer__tray {
+  margin: -16px 22px 0;
+  padding: 19px 6px 3px;
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.composer[data-shape='box'] + .composer__tray .composer-pill {
+  height: 26px;
+  padding: 0 8px;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  background: transparent;
+  box-shadow: none;
+}
+.composer[data-shape='box'] + .composer__tray .composer-pill:hover,
+.composer[data-shape='box'] + .composer__tray .composer-pill[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+/* A narrow box: access keeps its icon and drops its words, and the model's name gives way last. */
+@container (max-width: 560px) {
+  .composer[data-shape='box'] .composer__controls > .composer-pill--permission .composer-pill__label {
+    display: none;
+  }
 }

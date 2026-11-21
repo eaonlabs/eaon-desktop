@@ -125,6 +125,34 @@ export function ensureLimits(): void {
   useProviderUsage.getState().ensure()
 }
 
+/**
+ * A ring picked for the sidebar whose coding CLI is on this computer but
+ * signed out: shown dim, its card saying how to sign in, rather than gone
+ * without a word. (limitsView leaves it out, so the Usage & limits page lists
+ * only what is signed in.)
+ */
+export function signedOutView(id: UsageProviderId, cli: CliAccountsState | null): LimitsView | null {
+  const info = usageProvider(id)
+  const tool = CLI[id]
+  if (!info || !tool || !cli?.tools[tool].installed) return null
+  const usage = cli.usage[usageKey(tool, cli.tools[tool].active)]
+  if (!usage || usage.ok || usage.reason !== 'signed-out') return null
+  return {
+    id,
+    name: info.name,
+    mark: info.mark,
+    account: null,
+    plan: null,
+    status: 'signed-out',
+    windows: [],
+    lines: [],
+    note: `Not signed in. Run \`${info.signIn}\` in a terminal to see ${info.name}’s limits here.`,
+    banked: null,
+    tokens: null,
+    asOf: null
+  }
+}
+
 export async function refreshLimits(): Promise<void> {
   await Promise.all([useCliAccounts.getState().refresh({ all: true, force: true }), useProviderUsage.getState().refresh()])
 }
