@@ -32,7 +32,7 @@ async function startRelay(stateDir) {
   const proc = spawn(
     'wrangler',
     ['dev', '--port', String(PORT), '--local-upstream', `localhost:${PORT}`, '--persist-to', stateDir, '--var', 'DEV_LOGIN:1', '--var', `PUBLIC_URL:${SITE}`, '--var', 'SESSION_SECRET:e2e-only', '--var', 'GITHUB_CLIENT_ID:', '--var', 'GITHUB_CLIENT_SECRET:'],
-    { cwd: resolve(import.meta.dirname, '../../cloud/rc'), env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' }, stdio: ['ignore', 'pipe', 'pipe'] }
+    { cwd: resolve(import.meta.dirname, '../../cloud/rc'), env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true }
   )
   let log = ''
   proc.stdout.on('data', (d) => (log += d))
@@ -45,6 +45,19 @@ async function startRelay(stateDir) {
   }
   proc.kill()
   throw new Error(`wrangler dev didn’t start:\n${log.slice(-3000)}`)
+}
+
+/** wrangler runs workerd as a child that keeps writing its state after the parent exits, so stop the whole group and wait for it. */
+async function stopRelay(proc) {
+  const group = -proc.pid
+  if (proc.exitCode === null && proc.signalCode === null) {
+    const gone = new Promise((done) => proc.once("exit", done))
+    try { process.kill(group, "SIGTERM") } catch {}
+    await Promise.race([gone, sleep(5000)])
+    try { process.kill(group, "SIGKILL") } catch {}
+    await gone
+  }
+  try { process.kill(group, "SIGKILL") } catch {}
 }
 
 async function signIn(login) {
@@ -285,7 +298,7 @@ test('Sharing on Eaon Remote: a terminal or a whole computer, with one GitHub ac
     throw error
   } finally {
     for (const s of sockets) s.ws.terminate()
-    relay.proc.kill()
-    rmSync(state, { recursive: true, force: true })
+    await stopRelay(relay.proc)
+    rmSync(state, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
 })
