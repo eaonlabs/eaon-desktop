@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import type { ChatMessage, ChatToolPart } from '@shared/types'
 import type { NeutralImage, NeutralMessage, NeutralToolCall, NeutralToolResult } from '../providers/adapters/types'
+import { cachedDocument, DOCUMENT_LIMITS, documentFormat, documentNote, prepareDocuments } from './documents'
 
 /**
  * What of a conversation gets resent, and how much of it.
@@ -78,6 +79,8 @@ const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg'
  */
 const IMAGE_MAX_BYTES = 20 * 1024 * 1024
 const TEXT_MAX_BYTES = 60_000
+/** A CSV or TSV past the plain-text limit is still read, up to this size, and cut to the first rows (documents.ts's text limit). */
+const TABLE_MAX_BYTES = 4 * 1024 * 1024
 
 /**
  * The size of a regular file, or null for anything else. Checked before
@@ -128,6 +131,53 @@ function readTextAttachment(path: string): string | null {
   }
 }
 
+/**
+ * A long CSV or TSV: its first rows, as many as fit the document text limit,
+ * with how many of the rows that is. Shorter ones go in whole (above).
+ */
+function readTableAttachment(path: string): { text: string; shown: number; total: number } | null {
+  if (!/\.(csv|tsv)$/i.test(path)) return null
+  const size = fileSize(path)
+  if (size === null || size <= TEXT_MAX_BYTES || size > TABLE_MAX_BYTES) return null
+  try {
+    const buffer = readFileSync(path)
+    if (buffer.subarray(0, 4000).includes(0)) return null
+    const all = buffer.toString('utf8')
+    const rows = all.split('\n')
+    const total = all.endsWith('\n') ? rows.length - 1 : rows.length
+    const kept: string[] = []
+    let chars = 0
+    for (const row of rows.slice(0, total)) {
+      if (chars + row.length + 1 > DOCUMENT_LIMITS.textChars) break
+      kept.push(row)
+      chars += row.length + 1
+    }
+    return kept.length > 0 ? { text: kept.join('\n'), shown: kept.length, total } : null
+  } catch {
+    return null
+  }
+}
+
+/** The user messages whose attachments are read from disk: the last two. Returns the index of the first. */
+function attachFromIndex(history: ChatMessage[]): number {
+  const userIndices = history.map((m, i) => (m.role === 'user' ? i : -1)).filter((i) => i >= 0)
+  return userIndices.length > 2 ? userIndices[userIndices.length - 2] : 0
+}
+
+/**
+ * Converts the PDFs, Word documents and spreadsheets attached to the last two
+ * messages to text, ahead of `buildHistory`, which is synchronous and only
+ * reads what this has converted (documents.ts). Each file is converted once.
+ */
+export async function prepareAttachments(history: ChatMessage[]): Promise<void> {
+  const from = attachFromIndex(history)
+  const paths: string[] = []
+  history.forEach((message, index) => {
+    if (message.role === 'user' && index >= from) for (const path of message.attachments ?? []) if (documentFormat(path)) paths.push(path)
+  })
+  if (paths.length > 0) await prepareDocuments(paths)
+}
+
 export interface BuiltHistory {
   messages: NeutralMessage[]
   /** For each neutral message, the id of the stored message it came from (compaction needs it). */
@@ -155,7 +205,7 @@ export function buildHistory(history: ChatMessage[], summary: string | null, kee
   const userIndices = history.map((m, i) => (m.role === 'user' ? i : -1)).filter((i) => i >= 0)
   const oldBefore = userIndices.length > keepFullToolTurns ? userIndices[userIndices.length - keepFullToolTurns] : 0
   // Attachments are read from disk only for the last two user messages.
-  const attachFrom = userIndices.length > 2 ? userIndices[userIndices.length - 2] : 0
+  const attachFrom = attachFromIndex(history)
 
   // The one screenshot worth replaying: the newest.
   let newestImagePart: ChatToolPart | null = null
@@ -186,9 +236,22 @@ export function buildHistory(history: ChatMessage[], summary: string | null, kee
           images.push(image)
           continue
         }
+        // A PDF, Word or Excel file goes in as the text it was converted to (never as its raw bytes).
+        if (documentFormat(path)) {
+          const document = recent ? cachedDocument(path) : null
+          notes.push(document ? documentNote(path, document) : `\n\n[Attached: ${path}]`)
+          continue
+        }
         const inline = recent ? readTextAttachment(path) : null
-        const oversized = recent && !inline ? oversizedImageNote(path) : null
-        notes.push(inline ? `\n\nAttached file ${path}:\n\`\`\`\n${inline}\n\`\`\`` : `\n\n${oversized ?? `[Attached: ${path}]`}`)
+        const table = recent && !inline ? readTableAttachment(path) : null
+        const oversized = recent && !inline && !table ? oversizedImageNote(path) : null
+        notes.push(
+          inline
+            ? `\n\nAttached file ${path}:\n\`\`\`\n${inline}\n\`\`\``
+            : table
+              ? `\n\nAttached file ${path} (the first ${table.shown.toLocaleString('en-US')} of ${table.total.toLocaleString('en-US')} rows; the file is too long to include whole):\n\`\`\`\n${table.text}\n\`\`\``
+              : `\n\n${oversized ?? `[Attached: ${path}]`}`
+        )
       }
       const body = text + notes.join('')
       if (body || images.length > 0) push({ role: 'user', text: body, ...(images.length ? { images } : {}) }, message.id)
