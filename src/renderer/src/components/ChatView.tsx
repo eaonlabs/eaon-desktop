@@ -55,8 +55,8 @@ import { TemporaryHint, TemporaryLabel, TemporaryNote, TemporaryPill, TemporaryT
 import { exportChatToFile } from './chat/exportChat'
 import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
-import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
-import { StockCards } from './workers/WorkerUi'
+import { ChatCardContext, WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
+import { CardDeckContext, StockCards, useCardDeck } from './workers/WorkerUi'
 import { useWorkers } from './workers/workersStore'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -424,6 +424,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   // place, so opening a long chat no longer replays every message's entrance.
   const opened = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() })
   if (opened.current.chatId !== chat.id) opened.current = { chatId: chat.id, ids: new Set(chat.messages.map((m) => m.id)) }
+  // The cards the agent keeps in this chat (show_ui with an id), each drawn where it first appeared, as it is now.
+  const cardDeck = useCardDeck(chat.messages)
+  const cardChat = useMemo(() => ({ chatId: chat.id }), [chat.id])
   useLayoutEffect(() => {
     if (document.body.dataset.reduceMotion === 'on') return
     thread.current?.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
@@ -570,6 +573,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           if (e.deltaY < 0) following.current = false
         }}
       >
+        <CardDeckContext.Provider value={cardDeck}>
+        <ChatCardContext.Provider value={cardChat}>
         <div className="thread__inner">
           {chat.temporary && <TemporaryNote />}
           {chat.archived && <ArchivedNote chatId={chat.id} />}
@@ -595,6 +600,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             </Fragment>
           ))}
         </div>
+        </ChatCardContext.Provider>
+        </CardDeckContext.Provider>
       </div>
 
       <div className="composer-dock" data-card={cardInline || undefined}>
@@ -962,7 +969,8 @@ export const MessageRow = memo(function MessageRow({
           // or a tool call stays where the model made it — between the sentence
           // that led to it and the one that follows from its result.
           <div className="msg--assistant" data-streaming={streaming || undefined}>
-            {(folded ? items.slice(answerFrom) : items).map((item, index) =>
+            {/* Folded, the turn keeps its answer and its cards: a card is something to look at, not a step. */}
+            {(folded ? items.filter((item, i) => i >= answerFrom || item.kind === 'card') : items).map((item, index) =>
               item.kind === 'card' ? (
                 <WorkerCardRow key={item.key} part={item.part} />
               ) : item.kind === 'stocks' ? (

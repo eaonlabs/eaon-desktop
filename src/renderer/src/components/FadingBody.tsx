@@ -15,23 +15,37 @@ export function FadingBody({ className = 'sidebar__body', children }: { classNam
     const node = body.current
     if (!host || !node) return
     const ease = (px: number): string => {
-      const t = Math.min(1, Math.max(0, px / 32))
+      const t = Math.min(1, Math.max(0, px / 24))
       return (t * t * (3 - 2 * t)).toFixed(3)
+    }
+    // Scrolling through the list's own padding cuts nothing off: only what's past it is hidden.
+    let pad = { top: 0, bottom: 0 }
+    const measure = (): void => {
+      const style = getComputedStyle(node)
+      pad = { top: parseFloat(style.paddingTop) || 0, bottom: parseFloat(style.paddingBottom) || 0 }
     }
     let last = ''
     const update = (): void => {
-      const top = ease(node.scrollTop)
-      const bottom = ease(node.scrollHeight - node.clientHeight - node.scrollTop)
-      if (`${top} ${bottom}` === last) return
-      last = `${top} ${bottom}`
+      const cutTop = node.scrollTop - pad.top
+      const cutBottom = node.scrollHeight - node.clientHeight - node.scrollTop - pad.bottom
+      // How tall each fade is grows with how much is hidden past that edge; the edge itself is clear
+      // whenever anything is, so a row is never sliced off in a hard line.
+      const next = `${ease(cutTop)} ${ease(cutBottom)} ${cutTop > 0.5 ? 1 : 0} ${cutBottom > 0.5 ? 1 : 0}`
+      if (next === last) return
+      last = next
+      const [top, bottom, clearTop, clearBottom] = next.split(' ')
       host.style.setProperty('--fade-top', top)
       host.style.setProperty('--fade-bottom', bottom)
+      host.style.setProperty('--clear-top', clearTop)
+      host.style.setProperty('--clear-bottom', clearBottom)
     }
+    measure()
     update()
     node.addEventListener('scroll', update, { passive: true })
     // The list also grows and shrinks without a scroll: a chat added, a project opened or folded.
     const sizes = new ResizeObserver(update)
     const watch = (): void => {
+      measure()
       sizes.disconnect()
       sizes.observe(node)
       for (const child of Array.from(node.children)) sizes.observe(child)
