@@ -55,14 +55,6 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
   mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
 }
-/* In a pattern: the picture drawn in it, coming in over the same stretch as the blur would. */
-.see-through__fade-pattern {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--fade-from) * 1vh), #000 calc((var(--fade-from) + 4 * var(--fade-step)) * 1vh));
-  mask-image: linear-gradient(to bottom, transparent calc(var(--fade-from) * 1vh), #000 calc((var(--fade-from) + 4 * var(--fade-step)) * 1vh));
-}
 .see-through__fade > i {
   position: absolute;
   inset: calc(var(--fade-from) * 1vh) 0 0;
