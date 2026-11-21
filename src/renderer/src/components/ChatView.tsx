@@ -200,7 +200,7 @@ function Home(): JSX.Element {
   const isWork = useIsWork()
   // A chat in a project codes; an ordinary one has none of the coding tools.
   const coding = useCoding() && isWork
-  // The next chat isn't kept: the page says so under its title, and the box is dashed.
+  // The next chat isn't kept: the title says so with the mark beside it, a note under the box says what that means, and the box is dashed.
   const temporary = useApp((s) => s.pendingTemporary) && isWork
   // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
@@ -222,10 +222,13 @@ function Home(): JSX.Element {
           Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
-          {!project && <EaonSymbol className="home__mark" />}
-          <h1 className="home__title">
+          {!project && !temporary && <EaonSymbol className="home__mark" />}
+          <h1 className="home__title" data-temporary={temporary || undefined}>
             {temporary ? (
-              'You’re in a temporary chat'
+              <>
+                <EaonSymbol className="home__title-mark" />
+                You’re in a temporary chat
+              </>
             ) : project ? (
               <>
                 What should we build in{' '}
@@ -240,10 +243,10 @@ function Home(): JSX.Element {
               'What can I help with?'
             )}
           </h1>
-          {temporary && <TemporaryHint />}
         </div>
         <div className="home__dock">
           <Composer variant="home" />
+          {temporary && <TemporaryHint />}
         </div>
       </div>
       {coding && <WorkspaceCard over />}

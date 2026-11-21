@@ -1,13 +1,34 @@
-/* Temporary chats: the start page's switch and what it says, the dashed box, and the note in the conversation.
+/* Temporary chats: the start page's switch, its title and the note under its box, the dashed box, and the note in the conversation.
    `.thread-note` is also the archived chat's note (ArchivedNote.tsx). */
 
+/* The start page's title while the switch is on: the mark beside it on one line. It sits where it
+   does with the mark above it (.home__mark's 44px and 18px gap), so turning the switch moves nothing else. */
+.home__title[data-temporary] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32em;
+  margin-top: calc(44px + 18px);
+}
+.home__title-mark {
+  flex: none;
+  width: 0.86em;
+  height: 0.86em;
+  color: var(--text);
+}
+
+/* What a temporary chat is, hung under the box and out of the flow, so the box stays put. */
 .temp-hint {
-  max-width: min(420px, 100%);
-  margin: 14px 0 0;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: min(360px, calc(100% - 48px));
+  margin: 4px 0 0;
+  translate: -50% 0;
   text-align: center;
   text-wrap: balance;
   font-size: var(--fs-sm);
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--text-3);
   animation: temp-in var(--dur) var(--ease) both;
 }
@@ -72,4 +93,9 @@
   box-shadow: 0 10px 30px -18px rgb(0 0 0 / 0.55);
   outline: 1px dashed var(--border-strong);
   outline-offset: -1px;
+}
+/* It can't be in a project, so the start page's project strip isn't shown under it. Its room stays,
+   so the box doesn't move, and the note below hangs under that. */
+.composer[data-temporary] + .composer__tray {
+  visibility: hidden;
 }

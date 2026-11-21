@@ -49,13 +49,9 @@ export function TemporaryLabel(): JSX.Element | null {
   ) : null
 }
 
-/** In place of the start page's chips while the switch is on. */
+/** Under the start page's box while the switch is on: what a temporary chat is, in two lines. */
 export function TemporaryHint(): JSX.Element {
-  return (
-    <p className="temp-hint">
-      Temporary chats aren’t saved. They stay out of your chat list and search, can’t be in a project, and are gone when you leave them. Files Eaon creates stay on your computer.
-    </p>
-  )
+  return <p className="temp-hint">Temporary chats aren’t saved. They stay out of your chat list and search, and are gone when you leave them.</p>
 }
 
 /** The label by a temporary conversation's title. */
