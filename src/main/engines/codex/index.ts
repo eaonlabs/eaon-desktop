@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { EngineAuth, EngineModels, EngineStatus } from '@shared/engines'
@@ -25,6 +26,8 @@ import {
 import { fallbackModels, fetchModels, liveModels, toRecord, wireEffort, type CodexModelRecord, type ModelCache } from './models'
 import type { GetAccountResponse, ThreadStartResponse } from './protocol'
 import { accessPlan, runTurn, type TurnOutcome } from './turn'
+import { remotePlace, sendImages, signInCommand, type RemotePlace } from '../remote'
+import { KeptProcess, runState, stopRun } from '../kept'
 
 /**
  * Codex as an Eaon engine: Eaon drives the user's own installed Codex through
@@ -56,6 +59,8 @@ const MAX_IDLE_SESSIONS = 4
 
 const LATEST_DOC = 'engine-codex-latest.json'
 const MODELS_DOC = 'engine-codex-models.json'
+/** Codex runs on other machines, by thread (engines/kept.ts). */
+const REMOTE_RUNS_DOC = 'engine-codex-remote-runs.json'
 
 /** Notifications no part of Eaon reads; Codex doesn't send them at all. */
 const OPT_OUT = [
@@ -151,6 +156,36 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
   async function startServer(binary: string, cwd: string): Promise<AppServer> {
     const { server } = await AppServer.start({ command: binary, cwd, env: spawnEnv(), clientVersion, optOut: OPT_OUT })
     return server
+  }
+
+  /** Codex's runs on other machines, by thread: one still going there (Eaon quit while it worked) is picked up by the thread's next turn. */
+  const remoteRuns = (): Record<string, string> => docs.getJson<Record<string, string>>(REMOTE_RUNS_DOC, {})
+  const noteRemoteRun = (threadId: string, dir: string): void => {
+    if (remoteRuns()[threadId] !== dir) docs.setJson(REMOTE_RUNS_DOC, { ...remoteRuns(), [threadId]: dir })
+  }
+
+  /**
+   * Codex's app-server on the machine a session's folder is on, on that
+   * machine's own sign-in, kept going there by the keeper (engines/kept.ts):
+   * this computer can sleep or lose the network mid-turn and Codex carries on.
+   */
+  async function startRemoteServer(place: RemotePlace, threadId: string | null): Promise<{ server: AppServer; attached: boolean; dir: string }> {
+    const label = `Codex on ${place.where}`
+    const known = threadId ? remoteRuns()[threadId] : undefined
+    if (known) {
+      const state = await runState(place.host, known).catch(() => null)
+      if (state?.state === 'running') {
+        // Already started and introduced: no handshake, only what it says from now on.
+        const proc = new KeptProcess({ place, program: 'codex', args: ['app-server'], attach: { dir: known, from: state.size } })
+        const server = AppServer.spawn({ command: 'codex', process: () => proc as unknown as ChildProcess, clientVersion, optOut: OPT_OUT, label })
+        return { server, attached: true, dir: known }
+      }
+      // Couldn't say: ended, so a new one can have the thread (two can't).
+      if (!state) await stopRun(place.host, known).catch(() => undefined)
+    }
+    const proc = new KeptProcess({ place, program: 'codex', args: ['app-server'] })
+    const { server } = await AppServer.start({ command: 'codex', process: () => proc as unknown as ChildProcess, clientVersion, optOut: OPT_OUT, label })
+    return { server, attached: false, dir: proc.dir }
   }
 
   function scheduleControlStop(): void {
@@ -399,9 +434,18 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
 
   async function runTurnNow(input: EngineTurnInput, key: string): Promise<EngineTurnResult> {
     if (input.signal.aborted) return cancelledResult(input, input.sessionId)
-    const pre = await preflight(input)
+    // A session on another machine runs the Codex there; what's installed and signed in here doesn't matter.
+    let place: RemotePlace | null = null
+    try {
+      place = await remotePlace(input.cwd)
+    } catch (error) {
+      return failure(input, 'other', describe(error))
+    }
+    const there = (result: EngineTurnResult): EngineTurnResult => (place ? { ...result, where: place.where } : result)
+    const pre = place ? null : await preflight(input)
     if (pre) return pre
-    const binary = chosen!.path
+    const binary = place ? 'codex' : chosen!.path
+    const folder = place ? place.root : input.cwd
 
     // A process for this session: the warm one, or a fresh one.
     let session = input.sessionId ? sessions.get(input.sessionId) : undefined
@@ -413,21 +457,32 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
       session = undefined
     }
     let fresh = false
+    /** The run there, for a session on another machine, and whether it was one already going. */
+    let remoteDir: string | null = null
+    let attached = false
     if (!session) {
       let server: AppServer
       const startedFor = generation
       try {
-        const pending = startServer(binary, input.cwd)
-        server = await pending
+        if (place) {
+          const started = await startRemoteServer(place, input.sessionId)
+          server = started.server
+          remoteDir = started.dir
+          attached = started.attached
+        } else server = await startServer(binary, input.cwd)
       } catch (error) {
-        return failure(input, 'engine-crashed', `Codex didn’t start: ${describe(error)}`, describe(error))
+        if (place && /not found|no such file/i.test(describe(error))) {
+          return there(failure(input, 'not-installed', `Codex isn’t installed on ${place.where}. Install it there (npm install -g @openai/codex), then try again.`, describe(error)))
+        }
+        return there(failure(input, 'engine-crashed', `Codex didn’t start${place ? ` on ${place.where}` : ''}: ${describe(error)}`, describe(error)))
       }
       if (disposed || input.signal.aborted) {
         await server.stop()
         return cancelledResult(input, input.sessionId)
       }
       starting.add(server)
-      session = { server, threadId: null, loaded: false, activeTurnId: null, lastUsed: now(), idleTimer: null, generation: startedFor }
+      // Picked up on another machine, the thread is open in it already (it has been all along): no resume.
+      session = { server, threadId: attached ? input.sessionId : null, loaded: attached && Boolean(input.sessionId), activeTurnId: null, lastUsed: now(), idleTimer: null, generation: startedFor }
       fresh = true
     }
     const server = session.server
@@ -438,6 +493,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
       session!.threadId = threadId
       session!.loaded = true
       sessions.set(threadId, session!)
+      if (remoteDir) noteRemoteRun(threadId, remoteDir)
     }
     const drop = async (): Promise<void> => {
       starting.delete(server)
@@ -446,9 +502,24 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
     }
 
     try {
+      // On another machine, Codex has to be signed in there: the user does that in its terminal.
+      if (fresh && place && !attached) {
+        const read = await server.request<GetAccountResponse>('account/read', { refreshToken: false }, 15_000).catch(() => null)
+        const auth = read ? authFromAccount(read) : null
+        if (!auth || auth.state === 'signed-out' || auth.state === 'expired') {
+          await drop()
+          return there(
+            failure(
+              input,
+              'signed-out',
+              `Codex isn’t signed in on ${place.where}. Open the terminal (it runs there) and run ${signInCommand('codex')}, then send again.`
+            )
+          )
+        }
+      }
       // Codex pointed at Eaon's own gateway? Checked on the process that will run the turn.
       if (fresh) {
-        const config = await server.request<{ config?: Record<string, unknown> }>('config/read', { includeLayers: false, cwd: input.cwd }, 10_000).catch(() => null)
+        const config = await server.request<{ config?: Record<string, unknown> }>('config/read', { includeLayers: false, cwd: folder }, 10_000).catch(() => null)
         const reason = blockReason(config?.config)
         if (reason) {
           await drop()
@@ -459,7 +530,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
 
       const plan = accessPlan(input.access)
       const threadSettings = {
-        cwd: input.cwd,
+        cwd: folder,
         approvalPolicy: plan.approvalPolicy,
         approvalsReviewer: 'user',
         sandbox: plan.sandbox,
@@ -497,7 +568,8 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
       const outcome: TurnOutcome = await runTurn({
         server,
         threadId,
-        input,
+        // On another machine: its folder, and the pictures sent along copied there for Codex to open.
+        input: place ? { ...input, cwd: folder, images: await sendImages(place, input.images) } : input,
         effort: wireEffort(input.effort, record),
         auth: status?.auth ?? null,
         interruptGraceMs: options.interruptGraceMs,
@@ -521,6 +593,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
         ...(outcome.detail ? { errorDetail: outcome.detail } : {}),
         sideEffects: outcome.sideEffects,
         sessionReplaced: replaced,
+        ...(place ? { where: place.where } : {}),
         notice: replaced
           ? 'Codex no longer had this conversation (it may have been deleted in Codex), so this turn started a new one without the earlier messages.'
           : null,
@@ -530,7 +603,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
       session.activeTurnId = null
       await drop()
       if (input.signal.aborted) return cancelledResult(input, input.sessionId)
-      return turnStartFailure(input, error)
+      return there(turnStartFailure(input, error))
     }
   }
 
@@ -584,6 +657,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
 
   return {
     id: 'codex',
+    remote: true,
 
     detect,
 

@@ -58,6 +58,7 @@ import { ElsewhereAsk } from './agent/ElsewhereAsk'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
+import { EnvironmentPicker } from './environments/EnvironmentPicker'
 import { BranchPicker } from './chatCode/BranchPicker'
 import { useChatCode, watchChatCode } from './chatCode/chatCodeStore'
 import { notify } from './Notice'
@@ -930,6 +931,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           chat has begun the strip goes; the header names the project. */}
       {variant === 'home' && isAgent && (
         <div className="composer__tray">
+          <EnvironmentPicker />
           <ProjectPicker />
           <div className="composer__spacer" />
           <BranchPicker />

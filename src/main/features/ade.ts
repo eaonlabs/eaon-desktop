@@ -227,7 +227,12 @@ export const adeFeature: Feature = {
       const cwd = remoteCwd(host.id, folder.path)
       const repo = await remoteRepo(cwd)
       const title = typeof req.title === 'string' && req.title.trim() ? req.title.trim().slice(0, 200) : null
-      return { ok: true, session: sessions().addRemote({ cwd, host: hostLabel(host), title, branch: repo?.branch ?? null, repo: repo?.repo ?? false }) }
+      // A cloud environment's copy: filed under the project here, keeping where it came from for Bring back.
+      const place = req.place && req.place.folder === cwd && typeof req.place.source === 'string' && !isRemote(req.place.source) ? req.place : null
+      return {
+        ok: true,
+        session: sessions().addRemote({ cwd, host: hostLabel(host), title, branch: repo?.branch ?? null, repo: repo?.repo ?? false, ...(place ? { project: place.source, place } : {}) })
+      }
     })
 
     // A folder on a host for a Chat project: checked and made absolute, with no session made for it.

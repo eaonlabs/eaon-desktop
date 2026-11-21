@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
-import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
+import { useApp, useWorkspaceKind, vmDeletedWith, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
 import { FadingBody } from './FadingBody'
@@ -1196,7 +1196,13 @@ const ChatRow = memo(function ChatRow({
         confirmLabel="Delete"
         onConfirm={() => deleteChat(chat.id)}
       >
-        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+        “{chat.title}” and its messages are removed from this computer.
+        {(() => {
+          const vm = confirm === 'delete' ? vmDeletedWith(useApp.getState().chats.find((c) => c.id === chat.id), useApp.getState().settings) : null
+          return vm ? ` Its VM, ${vm}, is deleted from exe.dev with everything on it.` : ''
+        })()}{' '}
+        This can’t be undone. To put a chat
+        away and keep it, archive it instead.
       </ConfirmDialog>
       <ConfirmDialog
         open={confirm === 'archive'}

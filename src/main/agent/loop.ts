@@ -115,6 +115,10 @@ export function isRunning(messageId: string): boolean {
   return activeRuns.has(messageId)
 }
 
+/** Why a cloud environment's session can't run on one of Eaon's own models. */
+export const CLOUD_NEEDS_ENGINE =
+  'Sessions in a cloud environment run Codex or Claude Code on that machine, so they keep working while this computer is closed. Pick Codex or Claude in the model menu, then send again.'
+
 /** Where Work mode acts when no project folder has been chosen. */
 export async function ensureWorkFolder(requested: string | null, settings: Settings): Promise<string> {
   const folder = requested || settings.work.defaultFolder || join(homedir(), 'Eaon')
@@ -892,8 +896,9 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
   holdAwake()
   try {
     const settings = store.getSettings()
-    if (request.cwd && isRemote(request.cwd)) {
-      throw new Error('This model runs its own agent on this computer, so it can’t work in a project on another machine over SSH. Pick one of Eaon’s providers for this chat, or open the project in the ADE.')
+    // Codex and Claude Code start on the other machine (engines/remote.ts); the others run only here.
+    if ((request.cloud || (request.cwd && isRemote(request.cwd))) && !engineAdapter(engineId)?.remote) {
+      throw new Error('This agent runs only on this computer, so it can’t work on another machine. Pick Codex, Claude or one of Eaon’s providers for this chat.')
     }
     const cwd = await ensureWorkFolder(request.cwd, settings)
     const outcome = await runEngineChat(
@@ -942,6 +947,12 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
 
 async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions): Promise<RunOutcome> {
   const usage = emptyUsage()
+  // A session in a cloud environment runs its agent there; Eaon's own loop would run here, and stop with this computer.
+  if (request.cloud) {
+    const error = CLOUD_NEEDS_ENGINE
+    emit({ type: 'error', messageId: request.messageId, error })
+    return { text: '', error, usage }
+  }
   const provider = getProvider(request.providerId)
   if (!provider) {
     const error = `Unknown provider "${request.providerId}"`

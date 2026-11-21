@@ -6,6 +6,7 @@ import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
 import type { AgentPermission, AgentPermissionChoice } from './agentPermissions'
+import type { CloudEnvironment, SessionPlace } from './environments'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -309,6 +310,12 @@ export interface Chat {
    * or the Library, and is dropped when the window leaves it.
    */
   temporary?: boolean
+  /**
+   * Runs in a cloud environment, not on this computer: on a copy of its
+   * project on that machine (shared/environments.ts). Its folder is the
+   * copy's, so every tool, the terminal and the diff work there.
+   */
+  place?: SessionPlace
 }
 
 /**
@@ -759,6 +766,10 @@ export interface Settings {
   adaptiveModel?: boolean
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
+  /** Cloud environments a session can run in (Settings → Environments, shared/environments.ts). */
+  environments?: CloudEnvironment[]
+  /** Where a new session runs: `local` (this computer), or an environment's id. The picker under the message box sets it. */
+  environment?: string
   /** Models picked lately, newest first, as `providerId:modelId`. */
   recentModels?: string[]
   effort: EffortLevel
@@ -917,6 +928,12 @@ export interface WorkOptions {
 
 export interface StreamRequest {
   chatId: string
+  /**
+   * The chat runs in a cloud environment (Chat.place): its agent must run on
+   * that machine too, so the session keeps going while this computer is away.
+   * Only Codex and Claude Code can; Eaon's own loop runs here.
+   */
+  cloud?: boolean
   /** The project's other folders (Project.extraFolders), for a Work turn. */
   extraRoots?: string[]
   /** For the "Task finished" notification, so main need not read every chat to find it. */

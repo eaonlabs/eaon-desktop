@@ -1,0 +1,517 @@
+/* Cloud environments (components/environments): the picker under the message
+   box, the dialog that sets one up, the card shown while a session's machine
+   is got ready, the badge in a conversation's header, and Settings →
+   Environments. */
+
+/* ---------------------------------------------------------------- picker */
+
+/* In the tray beside the project: a machine elsewhere reads in the accent,
+   so it is never picked without noticing. */
+.composer__tray .composer-pill--env {
+  flex-shrink: 1;
+  max-width: 200px;
+}
+.composer-pill--env .composer-pill__chevron {
+  margin-left: -2px;
+  color: var(--text-3);
+}
+.composer-pill--env[data-cloud] {
+  color: color-mix(in srgb, var(--accent) 62%, var(--text));
+}
+.composer-pill--env[data-cloud]:hover,
+.composer-pill--env[data-cloud][data-open] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 40%, var(--text));
+}
+.env-menu .menu__label {
+  padding-top: 8px;
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.env-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal__body .env-dialog .field + .field {
+  margin-top: 0;
+}
+.env-kinds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.env-kind {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 12px 14px 13px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  text-align: left;
+  color: var(--text-2);
+  transition:
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.env-kind:hover {
+  background: var(--hover);
+}
+.env-kind[data-on] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+.env-kind__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+}
+.env-kind[data-on] .env-kind__icon {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+  color: color-mix(in srgb, var(--accent) 55%, var(--text));
+}
+.env-kind__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.env-kind__text {
+  grid-column: 1 / -1;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-3);
+}
+.env-dialog__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.env-dialog__grid .field {
+  margin: 0;
+}
+.env-dialog__grid .select {
+  width: 100%;
+}
+.env-dialog__more {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+.env-dialog__more .field {
+  margin: 0;
+}
+.env-dialog__script {
+  min-height: 64px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.env-dialog__check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.env-dialog__hint {
+  margin: -6px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.env-dialog__loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.env-dialog__host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.env-dialog__host .field {
+  margin: 0;
+}
+.env-dialog__link {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--link);
+  font-size: var(--fs-sm);
+}
+.env-dialog__result {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.env-dialog__result[data-ok] {
+  background: color-mix(in srgb, var(--git-added) 14%, transparent);
+}
+.env-dialog__result svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--git-added);
+}
+
+/* exe.dev's account: a dot that says whether this computer can use it. */
+.env-account {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px 7px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.env-account__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--git-added);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--git-added) 22%, transparent);
+}
+.env-account[data-state='problem'] {
+  align-items: flex-start;
+}
+.env-account[data-state='problem'] .env-account__dot {
+  margin-top: 6px;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+.env-account__text {
+  flex: 1;
+  min-width: 0;
+}
+.env-account__more {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.env-account code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text);
+}
+.env-account .btn {
+  flex: none;
+}
+
+/* ------------------------------------------------------ setting up (thread) */
+
+.place-setup {
+  width: min(100%, 440px);
+  margin: 2px 0 8px;
+  padding: 12px 14px 13px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    var(--edge-light);
+  animation: place-setup-in 320ms var(--ease) both;
+}
+@keyframes place-setup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+.place-setup__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.place-setup__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: color-mix(in srgb, var(--accent) 60%, var(--text));
+}
+.place-setup__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: 550;
+  color: var(--text);
+}
+.place-setup__time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.place-setup__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 11px 0 0 3px;
+  padding: 0;
+  list-style: none;
+}
+.place-setup__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  animation: place-step-in 260ms var(--ease) both;
+}
+@keyframes place-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.place-setup__step[data-done] {
+  color: var(--text-3);
+}
+.place-setup__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.place-setup__step[data-done] .place-setup__mark {
+  background: color-mix(in srgb, var(--git-added) 18%, transparent);
+  color: var(--git-added);
+}
+.place-setup__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- header badge */
+
+.place-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 240px;
+  height: 26px;
+  margin-left: 4px;
+  padding: 0 7px 0 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  font-size: var(--fs-sm);
+  color: color-mix(in srgb, var(--accent) 50%, var(--text));
+  transition: background var(--dur) var(--ease);
+}
+.place-badge:hover,
+.place-badge[data-open] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.place-badge svg {
+  flex: none;
+}
+.place-badge__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.place-badge__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--git-added);
+}
+.place-badge[data-state='preparing'] .place-badge__dot {
+  background: var(--accent);
+  animation: place-pulse 1.2s ease-in-out infinite;
+}
+.place-badge[data-state='idle'] .place-badge__dot {
+  background: var(--text-4);
+}
+.place-badge[data-state='failed'] {
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--text);
+}
+.place-badge[data-state='failed'] .place-badge__dot {
+  background: var(--danger);
+}
+.place-badge__chevron {
+  color: var(--text-3);
+}
+@keyframes place-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.place-menu__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 6px;
+}
+.place-menu__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.place-menu__sub {
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------- Settings → Environments */
+
+.env-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 20px 24px;
+  text-align: center;
+}
+.env-empty__title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.env-empty__text {
+  max-width: 340px;
+  margin-bottom: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.env-row {
+  align-items: flex-start;
+}
+.env-row__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-right: 12px;
+  border-radius: 9px;
+  background: var(--surface-3);
+  color: var(--text);
+}
+.env-row__tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  color: color-mix(in srgb, var(--accent) 60%, var(--text));
+  vertical-align: 1px;
+}
+.env-row__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--danger);
+}
+.env-row__check[data-ok] {
+  color: var(--text-2);
+}
+.env-row__check svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--git-added);
+}
+.env-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.env-add {
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.env-exe {
+  padding: 12px 14px;
+}
+.env-vm {
+  align-items: center;
+}
+.env-vm__state {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 12px 0 4px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.env-vm__state[data-running] {
+  background: var(--git-added);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--git-added) 20%, transparent);
+}
+.env-vm__name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .place-setup,
+  .place-setup__step,
+  .place-badge[data-state='preparing'] .place-badge__dot {
+    animation: none;
+  }
+}
+
+/* In the ADE's New session, while the session's machine is got ready. */
+.place-setup--dialog {
+  width: auto;
+  margin: 0;
+  padding: 10px 12px 11px;
+  animation: none;
+}
+.place-setup--dialog .place-setup__steps {
+  margin-top: 0;
+}

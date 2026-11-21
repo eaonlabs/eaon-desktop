@@ -35,6 +35,7 @@ export function sshArgv(host: SshHost, opts: { interactive: boolean }): string[]
   if (opts.interactive) args.push('-tt')
   // A command run in the background has nobody to type a password: fail rather than hang.
   else args.push('-o', 'BatchMode=yes')
+  if (host.trustNew) args.push('-o', 'StrictHostKeyChecking=accept-new')
   if (host.source === 'config' && host.alias) {
     args.push(host.alias)
     return args
@@ -66,6 +67,28 @@ export function remoteCommandLine(cwd: string | null, cmd: string, args: string[
  */
 export function remoteShellCommand(cwd: string): string {
   return `cd ${shQuote(cwd)} 2>/dev/null; exec "$SHELL" -l`
+}
+
+/** The tmux session a pane on another machine lives in there: one per pane. */
+export const tmuxName = (paneId: string): string => `eaon-${paneId.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 60)}`
+
+/**
+ * What a pane on another machine runs there: its shell, and the agent it was
+ * started with, inside a tmux session of its own, so they go on when the
+ * connection doesn't (the laptop shut, the network gone, Eaon quit). Opened
+ * again, the pane joins the session it left, the agent still in it, and
+ * nothing is started twice (`-A`). tmux's own status line is off: the pane
+ * is the window. A machine without tmux gets the plain shell (and agent),
+ * which end with the connection as before.
+ */
+export function remotePaneCommand(cwd: string, paneId: string, command: string | null): string {
+  const dir = shQuote(cwd)
+  const run = command?.trim() ? `${command.trim()}; exec "$SHELL" -l` : null
+  // The end-to-end tests' stand-in ssh runs this here, where a tmux of the developer's own may be.
+  if (process.env.EAON_REMOTE_TMUX === 'off') return `cd ${dir} 2>/dev/null; ${run ? `exec "$SHELL" -lc ${shQuote(run)}` : 'exec "$SHELL" -l'}`
+  const tmux = `tmux new-session -A -s ${shQuote(tmuxName(paneId))} -c ${dir}${run ? ` ${shQuote(run)}` : ''} ';' set-option status off`
+  const plain = run ? `exec "$SHELL" -lc ${shQuote(run)}` : 'exec "$SHELL" -l'
+  return `cd ${dir} 2>/dev/null; if command -v tmux >/dev/null 2>&1; then exec ${tmux}; fi; ${plain}`
 }
 
 export interface RemoteExecResult {

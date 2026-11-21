@@ -105,11 +105,10 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & {
   function specOf(request: TurnRequest, executable: string): { spec: Omit<SessionSpec, 'resume' | 'persist'>; signature: string } {
     const model = request.modelId && request.modelId !== 'default' ? request.modelId : undefined
     const effort = request.model?.efforts?.includes(request.effort) ? TO_SDK[request.effort] : undefined
-    // Chat's turns have no folder (''), nor do titles: Claude Code still needs one to start in.
-    if (request.cwd && isRemote(request.cwd)) {
-      throw new ClaudeAgentError('Claude Code runs on this computer, so it can’t work in a project on another machine over SSH. Pick one of Eaon’s providers for this chat, or open the project in the ADE.')
-    }
-    const cwd = request.cwd || deps.defaultCwd()
+    // Chat's turns have no folder (''), nor do titles: Claude Code still needs one to start in. A project on
+    // another machine has none here either: Claude Code only carries the model, and Eaon's own tools (on, as
+    // always here, with Claude Code's off) do the work over there.
+    const cwd = request.cwd && !isRemote(request.cwd) ? request.cwd : deps.defaultCwd()
     const spec = { executable, env: deps.env(), cwd, model, effort, system: request.system, tools: request.tools }
     const signature = createHash('sha256')
       .update(JSON.stringify([model, effort, cwd, request.system, request.tools]))

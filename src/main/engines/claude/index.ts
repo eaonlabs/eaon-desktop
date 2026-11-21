@@ -1,10 +1,13 @@
 import { mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import type { ModelInfo, Options, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { ModelInfo, Options, Query, SDKUserMessage, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
 import type { EngineAuth, EngineModel, EngineModels, EngineStatus } from '@shared/engines'
 import type { EffortLevel } from '@shared/types'
 import { EngineError, type EngineAdapter, type EngineTurnInput, type EngineTurnResult } from '../types'
 import { ClaudeTurn } from './turn'
+import { remoteLine, remotePlace, signInCommand, type RemotePlace } from '../remote'
+import { KeptProcess } from '../kept'
+import { sshRun } from '../../remoteWork'
 import { noteClaudeCodeStatus, onClaudePlan } from './status'
 import { claudeCodeEnv } from './env'
 
@@ -123,6 +126,20 @@ function shippedModels(): EngineModel[] {
   ]
 }
 
+/**
+ * What of Claude Code's environment goes along to another machine: Claude
+ * Code's own settings and the SDK's, never this computer's PATH, home or keys.
+ */
+export function forwarded(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [name, value] of Object.entries(env)) {
+    if (typeof value !== 'string') continue
+    if (/^ANTHROPIC_(API_KEY|AUTH_TOKEN)$/.test(name)) continue
+    if (/^(CLAUDE_|ANTHROPIC_|DISABLE_|MAX_THINKING_TOKENS$|MCP_TIMEOUT$)/.test(name) && !/^CLAUDE_CONFIG_DIR$/.test(name)) out[name] = value
+  }
+  return out
+}
+
 /** An attached image as a message block; skipped when it can't be read. */
 async function imageBlock(path: string): Promise<Record<string, unknown> | null> {
   const ext = path.toLowerCase().split('.').pop() ?? ''
@@ -142,6 +159,7 @@ function userMessage(content: Record<string, unknown>[]): SDKUserMessage {
 
 export class ClaudeEngine implements EngineAdapter {
   readonly id = 'claude' as const
+  readonly remote = true
   private status: EngineStatus | null = null
   private models: EngineModels | null = null
   private readonly listeners = new Set<(status: EngineStatus) => void>()
@@ -279,6 +297,14 @@ export class ClaudeEngine implements EngineAdapter {
   }
 
   async runTurn(input: EngineTurnInput): Promise<EngineTurnResult> {
+    // A session on another machine runs the Claude Code there, on its sign-in there.
+    let place: RemotePlace | null = null
+    try {
+      place = await remotePlace(input.cwd)
+    } catch (error) {
+      return this.failed(new EngineError('other', error instanceof Error ? error.message : String(error)), input.sessionId)
+    }
+    if (place) return this.runThere(input, place)
     const path = this.path()
     if (!path) return this.failed(new EngineError('not-installed', `Claude Code isn’t installed. Install it with ${INSTALL}.`), input.sessionId)
     // Nothing that could be charged: Claude Code signed in with a Claude account, and the plan not on extra usage.
@@ -304,6 +330,51 @@ export class ClaudeEngine implements EngineAdapter {
     return first.result
   }
 
+  /**
+   * A turn on another machine: Claude Code there signed in with a Claude
+   * account (so, as here, nothing is charged per use), then the same turn,
+   * its process started there over ssh.
+   */
+  private async runThere(input: EngineTurnInput, place: RemotePlace): Promise<EngineTurnResult> {
+    const there = (result: EngineTurnResult): EngineTurnResult => ({ ...result, where: place.where })
+    const report = await sshRun(place.host, remoteLine(place.root, 'claude', ['auth', 'status', '--json']), { timeoutMs: 30_000, signal: input.signal })
+    const said = report.stdout.toString('utf8')
+    if (report.code === 127 || /command not found|not found: claude/i.test(report.stderr)) {
+      return there(this.failed(new EngineError('not-installed', `Claude Code isn’t installed on ${place.where}. Install it there (${INSTALL}), then try again.`), input.sessionId, report.stderr))
+    }
+    const auth = authOf(said)
+    // A token from `claude setup-token` is the account's too.
+    const account = auth.state === 'signed-in' && (auth.method === 'Claude account' || /"authMethod"\s*:\s*"oauth_token"/.test(said))
+    if (auth.state === 'signed-out' || auth.state === 'unknown') {
+      const reached = report.code !== null && report.code !== 255
+      return there(
+        this.failed(
+          new EngineError(reached ? 'signed-out' : 'network', reached ? `Claude Code isn’t signed in on ${place.where}. Open the terminal (it runs there) and run ${signInCommand('claude')}, then send again.` : `Couldn’t reach ${place.where}: ${report.stderr.trim().split('\n').pop() ?? ''}`),
+          input.sessionId,
+          report.stderr
+        )
+      )
+    }
+    if (!account) {
+      return there(
+        this.failed(
+          new EngineError('misconfigured', `Claude Code on ${place.where} is signed in with an API key, which Anthropic charges per use. Sign it in with your Claude account there (${signInCommand('claude')}) to use your plan.`),
+          input.sessionId
+        )
+      )
+    }
+    if (this.now() < this.extraUsageUntil) {
+      const at = new Date(this.extraUsageUntil).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+      return there(this.failed(new EngineError('rate-limited', `Your Claude plan’s limit is used up, and going on would use extra usage, which Anthropic charges for. Try again after ${at}.`), input.sessionId))
+    }
+    const first = await this.attempt(input, 'claude', input.sessionId, place)
+    if (input.sessionId && first.missingSession && !input.signal.aborted) {
+      const fresh = await this.attempt(input, 'claude', null, place)
+      return there({ ...fresh.result, sessionReplaced: true, notice: ['Claude no longer had this conversation, so it started a new one.', fresh.result.notice].filter(Boolean).join(' ') })
+    }
+    return there(first.result)
+  }
+
   private failed(error: unknown, sessionId: string | null, detail?: string): EngineTurnResult {
     const kind = error instanceof EngineError ? error.kind : 'engine-crashed'
     if (kind === 'signed-out') this.signedOut()
@@ -321,7 +392,7 @@ export class ClaudeEngine implements EngineAdapter {
     }
   }
 
-  private async attempt(input: EngineTurnInput, path: string, sessionId: string | null): Promise<{ result: EngineTurnResult; missingSession: boolean }> {
+  private async attempt(input: EngineTurnInput, path: string, sessionId: string | null, place: RemotePlace | null = null): Promise<{ result: EngineTurnResult; missingSession: boolean }> {
     const turn = new ClaudeTurn(input.messageId, input.emit, input.approve)
     const controller = new AbortController()
     this.running.add(controller)
@@ -359,7 +430,24 @@ export class ClaudeEngine implements EngineAdapter {
       const session = query({
         prompt: prompt(),
         options: {
-          cwd: input.cwd,
+          cwd: place ? place.root : input.cwd,
+          // On another machine, Claude Code is started there; stdin and stdout come back over ssh as they are.
+          ...(place
+            ? {
+                spawnClaudeCodeProcess: (spec: { command: string; args: string[]; env: Record<string, string | undefined>; signal?: AbortSignal }) => {
+                  // A JavaScript build runs as `node cli.js …`: what follows the script is Claude Code's own arguments.
+                  const args = spec.args[0] && /\.[cm]?js$/.test(spec.args[0]) ? spec.args.slice(1) : spec.args
+                  // Kept going there by the keeper (engines/kept.ts): the turn carries on while this computer is away.
+                  const child = new KeptProcess({ place, program: 'claude', args, env: forwarded(spec.env), endInput: true })
+                  child.stderr.on('data', (chunk: Buffer) => {
+                    if (stderr.length < STDERR_LIMIT) stderr += chunk.toString('utf8')
+                  })
+                  child.on('error', () => undefined)
+                  spec.signal?.addEventListener('abort', () => child.kill('SIGTERM'), { once: true })
+                  return child as unknown as SpawnedProcess
+                }
+              }
+            : {}),
           ...(model ? { model } : {}),
           ...(sessionId ? { resume: sessionId } : {}),
           ...(effort ? { effort } : {}),
