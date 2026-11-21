@@ -8,6 +8,7 @@ import {
   Folder,
   Globe,
   Camera,
+  Check,
   Hand,
   Laptop,
   Lightbulb,
@@ -834,21 +835,38 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       <ElsewhereAsk />
       <SideQuestion />
       {variant === 'chat' && draftId && <QueuedMessages chatId={draftId} onEdit={takeBack} />}
+      {/* Editing a message: a tab tucked behind the top of the box, saying so in one line. */}
       {editing && (
         <div className="composer-editing" role="status">
-          <PencilLine size={13} strokeWidth={2} />
-          <span className="composer-editing__text">Editing a message — sending it replaces that message and everything after it</span>
+          <span className="composer-editing__icon" aria-hidden>
+            <PencilLine size={12} strokeWidth={2.2} />
+          </span>
+          <span className="composer-editing__text" title="Sending it replaces that message and every reply after it">
+            <span className="composer-editing__title">Editing message</span>
+            <span className="composer-editing__hint">Replaces it and the replies after</span>
+          </span>
           {cwd && (
-            <label className="composer-editing__files" title="Puts the files the replies after this message changed back as they were before it">
-              <input type="checkbox" checked={rewindToo} onChange={(e) => {
-                setRewindToo(e.target.checked)
+            <button
+              type="button"
+              role="switch"
+              aria-checked={rewindToo}
+              className="composer-editing__toggle"
+              data-on={rewindToo || undefined}
+              title="Puts the files the replies after this message changed back as they were before it"
+              onClick={() => {
+                setRewindToo(!rewindToo)
                 setRewindError(null)
-              }} />
-              <span>Undo file changes too</span>
-            </label>
+              }}
+            >
+              <span className="composer-editing__box" aria-hidden>
+                {rewindToo && <Check size={10} strokeWidth={3.2} />}
+              </span>
+              Undo file changes
+            </button>
           )}
-          <button type="button" className="composer-editing__cancel" onClick={cancelEdit}>
+          <button type="button" className="composer-editing__cancel" onClick={cancelEdit} title="Stop editing (Esc)">
             Cancel
+            <kbd className="composer-editing__key">esc</kbd>
           </button>
           {rewindError && (
             <span className="composer-editing__error" role="alert">

@@ -20,6 +20,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **The model button's reasoning level is plain text,** Max and Extra high included: no more glow or band of light on the highest level.
 
 ### Changed
+- **A tidier bar while you edit a message.** It is one line, tucked behind the top of the message box: what sending does, a tick box for undoing the file changes too, and Cancel (or Esc). It no longer wraps onto three lines.
 - **Chat's and the ADE's sidebars have Settings, Pull requests and Issues as icons along the bottom,** with your two plans' usage rings at the other end in Chat (the ADE keeps them in its header, so its icons sit in the middle). They moved there from the lists at the top, and Pull requests and Issues can now be reached from Chat. The day's token count under the sidebar is gone, along with its settings in Usage & limits. The ADE's Review button has Chat's mark for reviewing changes (two arrows) instead of the pull request one, which is Pull requests' alone.
 - **A project without a logo shows a folder** in the sidebars, in place of two coloured letters. A project whose repository's owner has a picture still shows that.
 - **A plainer code panel.** A file opens full width under a row with where it sits (src › app › page.tsx) and its tools at the end: wrap, history, open in another app, and the project's files, which now start hidden. There's no status bar under the editor; who last changed the caret's line is at the top of History. In the tab strip, + follows the tabs, and a tab's × shows under the pointer.

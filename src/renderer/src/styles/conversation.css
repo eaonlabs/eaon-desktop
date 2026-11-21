@@ -430,64 +430,132 @@
 
 /* ---- Editing a message -------------------------------------------- */
 
+/* A tab tucked behind the top of the box, a little narrower than it, as the
+   tray is tucked under it on the start page: one line saying what sending
+   does, then undoing the files too, and Cancel (or Esc). */
 .composer-editing {
+  position: relative;
+  z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 0 4px 0 10px;
-  min-height: 30px;
-  border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-}
-.composer-editing > svg {
-  flex: none;
-  color: var(--accent);
-}
-.composer-editing {
   flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 14px -16px;
+  padding: 6px 6px 22px 7px;
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in srgb, var(--surface-2) 62%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  animation: composer-editing-in 260ms var(--ease) both;
+}
+@keyframes composer-editing-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.composer-editing__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
 }
 .composer-editing__text {
+  display: flex;
   flex: 1;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
-}
-.composer-editing__files {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--r-pill);
-  color: var(--text);
-  cursor: pointer;
+  overflow: hidden;
   white-space: nowrap;
 }
-.composer-editing__files:hover {
-  background: var(--hover-strong);
+.composer-editing__title {
+  flex: none;
+  font-weight: 550;
+  color: var(--text);
 }
-.composer-editing__files input {
-  margin: 0;
-  accent-color: var(--accent);
+.composer-editing__hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+}
+.composer-editing__toggle,
+.composer-editing__cancel {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.composer-editing__toggle:hover,
+.composer-editing__cancel:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.composer-editing__toggle[data-on] {
+  color: var(--text);
+}
+.composer-editing__box {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+  color: var(--on-accent);
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.composer-editing__toggle[data-on] .composer-editing__box {
+  background: var(--accent);
+  box-shadow: none;
+}
+.composer-editing__key {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+  line-height: 1.3;
+  color: var(--text-3);
 }
 .composer-editing__error {
   flex-basis: 100%;
-  padding: 0 0 6px 20px;
+  padding: 0 0 2px 32px;
   color: var(--danger);
 }
-.composer-editing__cancel {
-  height: 24px;
-  padding: 0 9px;
-  border-radius: var(--r-pill);
-  color: var(--text);
-  font-size: var(--fs-xs);
-}
-.composer-editing__cancel:hover {
-  background: var(--hover-strong);
+/* Short of room, the hint goes before anything that does something. */
+@container (max-width: 520px) {
+  .composer-editing__hint,
+  .composer-editing__key {
+    display: none;
+  }
 }
 .composer[data-editing] {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-editing {
+    animation: none;
+  }
 }
 
 /* ---- The user's messages ------------------------------------------ */
