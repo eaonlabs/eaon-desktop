@@ -411,9 +411,9 @@ a:hover {
 }
 
 /* The list under it fades out at an edge with more of it past that edge,
-   under a graded blur. Sidebar.tsx's FadingBody sets --fade-top and
-   --fade-bottom: 0 at the very end of the list, 1 once a row's worth is
-   beyond it. */
+   under a graded blur. FadingBody.tsx sets --fade-top and --fade-bottom:
+   0 at the very end of the list, 1 once a row's worth is beyond it.
+   Settings' list uses it too. */
 .sidebar__fade {
   --fade-top: 0;
   --fade-bottom: 0;
@@ -425,7 +425,7 @@ a:hover {
   display: flex;
   flex-direction: column;
 }
-.sidebar__fade > .sidebar__body {
+.sidebar__fade > .scroll {
   -webkit-mask-image: linear-gradient(
     to bottom,
     rgb(0 0 0 / calc(1 - 0.92 * var(--fade-top))) 0,

@@ -70,10 +70,10 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* FadingBody (as in the sidebars) fades and blurs it out at an edge with
+     more of the list past it: under the search field, and at the panel's
+     foot, where a row was sliced through its middle. */
   padding: 6px 7px 16px;
-  /* Items scrolled up fade out under the search field instead of being
-     sliced through their middle at its edge. */
-  mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
 }
 
 .settings__no-match {

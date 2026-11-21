@@ -64,6 +64,7 @@ import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
 import { matchesSearch } from '@shared/searchWords'
 import { WindowTitle } from '../WindowTitle'
+import { FadingBody } from '../FadingBody'
 
 /** The nav's groups, top to bottom. */
 const GROUP_ORDER = ['Personal', 'Agents', 'Models and tools', 'Usage', 'Advanced', 'Archived']
@@ -314,7 +315,7 @@ export function SettingsShell(): JSX.Element {
         <div className="settings__search">
           <SearchField value={query} onChange={setQuery} placeholder="Search settings..." variant="sm" />
         </div>
-        <div className="settings__nav-body scroll">
+        <FadingBody className="settings__nav-body">
           {groups.length === 0 && <div className="settings__no-match">No settings match “{query.trim()}”.</div>}
           {groups.map(([group, items]) => (
             <div key={group}>
@@ -339,7 +340,7 @@ export function SettingsShell(): JSX.Element {
               ))}
             </div>
           ))}
-        </div>
+        </FadingBody>
         </div>
       </nav>
 

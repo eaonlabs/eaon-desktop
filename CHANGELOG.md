@@ -20,6 +20,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Fixed
 - **Frosted glass is smooth again.** Over a see-through wallpaper, the sidebars, the message box, menus, dialogs and cards had a grain over them that looked like sandpaper on a Retina screen and made dark glass look grey and dirty. It's gone, so the glass is a clean blur.
+- **Settings' list fades out at the bottom.** Scrolled partway, the last row showed sliced through its middle at the foot of the panel. It now fades and softly blurs out there, as the sidebars do, and the same under the search field.
 - **A usage ring for a signed-out account shows, dim, instead of vanishing.** Its card says how to sign in (for Claude, `claude /login`). An account whose tool isn't on this computer still shows no ring.
 - **The context meter counts what the provider counted.** Each reply keeps the size of its latest request, so the meter shows how full the context really is instead of an estimate that left out most of the system prompt and tools. Claude's models through your Claude plan now plan with their full 1M window instead of 200K, so a long chat is no longer summarized at 140K.
 - **No line above the message box over a see-through wallpaper.** Scrolled up in a conversation, the blur over the last of it stopped in a straight line just above the box; it now runs on behind the box.
