@@ -11,6 +11,8 @@ export const wallpaperApi = {
   choose: (): Promise<{ path: string; preview: string | null } | null> => ipcRenderer.invoke('wallpaper:choose'),
   /** A thumbnail of the chosen picture, for Settings (null for a video, which Settings plays). */
   preview: (): Promise<string | null> => ipcRenderer.invoke('wallpaper:preview'),
+  /** Whether the desktop's own picture (on this window's display) can be read, and its file's name; when it can't, one of Eaon's stands in. */
+  desktop: (): Promise<{ name: string | null; readable: boolean }> => ipcRenderer.invoke('wallpaper:desktop'),
   /** The picture behind this window now, small: Settings draws its style previews from it. Null for a video. */
   thumbnail: (light: boolean): Promise<string | null> => ipcRenderer.invoke('wallpaper:thumbnail', light),
   /** Eaon's own wallpapers, small, by id, in the version for a `light` theme or a dark one: their choices in Settings. */

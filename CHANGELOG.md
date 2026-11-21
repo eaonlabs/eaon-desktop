@@ -25,6 +25,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
 
 ### Fixed
+- **See-through no longer goes black when the desktop's picture is gone.** macOS can name a wallpaper file that has been moved or deleted, or a live wallpaper app can leave an old frame's name behind. Eaon's Dusk now stands in, and Settings → Appearance says why and suggests Custom for a picture or video of your own.
 - **Frosted glass is smooth again.** Over a see-through wallpaper, the sidebars, the message box, menus, dialogs and cards had a grain over them that looked like sandpaper on a Retina screen and made dark glass look grey and dirty. It's gone, so the glass is a clean blur.
 - **Settings' list fades out at the bottom.** Scrolled partway, the last row showed sliced through its middle at the foot of the panel. It now fades and softly blurs out there, as the sidebars do, and the same under the search field.
 - **A usage ring for a signed-out account shows, dim, instead of vanishing.** Its card says how to sign in (for Claude, `claude /login`). An account whose tool isn't on this computer still shows no ring.

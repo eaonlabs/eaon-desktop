@@ -347,6 +347,20 @@ function SeeThroughSection(): JSX.Element | null {
   const [choosing, setChoosing] = useState(false)
   const hasCustom = see?.source === 'custom' && Boolean(see.custom)
   const video = hasCustom && isVideoWallpaper(see?.custom) ? (see?.custom ?? null) : null
+  const onDesktop = Boolean(see?.enabled) && see !== undefined && wallpaperSource(see, window.api.platform) === 'desktop'
+  // Whether the desktop's picture can be read: again on coming back to the app, in case it was changed meanwhile.
+  const [desktop, setDesktop] = useState<{ name: string | null; readable: boolean } | null>(null)
+  useEffect(() => {
+    if (!onDesktop) return
+    let live = true
+    const check = (): void => void window.api.wallpaper.desktop().then((d) => live && setDesktop(d))
+    check()
+    window.addEventListener('focus', check)
+    return () => {
+      live = false
+      window.removeEventListener('focus', check)
+    }
+  }, [onDesktop])
 
   // The chosen picture's thumbnail, once, when the page opens on it. A video plays instead.
   useEffect(() => {
@@ -396,7 +410,9 @@ function SeeThroughSection(): JSX.Element | null {
                   : 'A picture of your own, filling the screen'
                 : from === 'eaon'
                   ? 'One of Eaon’s, in its light or dark version to go with the theme'
-                  : 'Your desktop’s wallpaper, lined up with the screen'
+                  : desktop && !desktop.readable
+                    ? `Your desktop’s picture${desktop.name ? ` (${desktop.name})` : ''} can’t be found or read, so Eaon’s ${wallpaperOf(undefined).name} stands in. If an app draws your desktop, like a live wallpaper, choose Custom and pick its picture or video`
+                    : 'Your desktop’s wallpaper, lined up with the screen'
             }
           >
             <Segmented
