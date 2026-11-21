@@ -63,7 +63,6 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "general", title: "Notify me when an agent needs me", description: "A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t in front", section: "Startup" },
   { page: "general", title: "Quick chat shortcut", description: "Open a new chat from any app with", section: "Chat" },
   { page: "general", title: "Auto-compact long chats", description: "Summarize older messages when a chat nears the model’s limit, so it can keep going", section: "Chat" },
-  { page: "general", title: "Suggested prompts", description: "Starter prompts under the message box on the home screen", section: "Chat" },
   { page: "general", title: "Change files outside the project", description: "Let the agent change files anywhere on this computer, not just in its project folder", section: "Agent permissions" },
   { page: "general", title: "Use your accounts from other AI apps", description: "Finds AI apps on this computer and signs in to their providers the official way", section: "Accounts and features" },
   { page: "general", title: "Version", description: "You're on version", section: "Software update" },

@@ -76,11 +76,6 @@ const SETTINGS: Record<string, { read: (s: ReturnType<typeof store.getSettings>)
     check: (v) => (['system', 'on', 'off'].includes(v as string) ? null : 'must be "system", "on" or "off"'),
     patch: (v) => ({ appearance: { reduceMotion: v } })
   },
-  'general.suggestedPrompts': {
-    read: (s) => s.general.suggestedPrompts,
-    check: (v) => (typeof v === 'boolean' ? null : 'must be true or false'),
-    patch: (v) => ({ general: { suggestedPrompts: v } })
-  },
   'general.showInMenuBar': {
     read: (s) => s.general.showInMenuBar,
     check: (v) => (typeof v === 'boolean' ? null : 'must be true or false'),
