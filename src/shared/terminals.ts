@@ -103,6 +103,12 @@ export interface TerminalPaneSpec {
    * One line; the details are in a file the task points to.
    */
   prompt?: string
+  /**
+   * A command typed into this shell the first time it starts, so its output
+   * is what the pane shows: a project's setup or run script (shared/adeScripts.ts).
+   * Forgotten once the shell has started, as `prompt` is.
+   */
+  script?: string
 }
 
 /** Every folder's panes, keyed by folder path. */
