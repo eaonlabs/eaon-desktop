@@ -132,11 +132,12 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const colleagues = workers.filter((w) => w.id !== worker.id)
   const sources: SuggestSources = {
     '/': () => [
-      { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
+      { id: 'attach', command: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
       ...(isMain
         ? [
             {
               id: 'goal',
+              command: 'goal',
               title: 'Goal',
               keywords: 'goal aim objective',
               description: `Make this message ${worker.name}'s goal`,
@@ -150,17 +151,18 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       ...permissionItems(
         WORKER_ACCESS.map((a) => {
           const Icon = ACCESS_ICON[a.id]
-          return { id: a.id, title: a.label, keywords: `${a.id} freedom`, icon: <Icon size={16} strokeWidth={1.8} /> }
+          return { id: a.id, command: a.label.toLowerCase().replace(/\s+/g, '-'), title: a.label, description: a.description, keywords: `${a.id} freedom`, icon: <Icon size={16} strokeWidth={1.8} /> }
         }),
         worker.access,
         setAccess
       ),
       // Only once it has opened one: before that there is nothing to watch.
       ...(hasBrowser
-        ? [{ id: 'browser', title: 'Its browser', keywords: 'browser web watch sign in', description: 'Watch it, or sign it in', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: showBrowser }]
+        ? [{ id: 'browser', command: 'browser', title: 'Its browser', keywords: 'browser web watch sign in', description: 'Watch it, or sign it in', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: showBrowser }]
         : []),
       {
         id: 'purchase',
+        command: 'purchase',
         title: 'Purchase schedule',
         keywords: 'purchase buy order shop reorder recurring subscribe free',
         description: `Have ${worker.name} buy something, once or on repeat`,
@@ -168,9 +170,9 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
         icon: <ShoppingBag size={16} strokeWidth={1.8} />,
         run: () => usePurchaseDialog.getState().show({ workerId: worker.id })
       },
-      { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
-      { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') },
-      { id: 'wake', title: 'Check in now', keywords: 'wake check in now', section: worker.name, icon: <Zap size={16} strokeWidth={1.8} />, run: () => void window.api.workers.wake(worker.id) },
+      { id: 'computer', command: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
+      { id: 'plugins', command: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') },
+      { id: 'wake', command: 'check-in', title: 'Check in now', keywords: 'wake check in now', section: worker.name, icon: <Zap size={16} strokeWidth={1.8} />, run: () => void window.api.workers.wake(worker.id) },
       ...skillItems(skills, settings?.disabledSkills ?? [])
     ],
     '@': () => [

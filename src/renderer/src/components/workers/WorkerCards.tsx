@@ -50,7 +50,8 @@ import { fileUrl } from '../../lib/files'
 import { Modal } from '../ui'
 import { appLogoFor } from '../plugins/PluginLogo'
 import { WorkerFace } from './WorkerFace'
-import { UiCard } from './WorkerUi'
+import { KeptUiCard } from './WorkerUi'
+import { useApp } from '../../state/store'
 import { errorText, useWorkers } from './workersStore'
 
 /**
@@ -65,6 +66,9 @@ import { errorText, useWorkers } from './workersStore'
  */
 
 export const WorkerThreadContext = createContext<{ workerId: string; threadId: string } | null>(null)
+
+/** In Chat: which chat a card is in, so its buttons answer the agent there (and what was answered is remembered). */
+export const ChatCardContext = createContext<{ chatId: string } | null>(null)
 
 /** The call a card came from, so what was answered on it is remembered (useCardAnswer). */
 export const CardIdContext = createContext<string | null>(null)
@@ -89,7 +93,8 @@ const answers: Map<string, string> = (() => {
 function useCardAnswer(part: string): [string | null, (answer: string) => void] {
   const card = useContext(CardIdContext)
   const thread = useContext(WorkerThreadContext)
-  const key = card && thread ? `${thread.workerId}:${card}:${part}` : null
+  const chat = useContext(ChatCardContext)
+  const key = card && thread ? `${thread.workerId}:${card}:${part}` : card && chat ? `chat:${chat.chatId}:${card}:${part}` : null
   const [answer, setAnswer] = useState<string | null>(() => (key ? (answers.get(key) ?? null) : null))
   const remember = (value: string): void => {
     setAnswer(value)
@@ -122,7 +127,7 @@ export function WorkerCardRow({ part }: { part: ChatToolPart }): JSX.Element | n
   if (part.name === 'show_ui')
     return (
       <CardIdContext.Provider value={part.id}>
-        <UiCard input={part.input} />
+        <KeptUiCard part={part} />
       </CardIdContext.Provider>
     )
   const input = part.input.card && typeof part.input.card === 'object' ? part.input.card : part.input
@@ -726,10 +731,16 @@ function isLight(hex: string): boolean {
 /** What a card's buttons do, in the thread they are in. */
 function useCardAction(): (action: CardAction) => void {
   const thread = useContext(WorkerThreadContext)
+  const chat = useContext(ChatCardContext)
   const [, setSignIn] = useSignInSheet()
   return (action) => {
     if (action.url) {
       void window.api.app.openExternal(action.url)
+      return
+    }
+    // In Chat a button's reply is the user's next message to the agent there.
+    if (!thread && chat && action.reply) {
+      void useApp.getState().send(action.reply, { chatId: chat.chatId })
       return
     }
     if (!thread) return

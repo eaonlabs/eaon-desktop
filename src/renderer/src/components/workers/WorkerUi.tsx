@@ -1,7 +1,69 @@
-import { useEffect, useId, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronUp, RotateCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
+  Bike,
+  Bug,
+  Bus,
+  Calendar,
+  Car,
+  ChartLine,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Cloud,
+  Code,
+  Cpu,
+  Database,
+  DollarSign,
+  FlaskConical,
+  Footprints,
+  GitBranch,
+  Globe,
+  House,
+  Mail,
+  Music,
+  Package,
+  Plane,
+  RefreshCw,
+  Rocket,
+  RotateCw,
+  Server,
+  Ship,
+  SquareTerminal,
+  Sun,
+  Ticket,
+  TrainFront,
+  TrendingDown,
+  TrendingUp,
+  Truck,
+  User,
+  Utensils,
+  Wallet,
+  type LucideIcon
+} from 'lucide-react'
 import type { Bar, BarRange, Quote, StockHeadline } from '@shared/trading'
-import { normalizeUi, STOCK_RANGES, type ChartStyle, type StockRange, type UiBlock, type UiSeries } from '@shared/workerUi'
+import type { ChatMessage, ChatToolPart } from '@shared/types'
+import {
+  cardDeck,
+  markChanges,
+  normalizeUi,
+  STOCK_RANGES,
+  type CardDeck,
+  type ChartStyle,
+  type RouteMode,
+  type StockRange,
+  type UiBlock,
+  type UiField,
+  type UiIcon,
+  type UiPlace,
+  type UiSeries,
+  type WorkerUi
+} from '@shared/workerUi'
 import { Markdown } from '../agent/Markdown'
 import { Actions } from './WorkerCards'
 
@@ -12,34 +74,144 @@ import { Actions } from './WorkerCards'
  * ranges — so a worker gets a small app's worth of card without any of its
  * text ever running.
  */
-export function UiCard({ input }: { input: Record<string, unknown> }): JSX.Element | null {
+export function UiCard({ input, previous, call }: { input: Record<string, unknown>; previous?: Record<string, unknown> | null; call?: string }): JSX.Element | null {
   const result = useMemo(() => normalizeUi(input), [input])
+  const before = useMemo(() => (previous ? normalizeUi(previous) : null), [previous])
+  const card = useRef<HTMLElement>(null)
+  useTicketNotches(card)
   if ('error' in result) return null
-  const { ui } = result
+  // What moved since the version before: its old value struck through.
+  const ui = markChanges(result.ui, before && !('error' in before) ? before.ui : null)
   return (
-    <article className="wcard wui" data-kind="ui">
-      {(ui.title || ui.subtitle) && (
-        <header className="wui__head">
-          {ui.title && <span className="wcard__title">{ui.title}</span>}
-          {ui.subtitle && <span className="wui__subtitle">{ui.subtitle}</span>}
-        </header>
-      )}
+    <article ref={card} className="wcard wui" data-kind="ui" data-card-call={call}>
+      <CardHead ui={ui} />
       <Blocks blocks={ui.blocks} slot="b" />
     </article>
   )
 }
 
+/**
+ * A ticket divider's notches, cut out of the card itself (a mask), so they
+ * show whatever is behind it: the thread, a wallpaper. A half circle at each
+ * side, level with each tear line, kept in place as the card's size changes.
+ */
+function useTicketNotches(card: React.RefObject<HTMLElement>): void {
+  useLayoutEffect(() => {
+    const node = card.current
+    if (!node) return
+    const cut = (): void => {
+      const top = node.getBoundingClientRect().top
+      const lines = [...node.querySelectorAll<HTMLElement>('.wui-ticket')].map((t) => {
+        const r = t.getBoundingClientRect()
+        return Math.round(r.top - top + r.height / 2)
+      })
+      const holes = lines.flatMap((y) => [`radial-gradient(circle 9px at 0 ${y}px, transparent 8.5px, #000 9px)`, `radial-gradient(circle 9px at 100% ${y}px, transparent 8.5px, #000 9px)`])
+      node.style.maskImage = holes.join(', ')
+      node.style.maskComposite = holes.length ? 'intersect' : ''
+      node.dataset.notched = holes.length ? 'true' : ''
+    }
+    cut()
+    const watch = new ResizeObserver(cut)
+    watch.observe(node)
+    return () => watch.disconnect()
+  })
+}
+
+const ICON: Record<UiIcon, LucideIcon> = {
+  plane: Plane, train: TrainFront, car: Car, bus: Bus, ship: Ship, package: Package, truck: Truck, chart: ChartLine, dollar: DollarSign,
+  wallet: Wallet, calendar: Calendar, clock: Clock, cloud: Cloud, sun: Sun, home: House, server: Server, git: GitBranch, bug: Bug,
+  check: Check, alert: AlertTriangle, rocket: Rocket, user: User, music: Music, food: Utensils, ticket: Ticket, mail: Mail, globe: Globe,
+  code: Code, database: Database, cpu: Cpu, terminal: SquareTerminal, test: FlaskConical
+}
+
+/** The card's header: its icon in a disc, the title with its code beside it, and its status at the end. */
+function CardHead({ ui }: { ui: WorkerUi }): JSX.Element | null {
+  if (!ui.title && !ui.subtitle && !ui.icon && !ui.status) return null
+  const Icon = ui.icon ? ICON[ui.icon] : null
+  return (
+    <header className="wui__head">
+      {Icon && (
+        <span className="wui__icon" aria-hidden="true">
+          <Icon size={17} strokeWidth={1.9} />
+        </span>
+      )}
+      <span className="wui__names">
+        {ui.title && <span className="wcard__title">{ui.title}</span>}
+        {ui.subtitle && <span className="wui__subtitle">{ui.subtitle}</span>}
+      </span>
+      {ui.status && (
+        <span className="wui-pill wui__status" data-tone={ui.status.tone ?? 'neutral'}>
+          {ui.status.label}
+        </span>
+      )}
+    </header>
+  )
+}
+
+/**
+ * The cards an agent keeps in this conversation (cardDeck): a card shown
+ * again by its id is drawn where it first appeared, as it is now, and the
+ * later call is a line saying it changed. Chat and a worker's thread each
+ * provide theirs, from their messages (useCardDeck).
+ */
+export const CardDeckContext = createContext<CardDeck | null>(null)
+
+export function useCardDeck(messages: readonly ChatMessage[] | undefined): CardDeck {
+  return useMemo(
+    () =>
+      cardDeck(
+        (messages ?? []).flatMap((m) =>
+          m.parts
+            .filter((p): p is ChatToolPart => p.type === 'tool' && p.name === 'show_ui' && p.status !== 'error' && p.status !== 'denied')
+            .map((p) => ({ id: p.id, input: p.input }))
+        )
+      ),
+    [messages]
+  )
+}
+
+/** A show_ui call: its card, the latest version of it if the agent changed it since, or a line saying this call changed one above. */
+export function KeptUiCard({ part }: { part: ChatToolPart }): JSX.Element | null {
+  const deck = useContext(CardDeckContext)
+  const id = deck?.byCall.get(part.id)
+  const card = id ? deck?.cards.get(id) : undefined
+  if (!card) return <UiCard input={part.input} call={part.id} />
+  if (card.first !== part.id) return <CardChanged first={card.first} input={part.input} />
+  const n = card.versions.length
+  return <UiCard input={card.versions[n - 1]} previous={n > 1 ? card.versions[n - 2] : null} call={part.id} />
+}
+
+/** Where the agent changed a card it showed earlier: a quiet line that takes you to it. */
+function CardChanged({ first, input }: { first: string; input: Record<string, unknown> }): JSX.Element {
+  const title = typeof input.title === 'string' && input.title.trim() ? input.title.trim() : 'a card'
+  return (
+    <button
+      type="button"
+      className="wui-changed"
+      onClick={() => document.querySelector(`[data-card-call="${CSS.escape(first)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+      title="Show the card"
+    >
+      <RefreshCw size={12} strokeWidth={2.2} />
+      Updated <strong>{title}</strong>
+      {typeof input.subtitle === 'string' && input.subtitle.trim() && <span className="wui-changed__sub">{input.subtitle.trim()}</span>}
+    </button>
+  )
+}
+
 function Blocks({ blocks, slot }: { blocks: UiBlock[]; slot: string }): JSX.Element {
+  // A chart under a figure that went up or down draws in that figure's colour, green or red, as its trend.
+  const metric = blocks.find((b): b is Extract<UiBlock, { type: 'metric' }> => b.type === 'metric' && Boolean(b.tone))
+  const trend = metric?.tone === 'up' || metric?.tone === 'good' ? 'var(--wui-up)' : metric?.tone === 'down' || metric?.tone === 'bad' ? 'var(--wui-down)' : undefined
   return (
     <>
       {blocks.map((block, i) => (
-        <BlockView key={i} block={block} slot={`${slot}${i}`} />
+        <BlockView key={i} block={block} slot={`${slot}${i}`} trend={trend} />
       ))}
     </>
   )
 }
 
-function BlockView({ block, slot }: { block: UiBlock; slot: string }): JSX.Element {
+function BlockView({ block, slot, trend }: { block: UiBlock; slot: string; trend?: string }): JSX.Element {
   switch (block.type) {
     case 'heading':
       return (
@@ -54,6 +226,25 @@ function BlockView({ block, slot }: { block: UiBlock; slot: string }): JSX.Eleme
           <Markdown text={block.text} />
         </div>
       )
+    case 'metric':
+      return (
+        <div className="wui-metric">
+          <div className="wui-metric__top">
+            <span className="wui-metric__label">{block.label}</span>
+            {block.change && (
+              <span className="wui-pill" data-tone={block.tone ?? 'neutral'}>
+                {block.change}
+              </span>
+            )}
+          </div>
+          <span className="wui-metric__value">{block.value}</span>
+          {block.detail && <span className="wui-metric__detail">{block.detail}</span>}
+        </div>
+      )
+    case 'fields':
+      return <FieldsBlock items={block.items} columns={block.columns} />
+    case 'route':
+      return <RouteBlock from={block.from} to={block.to} mode={block.mode} detail={block.detail} />
     case 'stats':
       return (
         <div className="wstats" style={{ ['--n' as string]: Math.min(block.items.length, 3) }}>
@@ -72,7 +263,7 @@ function BlockView({ block, slot }: { block: UiBlock; slot: string }): JSX.Eleme
         </div>
       )
     case 'chart':
-      return <ChartBlock style={block.style} unit={block.unit} views={block.views} />
+      return <ChartBlock style={block.style} unit={block.unit} views={block.views} bottom={block.at === 'bottom'} color={trend} />
     case 'stock':
       return <StockBlock symbol={block.symbol} range={block.range} news={block.news} />
     case 'table':
@@ -120,12 +311,88 @@ function BlockView({ block, slot }: { block: UiBlock; slot: string }): JSX.Eleme
         </div>
       )
     case 'tabs':
-      return <TabsBlock tabs={block.tabs} slot={slot} />
+      return <TabsBlock tabs={block.tabs} slot={slot} bottom={block.at === 'bottom'} />
     case 'buttons':
       return <Actions actions={block.actions} slot={slot} />
     case 'divider':
-      return <hr className="wui-divider" />
+      return block.style === 'ticket' ? <div className="wui-ticket" role="separator" /> : <hr className="wui-divider" />
   }
+}
+
+/** A value that changed: the new one in its tone, the old one struck through under it. */
+function Was({ was }: { was?: string }): JSX.Element | null {
+  return was ? (
+    <s className="wui-was" aria-label={`was ${was}`}>
+      {was}
+    </s>
+  ) : null
+}
+
+/** Labelled values in a grid, as on a boarding pass: Gate, Boards, Seat, Group. */
+function FieldsBlock({ items, columns }: { items: UiField[]; columns?: number }): JSX.Element {
+  return (
+    <div className="wui-fields" style={{ ['--n' as string]: columns ?? Math.min(items.length, 4) }}>
+      {items.map((item, i) => (
+        <div key={i} className="wui-field" data-changed={item.was ? true : undefined}>
+          <span className="wui-field__label">{item.label}</span>
+          <span className="wui-field__value" data-tone={item.tone}>
+            {item.value}
+          </span>
+          <Was was={item.was} />
+          {item.detail && <span className="wui-field__detail">{item.detail}</span>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const MODE: Record<RouteMode, LucideIcon> = { plane: Plane, train: TrainFront, car: Car, bus: Bus, ship: Ship, walk: Footprints, bike: Bike, arrow: ArrowRight }
+
+/** From → to: each end's code large, its name and time under it, the way between them in the middle. */
+function RouteBlock({ from, to, mode, detail }: { from: UiPlace; to: UiPlace; mode: RouteMode; detail?: string }): JSX.Element {
+  const Mode = MODE[mode]
+  const end = (place: UiPlace, side: 'from' | 'to'): JSX.Element => {
+    const time = place.time ? (
+      <span className="wui-route__time" data-tone={place.tone ?? (place.was ? 'warn' : undefined)}>
+        {place.was && <s className="wui-was">{place.was}</s>}
+        {place.time}
+      </span>
+    ) : null
+    return (
+      <div className="wui-route__end" data-side={side}>
+        <span className="wui-route__code">{place.code}</span>
+        {(place.name || time) && (
+          <span className="wui-route__place">
+            {side === 'from' ? (
+              <>
+                {place.name}
+                {place.name && time && <span className="wui-route__dot">·</span>}
+                {time}
+              </>
+            ) : (
+              <>
+                {time}
+                {place.name && time && <span className="wui-route__dot">·</span>}
+                {place.name}
+              </>
+            )}
+          </span>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className="wui-route">
+      <div className="wui-route__row">
+        {end(from, 'from')}
+        <span className="wui-route__mode" aria-label={`by ${mode}`}>
+          <Mode size={18} strokeWidth={1.8} />
+        </span>
+        {end(to, 'to')}
+      </div>
+      {detail && <span className="wui-route__detail">{detail}</span>}
+    </div>
+  )
 }
 
 /** Two to six labels to choose between, as one quiet pill: tabs, a chart's views, a stock's ranges. */
@@ -141,30 +408,37 @@ function Segments({ labels, value, onChange, label }: { labels: string[]; value:
   )
 }
 
-function TabsBlock({ tabs, slot }: { tabs: { label: string; blocks: UiBlock[] }[]; slot: string }): JSX.Element {
-  const [at, setAt] = useState(0)
+/** Views of the card; at the bottom, a full-width segmented control under them (Week · Month · Year), as on a phone. */
+function TabsBlock({ tabs, slot, bottom }: { tabs: { label: string; blocks: UiBlock[] }[]; slot: string; bottom?: boolean }): JSX.Element {
+  const [at, setAt] = useState(bottom ? Math.min(1, tabs.length - 1) : 0)
+  const segments = <Segments labels={tabs.map((t) => t.label)} value={at} onChange={setAt} label="Sections" />
   return (
-    <div className="wui-tabs">
-      <Segments labels={tabs.map((t) => t.label)} value={at} onChange={setAt} label="Sections" />
+    <div className="wui-tabs" data-at={bottom ? 'bottom' : undefined}>
+      {!bottom && segments}
       <div className="wui-tabs__panel" role="tabpanel">
         <Blocks blocks={tabs[at]?.blocks ?? []} slot={`${slot}t${at}-`} />
       </div>
+      {bottom && segments}
     </div>
   )
 }
 
-function ChartBlock({ style, unit, views }: { style: ChartStyle; unit?: string; views: { label: string; series: UiSeries[] }[] }): JSX.Element {
+function ChartBlock({ style, unit, views, bottom, color }: { style: ChartStyle; unit?: string; views: { label: string; series: UiSeries[] }[]; bottom?: boolean; color?: string }): JSX.Element {
   const [at, setAt] = useState(0)
   const view = views[at] ?? views[0]
+  const segments = views.length > 1 ? <Segments labels={views.map((v) => v.label)} value={at} onChange={setAt} label="Chart" /> : null
   return (
-    <div className="wui-chart">
-      {views.length > 1 && <Segments labels={views.map((v) => v.label)} value={at} onChange={setAt} label="Chart" />}
+    <div className="wui-chart" data-at={bottom ? 'bottom' : undefined}>
+      {!bottom && segments}
       <Plot
         style={style}
         labels={view.series[0].points.map((p) => p.x)}
         series={view.series.map((s) => ({ name: s.name, values: s.points.map((p) => p.y) }))}
         format={(n) => `${formatNumber(n)}${unit ? ` ${unit}` : ''}`}
+        quiet
+        color={view.series.length === 1 ? color : undefined}
       />
+      {bottom && segments}
       {view.series.length > 1 && (
         <div className="wui-legend">
           {view.series.map((s, i) => (
@@ -191,7 +465,8 @@ function Plot({
   series,
   format,
   color,
-  baseline
+  baseline,
+  quiet
 }: {
   style: ChartStyle
   labels: string[]
@@ -201,6 +476,8 @@ function Plot({
   color?: string
   /** A level to mark with a dashed line (a stock's previous close). */
   baseline?: number
+  /** The readout only under the pointer, and the latest point marked: a chart under its own figure. */
+  quiet?: boolean
 }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   // Its own: a second chart on the page with the same gradient id would be filled with the first one's.
@@ -249,7 +526,7 @@ function Plot({
   const colorOf = (i: number): string => color ?? PALETTE[i % PALETTE.length]
 
   return (
-    <div className="wui-plot" ref={box}>
+    <div className="wui-plot" ref={box} data-quiet={quiet || undefined} data-hover={hover !== null || undefined}>
       <div className="wui-readout" aria-live="polite">
         <span className="wui-readout__x">{labels[shown] ?? ''}</span>
         {series.map((s, i) => (
@@ -301,7 +578,8 @@ function Plot({
               })
             )
           : series.map((s, si) => {
-              const line = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
+              // A quiet chart's lines are smooth curves through the points; a stock's stay straight, as prices move.
+              const line = quiet ? smoothPath(s.values.map((v, i) => [x(i), y(v)])) : s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
               return (
                 <g key={si}>
                   {style === 'area' && si === 0 && (
@@ -311,6 +589,15 @@ function Plot({
                 </g>
               )
             })}
+        {quiet && hover === null && style !== 'bar' && series.length === 1 && series[0].values.length > 0 && (
+          <circle
+            className="wui-plot__end"
+            cx={x(series[0].values.length - 1)}
+            cy={y(series[0].values[series[0].values.length - 1])}
+            r={4.5}
+            style={{ fill: colorOf(0), color: colorOf(0) }}
+          />
+        )}
         {hover !== null && style !== 'bar' && (
           <g>
             <line className="wui-plot__cursor" x1={x(hover)} x2={x(hover)} y1={pad.top} y2={height - pad.bottom} />
@@ -328,6 +615,47 @@ function Plot({
       </svg>
     </div>
   )
+}
+
+/**
+ * A smooth line through the points that never overshoots them (monotone
+ * cubic, Fritsch–Carlson): a rising run never dips between two points.
+ */
+function smoothPath(pts: [number, number][]): string {
+  const n = pts.length
+  if (n < 3) return pts.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('')
+  const dx: number[] = []
+  const slope: number[] = []
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(pts[i + 1][0] - pts[i][0])
+    slope.push(dx[i] === 0 ? 0 : (pts[i + 1][1] - pts[i][1]) / dx[i])
+  }
+  const m: number[] = [slope[0]]
+  for (let i = 1; i < n - 1; i++) m.push(slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2)
+  m.push(slope[n - 2])
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) {
+      m[i] = 0
+      m[i + 1] = 0
+      continue
+    }
+    const a = m[i] / slope[i]
+    const b = m[i + 1] / slope[i]
+    const h = a * a + b * b
+    if (h > 9) {
+      const t = 3 / Math.sqrt(h)
+      m[i] = t * a * slope[i]
+      m[i + 1] = t * b * slope[i]
+    }
+  }
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = pts[i]
+    const [x1, y1] = pts[i + 1]
+    const h = dx[i] / 3
+    d += `C${(x0 + h).toFixed(1)},${(y0 + m[i] * h).toFixed(1)} ${(x1 - h).toFixed(1)},${(y1 - m[i + 1] * h).toFixed(1)} ${x1.toFixed(1)},${y1.toFixed(1)}`
+  }
+  return d
 }
 
 /** A table the user can sort by any column; numbers sort as numbers. */
