@@ -1,13 +1,21 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import type { EffortStyle } from '@shared/types'
 import './effort-track.css'
 
 /** The handle's width, and the room kept between it and the track's ends. */
 const THUMB = 12
 const PAD = 4
-/** The characters, from the faintest to the densest; the leading spaces keep the start of the fill bare. */
-const RAMP = '   ..::--=+xX8'
+/** The text fills' characters, from the faintest to the densest; the leading spaces keep the start of the fill bare. */
+const CHARACTERS = '   ..::--=+xX8'
+const BLOCKS = '   ░░▒▒▓▓█'
+/** A Braille cell's eight dots, in the order they fill in. */
+const BRAILLE_DOTS = [0x40, 0x04, 0x10, 0x02, 0x80, 0x08, 0x20, 0x01]
+/** Ordered dithering's threshold map, 4 × 4, and its pixels' pitch; the dots' pitch. */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
+const DITHER_PX = 2
+const DOT_PITCH = 4
 const FONT_PX = 10
-/** How far a character strays from the ramp's even climb, so the fill reads as drawn, not as a gradient. */
+/** How far a cell strays from the ramp's even climb, so the fill reads as drawn, not as a gradient. */
 const JITTER = 0.1
 /** At the top level the characters are redrawn this often, with a wave crossing toward the handle every few seconds. */
 const FRAME_MS = 50
@@ -27,8 +35,9 @@ function noise(col: number, row: number): number {
 
 /**
  * Reasoning effort in the model picker: the level by name, and a flat track
- * whose filled part is drawn in characters, from a few dots at its start to
- * the densest by the handle, like the home page's field. `labels` are the
+ * whose filled part is drawn in characters (or dithered pixels, Braille,
+ * shaded blocks or halftone dots: `look`), from next to nothing at its start
+ * to the densest by the handle, like the home page's field. `labels` are the
  * levels the model takes, lowest first (two or more); `value` is the chosen
  * one's index. `onChange` fires once a drag is let go, a click lands or a
  * key moves it. At the model's highest level the characters stir, a wave of
@@ -39,11 +48,14 @@ export function EffortTrack({
   labels,
   value,
   model,
+  look = 'characters',
   onChange
 }: {
   labels: string[]
   value: number
   model: string
+  /** How the fill is drawn (Settings → Appearance → Reasoning slider). */
+  look?: EffortStyle
   onChange: (index: number) => void
 }): JSX.Element {
   const count = labels.length
@@ -103,7 +115,7 @@ export function EffortTrack({
   const active = Math.round(pos)
   const top = active === max
 
-  // The characters: drawn again as the handle moves, and over and over at the top level.
+  // The fill: drawn again as the handle moves, and over and over at the top level.
   useEffect(() => {
     const el = canvas.current
     const ctx = el?.getContext('2d')
@@ -117,30 +129,73 @@ export function EffortTrack({
     ctx.font = `${FONT_PX}px ${style.fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.fillStyle = style.color
-    const cell = ctx.measureText('0').width || 6
+    const textCell = ctx.measureText('0').width || 6
     const end = thumbX - THUMB / 2 - 2
-    const rows = [height / 2 - FONT_PX / 2 - 0.5, height / 2 + FONT_PX / 2 + 0.5]
+    const textRows = [height / 2 - FONT_PX / 2 - 0.5, height / 2 + FONT_PX / 2 + 0.5]
     const still = stillMotion()
+    const moving = top && !still
     const born = performance.now()
 
     const draw = (now: number): void => {
       const t = (now - born) / 1000
       const cycle = t % WAVE_EVERY_S
-      const wave = top && !still && cycle < WAVE_TAKES_S ? (cycle / WAVE_TAKES_S) * (end + 40) - 20 : -1e3
-      ctx.clearRect(0, 0, width, height)
-      for (let col = 0; col * cell + cell <= end; col++) {
-        const x = col * cell + cell / 2
+      const wave = moving && cycle < WAVE_TAKES_S ? (cycle / WAVE_TAKES_S) * (end + 40) - 20 : -1e3
+      /** How full a cell at `x` is, 0–1: climbing toward the handle, with its own wobble, the wave and (at the top level) a slow drift. */
+      const density = (x: number, col: number, row: number): number => {
         const climb = Math.pow(x / Math.max(1, end), 1.5)
         const swell = Math.exp(-(((x - wave) / 18) ** 2)) * 0.35
-        rows.forEach((y, row) => {
-          // At the top level each character drifts a little, slowly, on its own beat.
-          const drift = top && !still ? Math.sin(t * 1.3 + noise(col, row) * 6.283) * 0.06 : 0
-          const d = Math.min(1, Math.max(0, climb + (noise(col, row) - 0.5) * 2 * JITTER + swell + drift))
-          const ch = RAMP[Math.round(d * (RAMP.length - 1))]
-          if (ch === ' ') return
-          ctx.globalAlpha = 0.28 + 0.72 * d
-          ctx.fillText(ch, col * cell, y + 0.5)
-        })
+        const drift = moving ? Math.sin(t * 1.3 + noise(col, row) * 6.283) * 0.06 : 0
+        return Math.min(1, Math.max(0, climb + (noise(col, row) - 0.5) * 2 * JITTER + swell + drift))
+      }
+      ctx.clearRect(0, 0, width, height)
+      if (look === 'dither') {
+        // Tiny pixels on or off against the threshold map, over the track's whole height.
+        ctx.globalAlpha = 0.9
+        for (let col = 0; col * DITHER_PX + DITHER_PX <= end; col++) {
+          for (let row = 0; (row + 1) * DITHER_PX <= height - 4; row++) {
+            const d = density(col * DITHER_PX, col, row)
+            if (d * 16 > BAYER[(row % 4) * 4 + (col % 4)] + 0.5) ctx.fillRect(col * DITHER_PX, 2 + row * DITHER_PX, DITHER_PX - 0.4, DITHER_PX - 0.4)
+          }
+        }
+      } else if (look === 'dots') {
+        // A halftone screen: dots that grow toward the handle.
+        ctx.globalAlpha = 0.9
+        for (let col = 0; (col + 1) * DOT_PITCH <= end; col++) {
+          const cx = col * DOT_PITCH + DOT_PITCH / 2
+          ctx.beginPath()
+          for (let row = 0; (row + 1) * DOT_PITCH <= height - 2; row++) {
+            const r = density(cx, col, row) * DOT_PITCH * 0.48
+            if (r < 0.3) continue
+            const cy = 1 + row * DOT_PITCH + DOT_PITCH / 2
+            ctx.moveTo(cx + r, cy)
+            ctx.arc(cx, cy, r, 0, Math.PI * 2)
+          }
+          ctx.fill()
+        }
+      } else {
+        // Text, two rows of it: characters, shaded blocks, or Braille cells with more dots toward the handle.
+        for (let col = 0; col * textCell + textCell <= end; col++) {
+          const x = col * textCell + textCell / 2
+          textRows.forEach((y, row) => {
+            const d = density(x, col, row)
+            let ch: string
+            if (look === 'braille') {
+              const dots = Math.round(d * 8)
+              if (dots === 0) return
+              // Each cell fills its dots in its own order, so neighbours don't match.
+              const from = Math.floor(noise(col, row + 7) * 8)
+              let bits = 0
+              for (let i = 0; i < dots; i++) bits |= BRAILLE_DOTS[(from + i) % 8]
+              ch = String.fromCharCode(0x2800 + bits)
+            } else {
+              const ramp = look === 'blocks' ? BLOCKS : CHARACTERS
+              ch = ramp[Math.round(d * (ramp.length - 1))]
+              if (ch === ' ') return
+            }
+            ctx.globalAlpha = 0.28 + 0.72 * d
+            ctx.fillText(ch, col * textCell, y + 0.5)
+          })
+        }
       }
       ctx.globalAlpha = 1
     }
@@ -159,7 +214,7 @@ export function EffortTrack({
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [width, thumbX, top])
+  }, [width, thumbX, top, look])
 
   /** The level under the pointer, between two while dragging. */
   const levelAt = (clientX: number): number => {
