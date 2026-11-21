@@ -533,11 +533,6 @@ function GlassPreview(): JSX.Element {
       <div className="glass-preview__page">
         <span className="glass-preview__glow" />
         <span className="glass-preview__title">What should we work on?</span>
-        <span className="glass-preview__chips">
-          <span>Research</span>
-          <span>Organize files</span>
-          <span>Build an app</span>
-        </span>
       </div>
       <div className="glass-preview__menu">
         <span className="glass-preview__search">

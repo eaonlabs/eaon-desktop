@@ -564,19 +564,6 @@
   color: var(--text);
   white-space: nowrap;
 }
-.glass-preview__chips {
-  position: relative;
-  display: flex;
-  gap: 8px;
-  white-space: nowrap;
-}
-.glass-preview__chips > span {
-  padding: 4px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-pill);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
 .glass-preview__menu {
   position: absolute;
   top: 14px;

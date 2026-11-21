@@ -15,7 +15,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **A quieter top bar in Chat:** the editor button is gone (⌘P and the dock's Files open the editor), and the temporary chat switch is only on the ordinary start page, since a temporary chat can't be in a project.
 - **A cleaner message box.** The model (with its effort) and what Eaon may do sit in one row inside the box, and +, the mic and send at the other end; send is in the accent and Stop in red. On a project's start page, a quiet strip under the box holds the folder and the branch; once the chat has begun it goes. Full access keeps an orange open lock.
 - **Work in a project opens the folder picker straight away** on a new chat; once a project is chosen, its button still lists your projects.
-- **No suggestion chips on the start page.** Research, Organize files, Build an app and Use my browser are gone from under the message box, and Settings → General's Suggested prompts switch with them.
+- **No suggestion chips on the start page.** Research, Organize files, Build an app and Use my browser are gone from under the message box, and Settings → General's Suggested prompts switch with them. Appearance's glass preview doesn't draw them either.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
 - **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
 - **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
