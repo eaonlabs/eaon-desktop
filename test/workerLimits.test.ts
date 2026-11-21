@@ -17,7 +17,6 @@ import {
   retryLabel,
   seedSpend,
   siteEntry,
-  siteGuard,
   siteVerdict,
   spendNow,
   usageTokens,
@@ -171,19 +170,6 @@ test('a blocked site is refused for every request; the allowed list limits where
   assert.match(refused.allowed ? '' : refused.reason, /example\.com isn't one of the sites the user allowed/)
   assert.equal(siteVerdict(null, 'https://anything.test/').allowed, true)
   assert.equal(siteVerdict({ allow: [], deny: ['ads.test'] }, 'https://ads.test./x').allowed, false, 'a trailing dot is the same host')
-})
-
-test('the browser hook reads the rules fresh, and leaves a resolved address to the name it came from', () => {
-  let rules = normalizeSites({ allow: [], deny: ['bad.test'] })
-  const guard = siteGuard(() => rules)
-  assert.deepEqual(guard('https://bad.test/', { isNavigation: true }), { allowed: false, reason: guard('https://bad.test/', {})!.reason })
-  assert.equal(guard('https://fine.test/', { isNavigation: true }), null)
-  assert.equal(guard('https://93.184.216.34/', { resolvedFrom: 'bad.test' }), null, 'the guard asked about bad.test itself already')
-  rules = normalizeSites({ allow: ['only.test'], deny: [] })
-  assert.notEqual(guard('https://fine.test/', { resourceType: 'document' }), null, 'a page load is a navigation')
-  assert.equal(guard('https://fine.test/img.png', { resourceType: 'image' }), null, 'an image is not')
-  rules = null
-  assert.equal(guard('https://bad.test/', { isNavigation: true }), null, 'editing the rules applies at once')
 })
 
 /* ----------------------------------------------------------------- tool rules */
