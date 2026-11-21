@@ -17,7 +17,8 @@ import type { Feature } from './types'
  * asks once. Requests go only to those forges' public addresses (and where
  * they redirect, never this computer or the local network), carry no
  * cookies or tokens, and only an image that passes the provider-logo
- * checks is kept. Channel: `project-avatars:get`.
+ * checks is kept. Channels: `project-avatars:get` (a folder's), and
+ * `project-avatars:github` (a GitHub account's, by login).
  */
 
 const DOC = 'project-avatars.json'
@@ -161,7 +162,18 @@ const asking = new Map<string, Promise<string | null | undefined>>()
 /** A project folder's picture: kept, or looked up now (a stale one is shown while it's looked up again). */
 export async function projectAvatar(folder: string): Promise<string | null> {
   const owner = await ownerOf(folder)
-  if (!owner) return null
+  return owner ? pictureOf(owner) : null
+}
+
+/** A GitHub account's login: letters, digits and single hyphens, up to 39. */
+const GITHUB_LOGIN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i
+
+/** A GitHub account's picture by its login (the Pull requests page's conversation), kept like a project's. */
+export async function githubAvatar(login: string): Promise<string | null> {
+  return GITHUB_LOGIN.test(login) ? pictureOf({ forge: 'github', owner: login, namespace: login }) : null
+}
+
+async function pictureOf(owner: RepoOwner): Promise<string | null> {
   const key = ownerKey(owner)
   const kept = read()[key]
   if (kept && Date.now() - kept.at < (kept.src ? FOUND_FOR_MS : MISSING_FOR_MS)) return kept.src
@@ -193,5 +205,6 @@ export const projectAvatarsFeature: Feature = {
   id: 'project-avatars',
   register: ({ ipcMain }) => {
     ipcMain.handle('project-avatars:get', (_event, folder: unknown) => (isFolder(folder) ? projectAvatar(folder).catch(() => null) : null))
+    ipcMain.handle('project-avatars:github', (_event, login: unknown) => (typeof login === 'string' ? githubAvatar(login).catch(() => null) : null))
   }
 }
