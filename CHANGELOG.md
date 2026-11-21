@@ -7,6 +7,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Added
 - **Six wallpapers of Eaon's own for See-through:** Dusk, Tide, Dune, Moss, Ember and Slate. They're soft and quiet so they stay out of the way of your work, and each comes in a dark and a light version that follows the theme. Pick one in Settings → Appearance → Wallpaper → Eaon. On Linux, where Eaon can't tell which wallpaper the desktop shows, See-through now works without choosing a picture first.
+- **Wallpaper blur.** Settings → Appearance → Window has a Wallpaper blur slider for See-through, from sharp at 0 to as soft as frosted glass at 100.
 
 ### Changed
 - **Chat's and the ADE's sidebars have Settings, Pull requests and Issues as icons along the bottom,** with your two plans' usage rings at the other end in Chat (the ADE keeps them in its header, so its icons sit in the middle). They moved there from the lists at the top, and Pull requests and Issues can now be reached from Chat. The day's token count under the sidebar is gone, along with its settings in Usage & limits. The ADE's Review button has Chat's mark for reviewing changes (two arrows) instead of the pull request one, which is Pull requests' alone.

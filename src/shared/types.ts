@@ -419,6 +419,8 @@ export interface SeeThrough {
    * over it (shared/seeThroughLegibility.ts). Unset is on.
    */
   readable?: boolean
+  /** How soft the wallpaper is behind the whole window, 0–100, as frosted glass is; 0 shows it sharp. Unset is 0. */
+  blur?: number
 }
 
 /**

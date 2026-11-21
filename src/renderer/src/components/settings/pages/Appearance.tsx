@@ -442,6 +442,9 @@ function SeeThroughSection(): JSX.Element | null {
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable">
               <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
+            <Row title="Wallpaper blur" description="How soft the wallpaper is behind the window, like frosted glass. At 0 it shows sharp">
+              <Slider label="Wallpaper blur" value={see.blur ?? 0} min={0} max={100} onChange={(blur) => set({ blur })} />
+            </Row>
             <Row title="Style" description={styleInfo(style).hint} />
             <WallpaperStyles
               value={style}
