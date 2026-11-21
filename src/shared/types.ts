@@ -1064,6 +1064,12 @@ export interface IndexStatus {
   error?: string
 }
 
+/** A label on a pull request: its name and GitHub's colour for it (hex, no #). */
+export interface PullRequestLabel {
+  name: string
+  color: string
+}
+
 export interface PullRequestSummary {
   id: string
   title: string
@@ -1074,6 +1080,13 @@ export interface PullRequestSummary {
   additions: number
   deletions: number
   state: 'open' | 'closed' | 'merged' | 'draft'
+  number: number
+  author: string
+  createdAt: string
+  /** When it was merged or closed; null while it's open. */
+  closedAt: string | null
+  comments: number
+  labels: PullRequestLabel[]
 }
 
 export interface PullRequestsResult {
@@ -1186,12 +1199,44 @@ export interface PullRequestDetail {
   mergeState: string
   /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ''. */
   reviewDecision: string
+  /** Each reviewer's latest review. */
   reviews: { author: string; state: string }[]
   checks: { name: string; status: 'passed' | 'failed' | 'pending' | 'skipped'; url: string | null }[]
+  /** What happened on it, for its conversation: comments and every review, oldest first. */
+  comments: PullRequestComment[]
+  commits: PullRequestCommit[]
+  labels: PullRequestLabel[]
+  assignees: string[]
+  /** Asked to review and not done so yet: people by login, teams by name. */
+  reviewRequests: string[]
+  milestone: string | null
+  mergedAt: string | null
+  mergedBy: string | null
+  closedAt: string | null
+  /** The merge commit's sha, once merged. */
+  mergeCommit: string | null
   /** What the repository allows. */
   methods: { squash: boolean; merge: boolean; rebase: boolean }
   /** The repository deletes merged branches itself. */
   deletesBranch: boolean
+}
+
+/** A comment on a pull request's conversation, or a review (`review` set: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED). */
+export interface PullRequestComment {
+  author: string
+  /** OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE… as GitHub says it. */
+  association: string
+  body: string
+  at: string
+  review?: string
+}
+
+export interface PullRequestCommit {
+  oid: string
+  headline: string
+  /** The GitHub account, or the name git has when it isn't one. */
+  author: string
+  at: string
 }
 
 export type PullRequestAction = { ok: true; message: string } | { ok: false; error: string }
