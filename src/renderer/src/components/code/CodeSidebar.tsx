@@ -123,9 +123,13 @@ export function CodeSidebar(): JSX.Element | null {
 let listed: AdeSession[] = []
 export const listedSessions = (): AdeSession[] => listed
 
-/** The projects, each with its sessions, and the archived ones in a group of their own. */
+/**
+ * The projects' sessions, a project's together, and the archived ones in a
+ * group of their own. No heading over a project: each session carries its
+ * project's logo, and its + and menu start another in the same project.
+ */
 function ProjectTree({ recents, activeCwd }: { recents: string[]; activeCwd: string | null }): JSX.Element {
-  const { sessions, collapsed } = useAdeSessions(useShallow((s) => ({ sessions: s.sessions, collapsed: s.collapsed })))
+  const sessions = useAdeSessions((s) => s.sessions)
   const query = useAdeList((s) => s.query)
   const conversations = useAdeSessions((s) => s.conversations)
   // Sorted once by how recently each project was opened, then kept in place (see keepOrder).
@@ -137,12 +141,17 @@ function ProjectTree({ recents, activeCwd }: { recents: string[]; activeCwd: str
       .filter((group) => group.sessions.length > 0)
   }, [sessions, recents, query, conversations])
   const archived = useMemo(() => splitArchived(sessions).archived.filter((session) => sessionMatches(session, query, conversations)), [sessions, query, conversations])
-  listed = visibleSessions(groups, collapsed)
+  // Nothing folds without a heading to fold it from, so a project folded before still shows.
+  listed = visibleSessions(groups, {})
   if (groups.length === 0 && archived.length === 0) return <div className="sidebar__empty">No sessions match</div>
   return (
     <div className="ade-tree">
       {groups.map((group) => (
-        <ProjectRow key={group.project} group={group} activeCwd={activeCwd} />
+        <div key={group.project} className="ade-group" data-project={folderName(group.project)}>
+          {group.sessions.map((session) => (
+            <SessionRow key={session.id} session={session} active={session.cwd === activeCwd} group={group} />
+          ))}
+        </div>
       ))}
       {archived.length > 0 && <ArchivedGroup sessions={archived} />}
     </div>
@@ -375,67 +384,6 @@ function AdeViewMenu(): JSX.Element {
   )
 }
 
-function ProjectRow({ group, activeCwd }: { group: ProjectGroup; activeCwd: string | null }): JSX.Element {
-  const collapsed = useAdeSessions((s) => Boolean(s.collapsed[group.project]))
-  const { toggleProject, newSession, openFolder } = useAdeSessions(
-    useShallow((s) => ({ toggleProject: s.toggleProject, newSession: s.newSession, openFolder: s.openFolder }))
-  )
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [removing, setRemoving] = useState(false)
-  const name = folderName(group.project)
-  // On another computer: no folder here to read its repository's owner from.
-  const remote = group.sessions.some((session) => session.host)
-  return (
-    <div className="ade-project">
-      <div className="ade-project__head">
-        <button
-          type="button"
-          className="ade-project__row"
-          aria-expanded={!collapsed}
-          title={group.project}
-          onClick={() => toggleProject(group.project)}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            setMenu({ x: e.clientX, y: e.clientY })
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-              e.preventDefault()
-              const rect = e.currentTarget.getBoundingClientRect()
-              setMenu({ x: rect.left + 12, y: rect.bottom })
-            }
-          }}
-        >
-          <ProjectBadge name={name} folder={remote ? null : group.project} />
-          <span className="ade-project__name">{name}</span>
-          <span className="ade-project__count" aria-label={`${group.sessions.length} ${group.sessions.length === 1 ? 'session' : 'sessions'}`}>
-            {group.sessions.length}
-          </span>
-          <ChevronRight className="ade-project__chev" size={14} strokeWidth={2} data-open={!collapsed || undefined} aria-hidden="true" />
-        </button>
-        <button type="button" className="ade-project__add" aria-label={`New session in ${name}`} title={`New session in ${name}`} onClick={() => newSession(group.project)}>
-          <Plus size={14} strokeWidth={2} />
-        </button>
-      </div>
-      {!collapsed && group.sessions.map((session) => <SessionRow key={session.id} session={session} active={session.cwd === activeCwd} />)}
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={[
-            { icon: <Plus size={15} strokeWidth={1.9} />, label: 'New session…', action: () => newSession(group.project) },
-            { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open the project folder', action: () => void openFolder(group.project) },
-            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(group.project) },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove from the ADE…', danger: true, action: () => setRemoving(true) }
-          ]}
-        />
-      )}
-      {removing && <RemoveProjectDialog group={group} onClose={() => setRemoving(false)} />}
-    </div>
-  )
-}
-
 /** In the sidebar's folded-state record, but the other way round: set means the Archived group is open (it starts closed). */
 const ARCHIVED_OPEN_KEY = '\u0000archived-open'
 
@@ -601,14 +549,24 @@ function ChangeCount({ changes }: { changes: AdeChanges | null }): JSX.Element |
   )
 }
 
-function StateMark({ state }: { state: SessionState }): JSX.Element {
-  if (state === 'asleep')
-    return (
-      <span className="ade-state" data-state="asleep" role="img" aria-label={STATE_LABEL.asleep} title={STATE_LABEL.asleep}>
-        <Moon size={10} strokeWidth={2.2} />
-      </span>
-    )
-  return <span className="ade-state" data-state={state} role="img" aria-label={STATE_LABEL[state]} title={STATE_LABEL[state]} />
+/**
+ * In the tree, a session's project logo (its owner's picture, or a folder)
+ * where a state dot was: what it's doing rides on the logo's corner, green
+ * while its agents wait, a turning ring while one works, a moon asleep.
+ */
+function SessionLogo({ session, state }: { session: AdeSession; state: SessionState }): JSX.Element {
+  return (
+    <span className="ade-logo" data-state={state} role="img" aria-label={`${folderName(session.project)}: ${STATE_LABEL[state]}`} title={`${folderName(session.project)} · ${STATE_LABEL[state]}`}>
+      <ProjectBadge name={folderName(session.project)} folder={session.host ? null : session.project} />
+      {state === 'asleep' ? (
+        <span className="ade-logo__state">
+          <Moon size={7} strokeWidth={2.6} />
+        </span>
+      ) : (
+        (state === 'live' || state === 'working') && <span className={`ade-logo__state${state === 'working' ? ' ade-spinner' : ''}`} />
+      )}
+    </span>
+  )
 }
 
 /** The end of a list row's first line: what the session is doing, or how long ago anything happened in it. */
@@ -677,7 +635,8 @@ function SessionRow({
   look = 'tree',
   at = 0,
   now = 0,
-  working = 0
+  working = 0,
+  group
 }: {
   session: AdeSession
   active: boolean
@@ -685,6 +644,8 @@ function SessionRow({
   at?: number
   now?: number
   working?: number
+  /** In the tree: the session's project, for its menu's "Remove project". */
+  group?: ProjectGroup
 }): JSX.Element {
   const { show, sleep, sleepOthers, newSession } = useAdeSessions(
     useShallow((s) => ({ show: s.show, sleep: s.sleep, sleepOthers: s.sleepOthers, newSession: s.newSession }))
@@ -698,14 +659,23 @@ function SessionRow({
   const setAgentsOpen = useAdeList((s) => s.setAgentsOpen)
   const agentsId = `ade-agents-${session.id}`
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | null>(null)
+  const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | 'remove-project' | null>(null)
   const editors = useEditorMenuItems(session.cwd, Boolean(menu))
   const title = sessionTitle(session)
   const thread = look === 'thread'
-  // In the list the project is on the row's first line, so the project folder's own session needs only its branch under it.
-  const sub = thread ? (session.missing ? null : session.cwd === session.project && !session.host ? session.branch : sessionSubtitle(session)) : sessionSubtitle(session)
   const project = folderName(session.project)
-  // Another session in a repository's project: from the row's menu, and in the list (no headings to start one from) its + too.
+  // In the list the project is on the row's first line, so the project folder's own session needs only its branch under it.
+  // In the tree there's no heading to name the project, so a session in a worktree says it before its branch.
+  const sub = thread
+    ? session.missing
+      ? null
+      : session.cwd === session.project && !session.host
+        ? session.branch
+        : sessionSubtitle(session)
+    : session.cwd !== session.project && !session.missing && !session.host
+      ? `${project} · ${sessionSubtitle(session)}`
+      : sessionSubtitle(session)
+  // Another session in a repository's project: from the row's menu, and its + (there are no headings to start one from).
   const addSession = session.repo && !session.missing && !session.host ? () => newSession(session.project) : undefined
   const addLabel = `New session in ${project}`
 
@@ -748,7 +718,7 @@ function SessionRow({
           />
         ) : (
           <>
-            <StateMark state={state} />
+            <SessionLogo session={session} state={state} />
             <span className="ade-session__text">
               <span className="ade-session__title">{title}</span>
               {sub && <span className="ade-session__branch">{sub}</span>}
@@ -762,7 +732,7 @@ function SessionRow({
           </>
         )}
       </button>
-      {thread && addSession && (
+      {addSession && (
         <button type="button" className="ade-project__add ade-session__add" aria-label={addLabel} title={addLabel} onClick={addSession}>
           <Plus size={14} strokeWidth={2} />
         </button>
@@ -818,13 +788,18 @@ function SessionRow({
               action: () => void sleepOthers().then((n) => notify(n === 0 ? 'No other session is running.' : `${n === 1 ? '1 session' : `${n} sessions`} asleep.`, 'done'))
             },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive session…', action: () => setDialog('archive') },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') },
+            // What the project's heading's menu did, now that there's no heading: all its sessions at once.
+            ...(group && group.sessions.length > 1
+              ? [{ icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove project from the ADE…', danger: true, action: () => setDialog('remove-project') }]
+              : [])
           ]}
         />
       )}
       {dialog === 'archive' && <ArchiveSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'rename' && <RenameSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'remove' && <RemoveSessionDialog session={session} onClose={() => setDialog(null)} />}
+      {dialog === 'remove-project' && group && <RemoveProjectDialog group={group} onClose={() => setDialog(null)} />}
     </div>
   )
 }
@@ -928,7 +903,8 @@ const TRAY_MARKS = 3
  * Along the bottom of a session's row: its agents, gathered by what they're
  * doing (working, waiting for you, not started, ended), each group its state
  * and the agents' marks, then its terminals' count. It opens and folds the
- * list of them under it (AgentList).
+ * list of them under it (AgentList). Open, the list shows each one, so the
+ * tray is only its heading: how many there are, and the chevron to fold it.
  */
 function AgentTray({ panes, open, controls, onToggle }: { panes: readonly TerminalPaneSpec[]; open: boolean; controls: string; onToggle: () => void }): JSX.Element {
   const agents = useTerminals((s) => s.agents)
@@ -942,8 +918,22 @@ function AgentTray({ panes, open, controls, onToggle }: { panes: readonly Termin
   ].join(', ')
   const agentCount = panes.length - shells
   const label = agentCount > 0 ? `${agentCount === 1 ? 'Agent' : 'Agents'}: ${said}` : `Terminals: ${shells}`
+  if (open) {
+    const heading = [
+      agentCount > 0 && `${agentCount} ${agentCount === 1 ? 'agent' : 'agents'}`,
+      shells > 0 && `${shells} ${shells === 1 ? 'terminal' : 'terminals'}`
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    return (
+      <button type="button" className="ade-tray" aria-expanded aria-controls={controls} aria-label={label} title={label} onClick={onToggle}>
+        <span className="ade-tray__heading">{heading}</span>
+        <ChevronRight className="ade-tray__chev" size={14} strokeWidth={2} />
+      </button>
+    )
+  }
   return (
-    <button type="button" className="ade-tray" aria-expanded={open} aria-controls={open ? controls : undefined} aria-label={label} title={label} onClick={onToggle}>
+    <button type="button" className="ade-tray" aria-expanded={false} aria-label={label} title={label} onClick={onToggle}>
       {groups.map((group) => {
         const shown = group.panes.length > TRAY_MARKS ? group.panes.slice(0, TRAY_MARKS - 1) : group.panes
         return (

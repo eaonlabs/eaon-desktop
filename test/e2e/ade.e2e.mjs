@@ -100,13 +100,13 @@ async function mouseDrag(page, from, to, { release = true } = {}) {
   if (release) await send({ type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0, clickCount: 1 })
 }
 
-/** The sidebar as shown: projects with their count, sessions with title, branch line and state, the agents under the open one. */
+/** The sidebar as shown: projects (no headings: each project's sessions are a group) with how many, sessions with title, branch line and state, the agents under the open one. */
 function sidebar(page) {
   return page.eval(() =>
-    [...document.querySelectorAll('.ade-project')].map((p) => ({
-      project: p.querySelector('.ade-project__name')?.textContent ?? '',
-      count: p.querySelector('.ade-project__count')?.textContent ?? '',
-      sessions: [...p.querySelectorAll('.ade-session')].map((s) => ({
+    [...document.querySelectorAll('.ade-group')].map((p) => ({
+      project: p.getAttribute('data-project') ?? '',
+      count: String(p.querySelectorAll(':scope > .ade-session').length),
+      sessions: [...p.querySelectorAll(':scope > .ade-session')].map((s) => ({
         title: s.querySelector('.ade-session__title')?.textContent ?? '',
         sub: s.querySelector('.ade-session__branch')?.textContent ?? '',
         state: s.getAttribute('data-state') ?? '',
@@ -178,7 +178,7 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
 
   // The ADE: one project, its two sessions.
   await page.click('.ade-import__toggle', { text: /^Open the ADE$/ })
-  await page.find('.ade-project__name', { text: 'acme-internal' })
+  await page.find('.ade-group[data-project="acme-internal"] .ade-session__title', { text: /^acme-internal$/ })
   await page.click('.ade-session__title', { text: /^acme-internal$/ })
   await page.find('.term-past__open', { timeout: 20_000 })
   let tree = await sidebar(page)
@@ -193,7 +193,7 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   assert.equal(root.agentsHead, '')
   assert.deepEqual(root.agents, [])
   const baseline = tree[0].sessions.find((x) => x.title === 'checkout-baseline')
-  assert.equal(baseline?.sub, 'feature/checkout-baseline')
+  assert.equal(baseline?.sub, 'acme-internal · feature/checkout-baseline', 'a worktree names its project, with no heading over it')
   await s.shot(page, 'sidebar-imported')
 
   // With no terminals open, the session's page can reopen one, when asked: started in a terminal only.
@@ -245,7 +245,7 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   tree = await sidebar(page)
   const made = tree[0].sessions.find((x) => x.active)
   assert.equal(made?.title, 'Fix CI checks detail link')
-  assert.equal(made?.sub, 'fix/ci-checks-detail-link')
+  assert.equal(made?.sub, 'acme-internal · fix/ci-checks-detail-link')
   assert.equal(tree[0].count, '3')
   assert.equal(made?.agents[0]?.task, 'Fixing checks detail link')
   await s.shot(page, 'sidebar-working')
