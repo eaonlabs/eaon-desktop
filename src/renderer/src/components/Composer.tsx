@@ -514,13 +514,14 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sources: SuggestSources = {
     '/': (query: string) => {
       const items: SuggestItem[] = [
-        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
-        { id: 'screenshot', title: 'Take a screenshot', keywords: 'screenshot screen capture window image attach', section: 'Add', icon: <Camera size={16} strokeWidth={1.8} />, run: () => setShotOpen(true) }
+        { id: 'attach', command: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
+        { id: 'screenshot', command: 'screenshot', title: 'Take a screenshot', keywords: 'screenshot screen capture window image attach', section: 'Add', icon: <Camera size={16} strokeWidth={1.8} />, run: () => setShotOpen(true) }
       ]
       if (isAgent) {
         items.push(
           {
             id: 'folder',
+            command: 'project',
             title: 'Work in a project',
             keywords: 'folder directory project cwd code',
             section: 'Add',
@@ -528,15 +529,15 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             hint: cwd ? fileName(cwd) : undefined,
             run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && workIn(paths[0]))
           },
-          { id: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
-          { id: 'ask-mode', title: 'Ask only', keywords: 'ask question read-only answer explain', description: 'Answer questions about the project; change nothing', section: 'Modes', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, checked: Boolean(settings?.askMode), run: () => void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) }) },
-          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) }) },
-          { id: 'swarm', title: 'Swarm', keywords: 'swarm parallel helpers sub-agents', description: 'Split work across parallel helpers', section: 'Modes', icon: <Network size={16} strokeWidth={1.8} />, checked: Boolean(settings?.work.swarm), run: () => void patchSettings({ work: { swarm: !settings?.work.swarm } }) },
+          { id: 'goal', command: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
+          { id: 'ask-mode', command: 'ask', title: 'Ask only', keywords: 'ask question read-only answer explain', description: 'Answer questions about the project; change nothing', section: 'Modes', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, checked: Boolean(settings?.askMode), run: () => void patchSettings({ askMode: !settings?.askMode, ...(settings?.askMode ? {} : { planMode: false }) }) },
+          { id: 'plan', command: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode, ...(settings?.planMode ? {} : { askMode: false }) }) },
+          { id: 'swarm', command: 'swarm', title: 'Swarm', keywords: 'swarm parallel helpers sub-agents', description: 'Split work across parallel helpers', section: 'Modes', icon: <Network size={16} strokeWidth={1.8} />, checked: Boolean(settings?.work.swarm), run: () => void patchSettings({ work: { swarm: !settings?.work.swarm } }) },
           ...permissionItems(
             [
-              { id: 'ask' as const, title: 'Ask first', keywords: 'ask', icon: <Hand size={16} strokeWidth={1.8} /> },
-              { id: 'auto' as const, title: 'Auto-approve', keywords: 'auto', icon: <ShieldCheck size={16} strokeWidth={1.8} /> },
-              { id: 'full' as const, title: 'Full autonomy', keywords: 'full autonomy', icon: <Zap size={16} strokeWidth={1.8} /> }
+              { id: 'ask' as const, command: 'ask-first', title: 'Ask for approval', description: 'Asks before every change', keywords: 'ask', icon: <Hand size={16} strokeWidth={1.8} /> },
+              { id: 'auto' as const, command: 'auto-approve', title: 'Auto-approve', description: 'Asks only before risky actions', keywords: 'auto', icon: <ShieldCheck size={16} strokeWidth={1.8} /> },
+              { id: 'full' as const, command: 'full-access', title: 'Full access', description: 'Asks only if it can’t be undone', keywords: 'full autonomy', icon: <Zap size={16} strokeWidth={1.8} /> }
             ],
             settings?.approvalMode,
             (approvalMode) => {
@@ -545,17 +546,17 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
               if (approvalMode === 'full') useApp.getState().releaseApprovals()
             }
           ),
-          { id: 'browser', title: 'Browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
-          { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
-          { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
+          { id: 'browser', command: 'browser', title: 'Open the browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
+          { id: 'computer', command: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
+          { id: 'plugins', command: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
         )
       }
       // The prompt library, and with something typed, each saved prompt by name.
       items.push(...savedPromptItems(() => setLibrary(true), query))
       items.push(
-        { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
-        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
-        { id: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
+        { id: 'model', command: 'model', title: 'Switch the model and its effort', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
+        { id: 'new', command: 'new', title: 'Start a new chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() },
+        { id: 'btw', command: 'btw', title: 'btw', keywords: 'side question aside quick ask', description: 'A side question, answered here and not added to the chat', section: 'Chat', icon: <MessageCircleQuestion size={16} strokeWidth={1.8} />, insert: '/btw' }
       )
       return isAgent
         ? [...items, ...skillItems(skills, settings?.disabledSkills ?? []), ...context.commandItems(query)]

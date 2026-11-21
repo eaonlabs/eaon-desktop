@@ -34,6 +34,19 @@ test('ranking puts title prefixes first, then word starts, keywords, then anywhe
   assert.deepEqual(rankItems(items, 'zzz'), [])
 })
 
+test('a "/" row answers to its command name as it does to its title', () => {
+  const items = [
+    { command: 'attach', title: 'Add photos and files' },
+    { command: 'full-access', title: 'Full access' },
+    { command: 'stripe:test-cards', title: 'stripe:test-cards' },
+    { title: 'Saved prompt about attachments' }
+  ]
+  assert.deepEqual(rankItems(items, 'att').map((i) => i.title), ['Add photos and files', 'Saved prompt about attachments'], 'the name first')
+  assert.deepEqual(rankItems(items, 'add').map((i) => i.title), ['Add photos and files'], 'the title still')
+  assert.deepEqual(rankItems(items, 'acc').map((i) => i.title), ['Full access'], 'a word of the name')
+  assert.deepEqual(rankItems(items, 'test').map((i) => i.title), ['stripe:test-cards'], 'after a plugin prefix')
+})
+
 test('picking replaces the trigger word, spaces the insert, and drops a command cleanly', () => {
   assert.deepEqual(replaceTrigger('ask @no', { start: 4, end: 7 }, '@Notion'), { text: 'ask @Notion ', caret: 12 })
   assert.deepEqual(replaceTrigger('ask @no about', { start: 4, end: 7 }, '@Notion'), { text: 'ask @Notion about', caret: 12 })

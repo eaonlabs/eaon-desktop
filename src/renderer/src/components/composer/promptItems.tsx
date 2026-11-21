@@ -14,6 +14,7 @@ export function savedPromptItems(openLibrary: () => void, query: string): Sugges
   return [
     {
       id: 'prompts',
+      command: 'prompts',
       title: 'Saved prompts',
       keywords: 'prompt library templates saved snippets browse',
       section: 'Saved prompts',

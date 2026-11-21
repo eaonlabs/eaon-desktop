@@ -146,6 +146,7 @@ export function chatMentionItems(chats: readonly Chat[], activeId: string | null
 export function promptCommandItems(commands: readonly PromptCommand[], query: string, onAdd: () => void): SuggestItem[] {
   const items: SuggestItem[] = commands.map((command) => ({
     id: `prompt:${command.source}:${command.name}`,
+    command: command.name,
     title: command.name,
     keywords: `${command.source === 'project' ? 'project' : ''} prompt command`,
     section: 'Prompt files',
