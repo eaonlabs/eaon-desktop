@@ -1,18 +1,226 @@
-/* The composer's "/" and "@" menus. They sit just above the composer box,
-   inside .composer-stack (position: relative), rather than in a portal: the
-   text box keeps focus and stays clickable while the menu is open. Looks come
-   from .menu; only placement changes here. */
-.menu.suggest-menu {
-  position: absolute;
-  left: 4px;
-  bottom: calc(100% + 6px);
-  width: min(340px, calc(100% - 8px));
-  max-height: min(300px, 45vh);
-  z-index: 20;
-  transform-origin: bottom left;
+/* The composer's "/" and "@" menus. They sit inside .composer-stack rather
+   than in a portal, so the text box keeps focus and stays clickable while the
+   menu is open. The panel stands on the box's top edge, as wide as the box
+   less its rounded corners, so it reads as part of the box: the same surface,
+   the same ring, no gap. The box paints over its foot (z-index 2 against 1),
+   so the two rings meet in one line.
+
+   Placed by the box itself (CSS anchors), not by the stack: notices, queued
+   messages and the start page's folder strip come and go around the box. */
+.composer-stack {
+  anchor-scope: --composer-box;
 }
-.menu.suggest-menu .menu__item-hint {
+.composer-stack > .composer {
+  anchor-name: --composer-box;
+}
+
+/* How much is hidden past each edge, 0 to 1, eased so a fade comes and goes
+   rather than snapping. */
+@property --suggest-above {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --suggest-below {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.suggest-menu {
+  /* Where the box's top edge runs straight: its corner radius in from each side. */
+  --suggest-inset: 22px;
+  /* How far in from each edge rows fade out. */
+  --suggest-fade: 40px;
+  position: absolute;
+  position-anchor: --composer-box;
+  left: calc(anchor(left, 0px) + var(--suggest-inset));
+  right: calc(anchor(right, 0px) + var(--suggest-inset));
+  bottom: anchor(top, calc(100% + 6px));
+  z-index: 1;
+  overflow: clip;
+  background: var(--surface-2);
+  border-radius: 14px 14px 0 0;
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 -14px 32px -22px rgb(0 0 0 / 0.5);
+  animation: suggest-in 140ms var(--ease) both;
+  transition:
+    --suggest-above 220ms var(--ease),
+    --suggest-below 220ms var(--ease);
+}
+.suggest-menu[data-above] {
+  --suggest-above: 1;
+}
+.suggest-menu[data-below] {
+  --suggest-below: 1;
+}
+@keyframes suggest-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+body[data-reduce-motion='on'] .suggest-menu {
+  animation: none;
+  transition: none;
+}
+
+.suggest-menu__list {
+  max-height: min(312px, 45vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 6px 6px 4px;
+  /* The arrow keys stop a row short of the fades, so the picked row is never a faded one. */
+  scroll-padding-block: calc(var(--suggest-fade) - 6px);
+  /* An edge with more past it fades out, eased so it has no visible start. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--suggest-above))),
+    rgb(0 0 0 / calc(1 - 0.7 * var(--suggest-above))) calc(var(--suggest-fade) * 0.3),
+    rgb(0 0 0 / calc(1 - 0.3 * var(--suggest-above))) calc(var(--suggest-fade) * 0.6),
+    #000 var(--suggest-fade),
+    #000 calc(100% - var(--suggest-fade)),
+    rgb(0 0 0 / calc(1 - 0.3 * var(--suggest-below))) calc(100% - var(--suggest-fade) * 0.6),
+    rgb(0 0 0 / calc(1 - 0.7 * var(--suggest-below))) calc(100% - var(--suggest-fade) * 0.3),
+    rgb(0 0 0 / calc(1 - var(--suggest-below)))
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--suggest-above))),
+    rgb(0 0 0 / calc(1 - 0.7 * var(--suggest-above))) calc(var(--suggest-fade) * 0.3),
+    rgb(0 0 0 / calc(1 - 0.3 * var(--suggest-above))) calc(var(--suggest-fade) * 0.6),
+    #000 var(--suggest-fade),
+    #000 calc(100% - var(--suggest-fade)),
+    rgb(0 0 0 / calc(1 - 0.3 * var(--suggest-below))) calc(100% - var(--suggest-fade) * 0.6),
+    rgb(0 0 0 / calc(1 - 0.7 * var(--suggest-below))) calc(100% - var(--suggest-fade) * 0.3),
+    rgb(0 0 0 / calc(1 - var(--suggest-below)))
+  );
+}
+.suggest-menu__list::-webkit-scrollbar {
+  display: none;
+}
+
+/* A row partly past an edge goes soft as it goes, and sharpens as it comes
+   fully into view: tied to its own place in the list as it scrolls, so it
+   follows the scroll exactly. (Blurring a band over the edge instead, with
+   backdrop filters, drew a hard line where the band began.) */
+@supports (animation-timeline: view()) {
+  .suggest-menu__list > .suggest-row {
+    animation: suggest-row-edge linear both;
+    /* Its own insets, or it takes the scroll padding's and the first row blurs with nothing above it. */
+    animation-timeline: view(block calc(var(--suggest-fade) * 0.5 * var(--suggest-above)) calc(var(--suggest-fade) * 0.5 * var(--suggest-below)));
+  }
+}
+@keyframes suggest-row-edge {
+  entry 0% {
+    filter: blur(2.5px);
+  }
+  entry 100% {
+    filter: none;
+  }
+  exit 0% {
+    filter: none;
+  }
+  exit 100% {
+    filter: blur(2.5px);
+  }
+}
+
+/* The workers' box is a pill: its straight edge starts further in. */
+.composer-stack:has(> .composer--worker) .suggest-menu {
+  --suggest-inset: 26px;
+}
+
+/* See-through: the glass's own colour but close to solid. The start page's
+   big heading sits right behind this panel, and at the other menus' 74% it
+   still read through the rows. */
+body[data-see-through='on'] .suggest-menu {
+  background: color-mix(in srgb, var(--glass-base) 94%, transparent) var(--glass-grain);
+  -webkit-backdrop-filter: var(--glass-blur-float);
+  backdrop-filter: var(--glass-blur-float);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim),
+    0 0 0 1px var(--border-strong),
+    0 -14px 32px -22px rgb(0 0 0 / 0.5);
+}
+
+/* ---- rows: one line each, the name bright and what it does quiet after it ---- */
+.suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: var(--fs-sm);
+  letter-spacing: -0.006em;
+  text-align: left;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.suggest-row[data-highlight] {
+  background: var(--hover-strong);
+}
+.suggest-row__name {
+  flex: 0 1 auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: 500;
+}
+.suggest-row__about {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--text-3);
+}
+.suggest-row__hint {
+  flex: 0 1 auto;
+  max-width: 32%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.suggest-row__check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+.suggest-row__about + .suggest-row__check {
+  margin-left: auto;
+}
+
+/* "@" rows keep a small icon, and the sections name what kind each is. */
+.suggest-row__icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  color: var(--text-3);
+}
+.suggest-row__icon svg {
+  width: 15px;
+  height: 15px;
+}
+.suggest-row[data-highlight] .suggest-row__icon {
+  color: var(--text-2);
+}
+.suggest-menu__label {
+  padding: 8px 10px 3px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.suggest-menu__label:first-child {
+  padding-top: 3px;
 }
 
 /* A plugin pulled into the message with "@": shown with its logo among the chips. */

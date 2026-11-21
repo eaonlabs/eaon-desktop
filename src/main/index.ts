@@ -31,6 +31,8 @@ import { capture as captureCheckpoint, captureBefore } from './features/chatChec
 import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import { approvalGate, approvalNotice, finishedNotice, type NoticeText } from '@shared/chatNotice'
 import './agent/sources'
+// Cards an agent draws in Chat (show_ui): the desktop's alone, since only it draws them.
+import './agent/cardTool'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
 import { applyClaudeEverywhere } from './features/cliAccounts'
@@ -53,7 +55,7 @@ import {
   quitAndInstall,
   switchToStable
 } from './updater'
-import { listPullRequests, mergePullRequest, pullRequestAction, pullRequestDetail, pullRequestDiff, type MergeOptions } from './github'
+import { commentOnPullRequest, listPullRequests, mergePullRequest, pullRequestAction, pullRequestDetail, pullRequestDiff, type MergeOptions } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, embeddingModels } from './embeddings'
 import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
@@ -732,6 +734,7 @@ function registerIpc(): void {
   ipcMain.handle('github:pr-diff', (_e, url: unknown) => shellPath.then(() => pullRequestDiff(url)))
   ipcMain.handle('github:pr-merge', (_e, url: unknown, options: MergeOptions) => shellPath.then(() => mergePullRequest(url, options ?? { method: 'squash', deleteBranch: false, auto: false })))
   ipcMain.handle('github:pr-action', (_e, url: unknown, action: unknown) => shellPath.then(() => pullRequestAction(url, action)))
+  ipcMain.handle('github:pr-comment', (_e, url: unknown, body: unknown) => shellPath.then(() => commentOnPullRequest(url, body)))
 
   ipcMain.handle('index:status', (_e, cwd: string | null) => getIndexStatus(cwd))
   ipcMain.handle('index:build', (_e, cwd: string, force: boolean) => buildIndex(cwd, force))

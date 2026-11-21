@@ -7,16 +7,12 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
-  Compass,
   Copy,
   Eye,
   FileDown,
   FileText,
   FolderInput,
   FolderOpen,
-  FolderTree,
-  Globe,
-  Hammer,
   HeartPulse,
   Hourglass,
   KeyRound,
@@ -59,8 +55,8 @@ import { TemporaryHint, TemporaryLabel, TemporaryNote, TemporaryPill, TemporaryT
 import { exportChatToFile } from './chat/exportChat'
 import { ArchivedNote } from './chat/ArchivedNote'
 import { WorkerFace } from './workers/WorkerFace'
-import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
-import { StockCards } from './workers/WorkerUi'
+import { ChatCardContext, WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
+import { CardDeckContext, StockCards, useCardDeck } from './workers/WorkerUi'
 import { useWorkers } from './workers/workersStore'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -199,30 +195,14 @@ export function ChatView(): JSX.Element {
   return shown ? <Conversation chat={shown} /> : <Home />
 }
 
-/**
- * Chips under the home composer. Each drops a starting prompt into the box —
- * and together they are how someone new learns that Chat is an agent: it
- * researches, works with files, builds things, uses the browser and runs on a
- * schedule, not only answers questions.
- */
-const SUGGESTIONS: { icon: typeof Compass; label: string; prompt: string }[] = [
-  { icon: Compass, label: 'Research', prompt: 'Research the following and write up what you find, with sources: ' },
-  { icon: FolderTree, label: 'Organize files', prompt: 'Tidy up my Downloads folder: group files into sensible subfolders and tell me what you moved.' },
-  { icon: Hammer, label: 'Build an app', prompt: 'Build me ' },
-  { icon: Globe, label: 'Use my browser', prompt: 'In my browser, ' }
-]
-
 function Home(): JSX.Element {
-  const { settings, setComposerDraft, browserOpen, toggleBrowser } = useApp(
-    useShallow((s) => ({ settings: s.settings, setComposerDraft: s.setComposerDraft, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser }))
-  )
-  const showSuggestions = settings?.general.suggestedPrompts !== false
+  const { browserOpen, toggleBrowser } = useApp(useShallow((s) => ({ browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser })))
   const isWork = useIsWork()
   // A chat in a project codes; an ordinary one has none of the coding tools.
   const coding = useCoding() && isWork
-  // The next chat isn't kept: the page says so in place of the chips, and the box is dashed.
+  // The next chat isn't kept: the title says so with the mark beside it, a note under the box says what that means, and the box is dashed.
   const temporary = useApp((s) => s.pendingTemporary) && isWork
-  // A project's start page is only its question and the box: the project by name, no mark, no chips.
+  // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
 
   return (
@@ -238,14 +218,17 @@ function Home(): JSX.Element {
         }
       />
       <AsciiField className="home__field" />
-      {/* The mark, the title and the box together in the middle of the page, the chips under the box.
+      {/* The mark, the title and the box together in the middle of the page.
           Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
-          {!project && <EaonSymbol className="home__mark" />}
-          <h1 className="home__title">
+          {!project && !temporary && <EaonSymbol className="home__mark" />}
+          <h1 className="home__title" data-temporary={temporary || undefined}>
             {temporary ? (
-              'You’re in a temporary chat'
+              <>
+                <EaonSymbol className="home__title-mark" />
+                You’re in a temporary chat
+              </>
             ) : project ? (
               <>
                 What should we build in{' '}
@@ -260,27 +243,11 @@ function Home(): JSX.Element {
               'What can I help with?'
             )}
           </h1>
-          {temporary && <TemporaryHint />}
         </div>
         <div className="home__dock">
           <Composer variant="home" />
+          {temporary && <TemporaryHint />}
         </div>
-        {showSuggestions && !temporary && !project && (
-            <div className="home-chips" role="group" aria-label="Things Eaon can do">
-              {SUGGESTIONS.map((s, index) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  className="suggestion-chip"
-                  style={{ ['--i' as string]: index }}
-                  onClick={() => setComposerDraft(s.prompt)}
-                >
-                  <s.icon size={15} strokeWidth={1.9} />
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          )}
       </div>
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
@@ -457,6 +424,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   // place, so opening a long chat no longer replays every message's entrance.
   const opened = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() })
   if (opened.current.chatId !== chat.id) opened.current = { chatId: chat.id, ids: new Set(chat.messages.map((m) => m.id)) }
+  // The cards the agent keeps in this chat (show_ui with an id), each drawn where it first appeared, as it is now.
+  const cardDeck = useCardDeck(chat.messages)
+  const cardChat = useMemo(() => ({ chatId: chat.id }), [chat.id])
   useLayoutEffect(() => {
     if (document.body.dataset.reduceMotion === 'on') return
     thread.current?.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
@@ -603,6 +573,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           if (e.deltaY < 0) following.current = false
         }}
       >
+        <CardDeckContext.Provider value={cardDeck}>
+        <ChatCardContext.Provider value={cardChat}>
         <div className="thread__inner">
           {chat.temporary && <TemporaryNote />}
           {chat.archived && <ArchivedNote chatId={chat.id} />}
@@ -628,6 +600,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             </Fragment>
           ))}
         </div>
+        </ChatCardContext.Provider>
+        </CardDeckContext.Provider>
       </div>
 
       <div className="composer-dock" data-card={cardInline || undefined}>
@@ -995,7 +969,8 @@ export const MessageRow = memo(function MessageRow({
           // or a tool call stays where the model made it — between the sentence
           // that led to it and the one that follows from its result.
           <div className="msg--assistant" data-streaming={streaming || undefined}>
-            {(folded ? items.slice(answerFrom) : items).map((item, index) =>
+            {/* Folded, the turn keeps its answer and its cards: a card is something to look at, not a step. */}
+            {(folded ? items.filter((item, i) => i >= answerFrom || item.kind === 'card') : items).map((item, index) =>
               item.kind === 'card' ? (
                 <WorkerCardRow key={item.key} part={item.part} />
               ) : item.kind === 'stocks' ? (

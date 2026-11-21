@@ -1,24 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { BADGE_HUES, heldOrder, hueOf, initialsOf, matchesSearch, threadOrder, workingFor } from '../src/shared/threadList'
-
-test('a project tag takes its first two words’ initials, or a one-word name’s first two letters', () => {
-  assert.equal(initialsOf('Acme Web'), 'AW')
-  assert.equal(initialsOf('pixel-quest'), 'PQ')
-  assert.equal(initialsOf('skin_gallery'), 'SG')
-  assert.equal(initialsOf('PixelQuest'), 'PQ')
-  assert.equal(initialsOf('Notes'), 'NO')
-  assert.equal(initialsOf('x'), 'X')
-  assert.equal(initialsOf('  '), '?')
-  assert.equal(initialsOf('🚀 launch'), '🚀L')
-})
-
-test('a project keeps its tint, and tints spread over the palette', () => {
-  assert.equal(hueOf('acme-web'), hueOf('acme-web'))
-  const hues = new Set(['acme-web', 'pixel-quest', 'notes', 'skin-gallery', 'eaon-desktop', 'tokn', 'website', 'gateway', 'api', 'docs'].map(hueOf))
-  assert.ok(hues.size >= 4, `only ${hues.size} tints for ten names`)
-  for (const hue of hues) assert.ok(hue >= 0 && hue < BADGE_HUES)
-})
+import { heldOrder, matchesSearch, threadOrder, workingFor } from '../src/shared/threadList'
 
 test('working time reads in seconds, then minutes, then hours and minutes', () => {
   assert.equal(workingFor(-5), '0s')

@@ -60,6 +60,15 @@ const RESAMPLE_MS = 2000
 /** The picture is measured for its adjustment at this many spots across: a spot is a few points of the screen, about a letter. */
 const MEASURE = 160
 
+/** The Blur setting at 100, in points: the wallpaper as soft as frosted glass, little left of it but its colours. */
+const MOST_BLUR = 48
+
+/** The Blur setting (0–100) in points of blur, in half points. */
+const blurOf = (setting: number | undefined): number => Math.round((Math.min(100, Math.max(0, setting ?? 0)) / 100) * MOST_BLUR * 2) / 2
+
+/** A setting dragged along a slider redraws the picture once it comes to rest, not at every step. */
+const SETTLE_MS = 160
+
 type Plate = HTMLCanvasElement | HTMLVideoElement
 
 const sizeOf = (plate: Plate): { width: number; height: number } =>
@@ -114,7 +123,7 @@ function sampleOf(plate: Plate, adjust: Adjustment = UNADJUSTED, displayWidth = 
  * until its bright (or dark) end sits where only a little wash is left to
  * add. Measured on the picture as the screen shows it, a spot about a letter.
  */
-function adjustmentFor(plate: Plate, light: boolean, displayWidth: number, soften: boolean): Adjustment {
+function adjustmentFor(plate: Plate, light: boolean, displayWidth: number, soften: boolean, leastBlur: number): Adjustment {
   const { width, height } = sizeOf(plate)
   if (!width || !height) return UNADJUSTED
   const w = MEASURE
@@ -123,7 +132,9 @@ function adjustmentFor(plate: Plate, light: boolean, displayWidth: number, softe
   const raw = pixelsOf(plate, w, h, UNADJUSTED, pxPerPoint)
   if (!raw) return UNADJUSTED
   // A drawn style (characters, halftone, mosaic) is texture on purpose: softened it would smear, so it is only toned.
-  const soft = soften ? softening(statsOf(raw, w, h)) : { blur: 0, saturate: 1 }
+  // The Blur setting is a floor either way: asked for, the picture is that soft at least.
+  const auto = soften ? softening(statsOf(raw, w, h)) : { blur: 0, saturate: 1 }
+  const soft = { ...auto, blur: Math.max(auto.blur, leastBlur) }
   const endOf = (contrast: number, brightness: number): number | null => {
     const data = pixelsOf(plate, w, h, { ...soft, contrast, brightness }, pxPerPoint)
     return data ? luminanceAt(spotsOf(data), light ? 0.03 : 0.97) : null
@@ -140,9 +151,9 @@ function adjustmentFor(plate: Plate, light: boolean, displayWidth: number, softe
   return { ...soft, contrast, brightness }
 }
 
-/** A picture's plate with its adjustment drawn in, once; a softened one at half size, which nobody can tell blurred. */
+/** A picture's plate with its adjustment drawn in, once; a softened one smaller (a quarter, very soft), which nobody can tell blurred. */
 function bake(plate: HTMLCanvasElement, adjust: Adjustment, displayWidth: number): HTMLCanvasElement {
-  const scale = adjust.blur >= 4 ? 0.5 : 1
+  const scale = adjust.blur >= 16 ? 0.25 : adjust.blur >= 4 ? 0.5 : 1
   const out = document.createElement('canvas')
   out.width = Math.max(1, Math.round(plate.width * scale))
   out.height = Math.max(1, Math.round(plate.height * scale))
@@ -211,6 +222,7 @@ export function SeeThrough(): JSX.Element | null {
   const [plate, setPlate] = useState<Plate | null>(null)
   const [adjust, setAdjust] = useState<Adjustment>(UNADJUSTED)
   const readable = options?.readable !== false
+  const blur = useSettled(blurOf(options?.blur), SETTLE_MS)
   const layer = useRef<HTMLDivElement>(null)
   const latest = useRef<WallpaperFrame | null>(null)
 
@@ -373,15 +385,15 @@ export function SeeThrough(): JSX.Element | null {
     return () => document.removeEventListener('visibilitychange', sync)
   }, [clip, plays])
 
-  // Adjusted for the text (or not, with Keep text readable off): a picture once, drawn in; a video
-  // from its first frames, as a filter the compositor applies as it plays.
+  // Adjusted for the text (or not, with Keep text readable off) and blurred as asked: a picture once,
+  // drawn in; a video from its first frames, as a filter the compositor applies as it plays.
   useEffect(() => {
     if (!base || !display) {
       setPlate(null)
       return
     }
     const live = clip !== null
-    const next = readable ? adjustmentFor(base, light, display.width, style === 'photo') : UNADJUSTED
+    const next = readable ? adjustmentFor(base, light, display.width, style === 'photo', blur) : blur > 0 ? { ...UNADJUSTED, blur } : UNADJUSTED
     setAdjust(next)
     if (live) {
       base.style.filter = next === UNADJUSTED ? '' : filterOf(next)
@@ -389,7 +401,7 @@ export function SeeThrough(): JSX.Element | null {
     } else {
       setPlate(next === UNADJUSTED || !(base instanceof HTMLCanvasElement) ? base : bake(base, next, display.width))
     }
-  }, [base, clip, readable, light, display, style])
+  }, [base, clip, readable, light, display, style, blur])
 
   // The plate goes into the layer once; from then on only the layer moves.
   useEffect(() => {
@@ -569,6 +581,33 @@ export function SeeThrough(): JSX.Element | null {
     <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': wash } as CSSProperties} aria-hidden="true">
       <div ref={layer} className="see-through__layer" />
       <div className="see-through__tint" />
+      {options?.fade && <FadeOut />}
+    </div>
+  )
+}
+
+/** Where Fade out begins, as a share of the window's height, and how far down each step of it reaches its full blur. */
+const FADE_FROM = 30
+const FADE_STEP = 10
+/** Its steps' blurs, in points: each blurs what the one above it already blurred, so the bottom is about 37pt soft. */
+const FADE_BLURS = [1, 2, 4, 8, 16, 32]
+
+/**
+ * Fade out (SeeThrough.fade): the wallpaper stays sharp at the top of the
+ * window and blurs, and dims a little, toward the bottom, where the text and
+ * the box are. A stack of frosted layers, each starting a step lower and
+ * blurring more, eased in over its step, so the blur grows smoothly rather
+ * than in bands; and a veil of the page's colour over the lower part. It
+ * belongs to the window, not the picture, so it stays put as the picture
+ * slides, and the compositor does it all.
+ */
+function FadeOut(): JSX.Element {
+  return (
+    <div className="see-through__fade" style={{ '--fade-from': FADE_FROM, '--fade-step': FADE_STEP } as CSSProperties}>
+      {FADE_BLURS.map((blur, i) => (
+        <span key={blur} style={{ '--fade-i': i, '--fade-blur': `${blur}px` } as CSSProperties} />
+      ))}
+      <i />
     </div>
   )
 }
@@ -648,6 +687,16 @@ function coverOf(clip: HTMLVideoElement): Paint {
     else sh = vw / want
     ctx.drawImage(clip, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, width, height)
   }
+}
+
+/** `value`, once it has stayed the same for `ms`. */
+function useSettled<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettled(value), ms)
+    return () => window.clearTimeout(timer)
+  }, [value, ms])
+  return settled
 }
 
 /** Whether motion is turned down: Settings → Appearance → Reduce motion, or the system's when it follows that. */

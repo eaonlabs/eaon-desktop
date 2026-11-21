@@ -19,7 +19,7 @@ import {
 import { useApp } from '../../state/store'
 import { Popover } from '../ui'
 import { LinkAccounts } from '../LinkAccounts'
-import { ReasoningEffort } from './ReasoningEffort'
+import { EffortTrack } from './EffortTrack'
 import { modKey, modLabel } from '../../lib/platform'
 import { ENGINE_MARK, markKey, optionMark, ProviderMark } from './ProviderMark'
 import { useSetupAction } from './setupActions'
@@ -519,10 +519,11 @@ export function ModelPicker({
 
         {!onPick && !adaptive && (current || engineChoice) && effort && efforts.length >= 2 && (
           <div className="mp__foot">
-            <ReasoningEffort
+            <EffortTrack
               labels={efforts.map((level) => EFFORT_LABEL[level])}
               value={Math.max(0, efforts.indexOf(effort))}
               model={engineChoice?.label ?? current?.label ?? ''}
+              look={settings?.appearance.effortStyle}
               onChange={(index) => setEffort(efforts[index])}
             />
           </div>

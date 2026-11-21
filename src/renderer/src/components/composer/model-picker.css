@@ -1,5 +1,5 @@
 /* The composer's model picker (ModelPicker.tsx) and its effort slider
-   (ReasoningEffort.tsx). A 340px panel, wide enough for nearly every model's
+   (EffortTrack.tsx). A 340px panel, wide enough for nearly every model's
    name; a 41px tab row, a 29px search row, 27px model rows (seven before it
    scrolls) and the effort row. */
 
@@ -389,9 +389,7 @@
 
 .mp__foot {
   flex: none;
-  display: flex;
-  justify-content: center;
-  padding: 10px 16px 12px;
+  padding: 11px 12px 12px;
   border-top: 1px solid var(--mp-line);
 }
 

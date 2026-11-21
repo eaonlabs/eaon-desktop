@@ -5218,3 +5218,317 @@ body[data-reduce-motion='on'] .wui-plot--empty {
   font-weight: 600;
   color: var(--text-3);
 }
+
+/* ---------------- Cards an agent lays out (WorkerUi.tsx): header, big figures, fields, routes, ticket edges ----------------
+   In a worker's thread and in Chat alike. A card an agent keeps (show_ui with
+   an id) changes where it is; what moved shows its old value struck through. */
+
+/* The header: an icon in a disc, the title with its code beside it, the status at the end. */
+.wui > .wui__head {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+.wui__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--canvas);
+}
+.wui__names {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+.wui__names .wcard__title {
+  font-size: 15px;
+  font-weight: 560;
+}
+.wui__names .wui__subtitle {
+  font-size: 14px;
+  color: var(--text-3);
+}
+.wui__status {
+  flex: none;
+}
+
+/* A pill: a change, a status. Tinted with its tone. */
+.wui-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: var(--wc-inset-strong);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wui-pill[data-tone='up'],
+.wui-pill[data-tone='good'] {
+  background: color-mix(in srgb, var(--wui-up) 16%, transparent);
+  color: var(--wui-up);
+}
+.wui-pill[data-tone='down'],
+.wui-pill[data-tone='bad'] {
+  background: color-mix(in srgb, var(--wui-down) 16%, transparent);
+  color: color-mix(in srgb, var(--wui-down), var(--fg) 18%);
+}
+.wui-pill[data-tone='warn'] {
+  background: color-mix(in srgb, var(--wc-warn) 16%, transparent);
+  color: var(--wc-warn);
+}
+.wui-pill[data-tone='info'] {
+  background: color-mix(in srgb, var(--wc-live) 16%, transparent);
+  color: var(--wc-live);
+}
+
+/* One big figure: its label and change on a line, the value large under them. */
+.wui-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wui-metric__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wui-metric__label {
+  padding-top: 2px;
+  font-size: 14px;
+  color: var(--text-3);
+}
+.wui-metric__value {
+  margin-top: -6px;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.wui-metric__detail {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* Labelled values in a grid: Gate, Boards, Seat, Group. */
+.wui-fields {
+  display: grid;
+  grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr));
+  gap: 14px 12px;
+}
+.wui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.wui-field__label {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.wui-field__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.wui-field[data-changed] .wui-field__value:not([data-tone]),
+.wui-field__value[data-tone='warn'],
+.wui-route__time[data-tone='warn'] {
+  color: var(--wc-warn);
+}
+.wui-field__value[data-tone='up'],
+.wui-field__value[data-tone='good'],
+.wui-route__time[data-tone='good'] {
+  color: var(--wui-up);
+}
+.wui-field__value[data-tone='down'],
+.wui-field__value[data-tone='bad'],
+.wui-route__time[data-tone='bad'] {
+  color: var(--wui-down);
+}
+.wui-field__detail {
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* What a value was before it changed. */
+.wui-was {
+  font-size: 12.5px;
+  color: var(--text-4, var(--text-3));
+  text-decoration-thickness: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.wui-route__time .wui-was {
+  margin-right: 5px;
+}
+
+/* From → to: the codes large, each end's name and time under it. */
+.wui-route {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wui-route__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wui-route__end {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wui-route__end[data-side='to'] {
+  align-items: flex-end;
+  text-align: right;
+}
+.wui-route__code {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.wui-route__place {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+.wui-route__dot {
+  margin: 0 5px;
+}
+.wui-route__time {
+  font-variant-numeric: tabular-nums;
+}
+.wui-route__mode {
+  flex: none;
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  margin-top: 14px;
+  color: var(--text-3);
+}
+.wui-route__detail {
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/* A boarding pass's tear line: dashed across, a notch cut into each side. */
+.wui-ticket {
+  position: relative;
+  height: 18px;
+  margin: 2px calc(-1 * var(--wc-pad));
+}
+.wui-ticket::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  right: 16px;
+  border-top: 1.5px dashed var(--wc-hair-strong);
+}
+/* The notches are cut out of the card (WorkerUi.tsx useTicketNotches), which also cuts away
+   the ring drawn outside it: a notched card draws its edge inside instead. */
+.wui[data-notched='true'] {
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.075),
+    inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+[data-theme='light'] .wui[data-notched='true'] {
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.08);
+}
+
+/* Views switched at the bottom: one wide segmented control, as on a phone. */
+.wui-tabs[data-at='bottom'] > .wui-segments,
+.wui-chart[data-at='bottom'] > .wui-segments {
+  align-self: stretch;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+}
+.wui-tabs[data-at='bottom'] > .wui-segments .wui-segment,
+.wui-chart[data-at='bottom'] > .wui-segments .wui-segment {
+  flex: 1;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.wui-tabs[data-at='bottom'] {
+  gap: 14px;
+}
+
+/* A chart under its own figure: the readout floats in only under the pointer, and the latest point is marked. */
+.wui-plot[data-quiet] .wui-readout {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  z-index: 1;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.wui-plot[data-quiet][data-hover] .wui-readout {
+  opacity: 1;
+}
+.wui-plot__end {
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* Where the agent changed a card shown earlier: a quiet line that takes you to it. */
+.wui-changed {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--hover, color-mix(in srgb, var(--fg) 5%, transparent));
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.wui-changed strong {
+  font-weight: 560;
+  color: var(--text-2);
+}
+.wui-changed__sub {
+  color: var(--text-3);
+}
+.wui-changed:hover {
+  color: var(--text-2);
+}
+.wui-changed:hover strong {
+  text-decoration: underline;
+}
+
+/* In Chat, a card sits in the reply with a little room around it. */
+.msg--assistant > .wui {
+  margin: 4px 0 10px;
+}

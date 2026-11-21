@@ -105,7 +105,7 @@ interface AppState {
   approvalQueue: PendingApproval[]
   /** Questions the agent is asking in a pop-up (shared/askQuestions.ts), oldest first; the first is the one shown. */
   pendingQuestions: PendingQuestion[]
-  /** A suggestion-card prompt waiting to be dropped into the composer, consumed once. */
+  /** Text waiting to be dropped into the composer (a quoted reply, a prompt from elsewhere), consumed once. */
   composerDraft: string | null
   /** The provider Settings → Model providers should open on, consumed once (see `openProviderSettings`). */
   providerFocus: string | null

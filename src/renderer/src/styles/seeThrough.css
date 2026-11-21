@@ -40,6 +40,26 @@
   opacity: var(--see-tint, 0.55);
   transition: opacity 240ms var(--ease);
 }
+/* Fade out (SeeThrough.tsx): from --fade-from (a share of the window's height) down, a layer per step,
+   each a step lower, frosting what the ones above it frosted and easing in over its step; under them
+   all, the page's colour dims the picture a little toward the bottom. */
+.see-through__fade {
+  position: absolute;
+  inset: 0;
+}
+.see-through__fade > span {
+  position: absolute;
+  inset: calc((var(--fade-from) + var(--fade-i) * var(--fade-step)) * 1vh) 0 0;
+  -webkit-backdrop-filter: blur(var(--fade-blur));
+  backdrop-filter: blur(var(--fade-blur));
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
+  mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
+}
+.see-through__fade > i {
+  position: absolute;
+  inset: calc(var(--fade-from) * 1vh) 0 0;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--canvas) 35%, transparent));
+}
 
 /* macOS: the title bars drag through the app while see-through is on, so the
    picture can keep up with the window (SeeThrough.tsx). The system's own
@@ -227,7 +247,7 @@ body[data-see-through='on']
     .tasks, .tr-panel, .tr-strip, .ca-feature, .ca-app, .plan-card, .code-stats, .code-queue, .code-checks,
     .code-failure, .code-dialog__option, .mlib-card, .mlib-banner, .model-card, .provider-detail__section,
     .provider-signin, .usage-hero, .usage-tile, .usage-chart, .usage-heat, .usage-table, .usage-split, .la-row, .la__note,
-    .template-card, .suggestion-card, .term-agent-card, .imggen__tile, .ch-app, .purchase__receipt,
+    .template-card, .term-agent-card, .imggen__tile, .ch-app, .purchase__receipt,
     .browser__banner, .team-hint, .bx-status, .credits-hero, .credits-project, .model-notice
   ) {
   background: var(--glass-card);
@@ -268,8 +288,7 @@ body[data-see-through='on'] .queued,
 body[data-see-through='on'] .elsewhere-ask,
 body[data-see-through='on'] .approval[data-variant='dock'],
 body[data-see-through='on'] .composer__above .composer-pill,
-body[data-see-through='on'] .composer[data-variant='home'] + .composer__tray,
-body[data-see-through='on'] .suggestion-chip {
+body[data-see-through='on'] .composer[data-variant='home'] + .composer__tray {
   background: var(--glass-strong);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
@@ -416,7 +435,7 @@ body[data-see-through='on'] .ask-card {
 body[data-see-through='on']
   :is(
     .sidebar__panel, .settings__nav-panel, .composer, .queued, .elsewhere-ask, .mode-switch, .thread-jump,
-    .menu, .modal, .approval, .usage-card, .update-toast, .peek, .star-card, .usage-pill, .suggestion-chip,
+    .menu, .modal, .approval, .usage-card, .update-toast, .peek, .star-card, .usage-pill,
     .composer__above .composer-pill, .code-search, .html-preview
   ) {
   border-color: transparent;
@@ -432,7 +451,7 @@ body[data-see-through='on'] .composer:focus-within {
     var(--glass-drop);
 }
 /* Small controls in a bar: the rim and hairline without a shadow to float them off it. */
-body[data-see-through='on'] :is(.mode-switch, .suggestion-chip, .usage-pill, .composer__above .composer-pill, .thread-jump) {
+body[data-see-through='on'] :is(.mode-switch, .usage-pill, .composer__above .composer-pill, .thread-jump) {
   box-shadow:
     inset 0 1px 0 var(--glass-rim),
     0 0 0 0.5px var(--glass-edge);

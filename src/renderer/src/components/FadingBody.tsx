@@ -1,0 +1,76 @@
+import { useEffect, useRef, type ReactNode } from 'react'
+
+/**
+ * A side panel's list, fading and softly blurring out at an edge with more
+ * of it past that edge, instead of being sliced off under what sits above it
+ * and at the bottom of the panel. Each edge eases in over the first few
+ * pixels of scroll, so a list that fits shows no fade at all. The sidebars
+ * and Settings' list both use it.
+ */
+export function FadingBody({ className = 'sidebar__body', children }: { className?: string; children: ReactNode }): JSX.Element {
+  const wrap = useRef<HTMLDivElement>(null)
+  const body = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const host = wrap.current
+    const node = body.current
+    if (!host || !node) return
+    const ease = (px: number): string => {
+      const t = Math.min(1, Math.max(0, px / 24))
+      return (t * t * (3 - 2 * t)).toFixed(3)
+    }
+    // Scrolling through the list's own padding cuts nothing off: only what's past it is hidden.
+    let pad = { top: 0, bottom: 0 }
+    const measure = (): void => {
+      const style = getComputedStyle(node)
+      pad = { top: parseFloat(style.paddingTop) || 0, bottom: parseFloat(style.paddingBottom) || 0 }
+    }
+    let last = ''
+    const update = (): void => {
+      const cutTop = node.scrollTop - pad.top
+      const cutBottom = node.scrollHeight - node.clientHeight - node.scrollTop - pad.bottom
+      // How tall each fade is grows with how much is hidden past that edge; the edge itself is clear
+      // whenever anything is, so a row is never sliced off in a hard line.
+      const next = `${ease(cutTop)} ${ease(cutBottom)} ${cutTop > 0.5 ? 1 : 0} ${cutBottom > 0.5 ? 1 : 0}`
+      if (next === last) return
+      last = next
+      const [top, bottom, clearTop, clearBottom] = next.split(' ')
+      host.style.setProperty('--fade-top', top)
+      host.style.setProperty('--fade-bottom', bottom)
+      host.style.setProperty('--clear-top', clearTop)
+      host.style.setProperty('--clear-bottom', clearBottom)
+    }
+    measure()
+    update()
+    node.addEventListener('scroll', update, { passive: true })
+    // The list also grows and shrinks without a scroll: a chat added, a project opened or folded.
+    const sizes = new ResizeObserver(update)
+    const watch = (): void => {
+      measure()
+      sizes.disconnect()
+      sizes.observe(node)
+      for (const child of Array.from(node.children)) sizes.observe(child)
+    }
+    watch()
+    const rows = new MutationObserver(watch)
+    rows.observe(node, { childList: true })
+    return () => {
+      node.removeEventListener('scroll', update)
+      sizes.disconnect()
+      rows.disconnect()
+    }
+  }, [])
+  return (
+    <div ref={wrap} className="sidebar__fade">
+      <div ref={body} className={`${className} scroll`}>
+        {children}
+      </div>
+      {(['top', 'bottom'] as const).map((edge) => (
+        <div key={edge} className="edge-veil" data-edge={edge} aria-hidden="true">
+          {[0, 1, 2, 3].map((i) => (
+            <span key={i} style={{ ['--i' as string]: i }} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}

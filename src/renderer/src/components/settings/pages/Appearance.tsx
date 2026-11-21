@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
-import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
+import { isVideoWallpaper, type AppIcon, type EffortStyle, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
 import { THEMES, releaseAde, themePatch, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
@@ -188,6 +188,14 @@ export function AppearancePage(): JSX.Element {
               ]}
             />
           </Row>
+          <Row title="Reasoning slider" description="How the model menu’s reasoning track draws its fill">
+            <Select
+              width={130}
+              value={a.effortStyle ?? 'characters'}
+              onChange={(effortStyle) => void patchSettings({ appearance: { effortStyle } })}
+              options={EFFORT_STYLES}
+            />
+          </Row>
           {/* macOS-only: font smoothing is a WebKit switch only macOS
               honours. Elsewhere the switch would do nothing. */}
           {isMac && (
@@ -339,6 +347,15 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
  * picks. The OS only says which picture the desktop shows on macOS and
  * Windows; anywhere, Eaon's and a chosen one work.
  */
+/** The reasoning slider's fills. */
+const EFFORT_STYLES: { value: EffortStyle; label: string }[] = [
+  { value: 'characters', label: 'Characters' },
+  { value: 'dither', label: 'Dither' },
+  { value: 'braille', label: 'Braille' },
+  { value: 'blocks', label: 'Blocks' },
+  { value: 'dots', label: 'Dots' }
+]
+
 function SeeThroughSection(): JSX.Element | null {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const see = settings?.appearance.seeThrough
@@ -347,6 +364,20 @@ function SeeThroughSection(): JSX.Element | null {
   const [choosing, setChoosing] = useState(false)
   const hasCustom = see?.source === 'custom' && Boolean(see.custom)
   const video = hasCustom && isVideoWallpaper(see?.custom) ? (see?.custom ?? null) : null
+  const onDesktop = Boolean(see?.enabled) && see !== undefined && wallpaperSource(see, window.api.platform) === 'desktop'
+  // Whether the desktop's picture can be read: again on coming back to the app, in case it was changed meanwhile.
+  const [desktop, setDesktop] = useState<{ name: string | null; readable: boolean } | null>(null)
+  useEffect(() => {
+    if (!onDesktop) return
+    let live = true
+    const check = (): void => void window.api.wallpaper.desktop().then((d) => live && setDesktop(d))
+    check()
+    window.addEventListener('focus', check)
+    return () => {
+      live = false
+      window.removeEventListener('focus', check)
+    }
+  }, [onDesktop])
 
   // The chosen picture's thumbnail, once, when the page opens on it. A video plays instead.
   useEffect(() => {
@@ -396,7 +427,9 @@ function SeeThroughSection(): JSX.Element | null {
                   : 'A picture of your own, filling the screen'
                 : from === 'eaon'
                   ? 'One of Eaon’s, in its light or dark version to go with the theme'
-                  : 'Your desktop’s wallpaper, lined up with the screen'
+                  : desktop && !desktop.readable
+                    ? `Your desktop’s picture${desktop.name ? ` (${desktop.name})` : ''} can’t be found or read, so Eaon’s ${wallpaperOf(undefined).name} stands in. If an app draws your desktop, like a live wallpaper, choose Custom and pick its picture or video`
+                    : 'Your desktop’s wallpaper, lined up with the screen'
             }
           >
             <Segmented
@@ -441,6 +474,12 @@ function SeeThroughSection(): JSX.Element | null {
             </Row>
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read. A bright wallpaper gets more on its own, so the text stays readable">
               <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
+            </Row>
+            <Row title="Wallpaper blur" description="How soft the wallpaper is behind the window, like frosted glass. At 0 it shows sharp">
+              <Slider label="Wallpaper blur" value={see.blur ?? 0} min={0} max={100} onChange={(blur) => set({ blur })} />
+            </Row>
+            <Row title="Fade out" description="Keep the wallpaper sharp at the top of the window and blur it, a little darker, toward the bottom, where you read and type">
+              <Switch label="Fade out" checked={see.fade === true} onChange={(fade) => set({ fade })} />
             </Row>
             <Row title="Style" description={styleInfo(style).hint} />
             <WallpaperStyles
@@ -533,11 +572,6 @@ function GlassPreview(): JSX.Element {
       <div className="glass-preview__page">
         <span className="glass-preview__glow" />
         <span className="glass-preview__title">What should we work on?</span>
-        <span className="glass-preview__chips">
-          <span>Research</span>
-          <span>Organize files</span>
-          <span>Build an app</span>
-        </span>
       </div>
       <div className="glass-preview__menu">
         <span className="glass-preview__search">

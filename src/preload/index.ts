@@ -178,7 +178,9 @@ const api = {
     merge: (url: string, options: { method: 'squash' | 'merge' | 'rebase'; deleteBranch: boolean; auto: boolean; subject?: string; body?: string }): Promise<PullRequestAction> =>
       ipcRenderer.invoke('github:pr-merge', url, options),
     act: (url: string, action: 'approve' | 'ready' | 'draft' | 'close' | 'reopen' | 'update-branch' | 'disable-auto'): Promise<PullRequestAction> =>
-      ipcRenderer.invoke('github:pr-action', url, action)
+      ipcRenderer.invoke('github:pr-action', url, action),
+    /** A comment on its conversation, as the signed-in GitHub user. */
+    comment: (url: string, body: string): Promise<PullRequestAction> => ipcRenderer.invoke('github:pr-comment', url, body)
   },
   /** A pull request reviewed by an agent in the ADE, posted by the person (shared/prReview.ts). */
   prReview: {

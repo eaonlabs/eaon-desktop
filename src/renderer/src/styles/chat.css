@@ -1,6 +1,6 @@
 /* Home hero, composer, tray and the conversation view. */
 
-/* The mark, the title, the box and the chips, as one group in the middle of
+/* The mark, the title and the box, as one group in the middle of
    the page (a little above it, where the eye rests). Sending the first
    message glides the box down to the conversation's foot ([data-composer-glide]). */
 .home {
@@ -57,6 +57,8 @@
   animation: hero-in 520ms var(--ease) both;
 }
 .home__dock {
+  /* A temporary chat's note hangs under the box (temporary.css). */
+  position: relative;
   flex: none;
   display: flex;
   justify-content: center;
@@ -93,45 +95,6 @@
   margin-bottom: 18px;
 }
 
-/* Capability chips under the home composer: a starting prompt each, and the
-   first hint that Chat does things rather than only answering. They wrap to a
-   second line on a narrow window instead of shrinking into unreadable pills. */
-.home-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  width: var(--composer-chat-w);
-  max-width: calc(100% - 48px);
-  margin: 20px 0 0;
-}
-.suggestion-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: color-mix(in srgb, var(--canvas) 72%, transparent);
-  height: 34px;
-  padding: 0 14px 0 12px;
-  border-radius: var(--r-pill);
-  box-shadow: 0 0 0 1px var(--border-soft);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  white-space: nowrap;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-  animation: chip-in var(--dur-spring) var(--spring-moderate) backwards;
-  animation-delay: calc(80ms + var(--i, 0) * var(--stagger));
-}
-.suggestion-chip svg {
-  color: var(--text-3);
-  transition: color var(--dur) var(--ease);
-}
-.suggestion-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.suggestion-chip:hover svg {
-  color: var(--text-2);
-}
 @keyframes chip-in {
   from {
     opacity: 0;
@@ -139,39 +102,6 @@
   }
 }
 
-/* The ADE home's suggestion cards — wired to settings.general.suggestedPrompts.
-   Chat's home uses the lighter .home-chips row instead; the two must keep
-   separate class names, since the ADE reuses these (see code/CodeView.tsx). */
-.suggestions {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  width: var(--composer-w);
-  max-width: calc(100% - 48px);
-  margin: 0 0 20px;
-}
-.suggestion-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 16px;
-  min-height: 104px;
-  border-radius: var(--r-lg);
-  background: var(--surface-1);
-  box-shadow: 0 0 0 1px var(--border-soft);
-  text-align: left;
-  transition: background var(--dur) var(--ease);
-}
-.suggestion-card:hover {
-  background: var(--surface-2);
-}
-.suggestion-card__label {
-  font-size: var(--fs-sm);
-  line-height: 1.35;
-  color: var(--text-2);
-  white-space: pre-line;
-}
 
 /* The ADE home's project-folder bar, stacked above .composer — negative
    margin equal to the padding tucks the shared edge behind the composer's
@@ -692,58 +622,6 @@
 .composer__tray > .context-meter {
   margin-left: 4px;
 }
-/* The model's highest reasoning level lights up on the model button, as it
-   does in the picker's slider (ReasoningEffort.module.css): a brief flare
-   when it's chosen, then a band of light through the word every few
-   seconds, with a soft glow of the accent. */
-.chip--model .chip__effort[data-top],
-.composer__tray .chip--model .chip__effort[data-top] {
-  --lit-base: color-mix(in srgb, var(--text) 70%, transparent);
-  --lit: #ffffff;
-  --lit-glow: color-mix(in srgb, color-mix(in srgb, var(--accent) 55%, #ffffff) 40%, transparent);
-  font-weight: 600;
-  background: linear-gradient(100deg, var(--lit-base) 0%, var(--lit-base) 36%, var(--lit) 50%, var(--lit-base) 64%, var(--lit-base) 100%);
-  background-size: 260% 100%;
-  background-position: 130% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 3px var(--lit-glow));
-  animation:
-    effort-ignite 700ms ease-out,
-    effort-lit 3.6s linear 0.7s infinite;
-}
-[data-theme='light'] .chip--model .chip__effort[data-top],
-[data-theme='light'] .composer__tray .chip--model .chip__effort[data-top] {
-  --lit-base: var(--text-2);
-  --lit: color-mix(in srgb, var(--accent) 85%, #ffffff);
-  --lit-glow: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-@keyframes effort-ignite {
-  0% {
-    opacity: 0.3;
-    filter: blur(1.5px) drop-shadow(0 0 0 transparent);
-  }
-  40% {
-    opacity: 1;
-    filter: blur(0) drop-shadow(0 0 7px var(--lit-glow));
-  }
-}
-@keyframes effort-lit {
-  0% {
-    background-position: 130% 0;
-  }
-  55%,
-  100% {
-    background-position: -30% 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .chip--model .chip__effort[data-top] {
-    animation: none;
-  }
-}
-
 /* Nothing connected yet: the model button asks for one, in the accent, quietly. */
 .chip--model.chip--connect,
 .composer__tray .chip--model.chip--connect,

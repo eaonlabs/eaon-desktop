@@ -894,7 +894,7 @@
 
 /* ------------------------------------------------------------------ ADE sessions (sidebar) */
 
-/* Projects, each with its sessions; the open session is a card with its agents. */
+/* The projects' sessions, a project's together, each with its project's logo; the open session is a card with its agents. */
 .ade-tree {
   display: flex;
   flex-direction: column;
@@ -909,6 +909,16 @@
 }
 .ade-project + .ade-project {
   margin-top: 8px;
+}
+/* One project's sessions; a little room between projects, where their headings were. */
+.ade-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ade-group + .ade-group,
+.ade-group + .ade-project {
+  margin-top: 6px;
 }
 .ade-project__head {
   position: relative;
@@ -939,7 +949,6 @@
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  font-size: 8.5px;
 }
 .ade-project__name {
   min-width: 0;
@@ -1125,6 +1134,48 @@ body[data-reduce-motion='on'] .ade-spinner {
   animation: none !important;
 }
 
+/* A session's project, where its state dot was: the logo, the state on its corner. */
+.ade-logo {
+  position: relative;
+  flex: none;
+  display: grid;
+  margin-top: 0.5px;
+}
+.ade-logo .thread-badge {
+  width: 17px;
+  height: 17px;
+}
+.ade-logo[data-state='asleep'] .thread-badge,
+.ade-logo[data-state='missing'] .thread-badge {
+  opacity: 0.5;
+}
+.ade-logo__state {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ade-live);
+  box-shadow: 0 0 0 1.5px rgb(0 0 0 / 0.55);
+}
+.ade-logo[data-state='working'] .ade-logo__state.ade-spinner {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  background: color-mix(in srgb, var(--canvas) 80%, transparent);
+  box-shadow: none;
+}
+.ade-logo[data-state='asleep'] .ade-logo__state {
+  width: 11px;
+  height: 11px;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+/* Two columns, as the row has: each agent's state centred under the session's logo, its mark and task where the title starts. */
 .ade-agents {
   padding: 0 6px 6px;
 }
@@ -1133,9 +1184,9 @@ body[data-reduce-motion='on'] .ade-spinner {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: calc(100% - 40px);
+  width: calc(100% - 48px);
   height: 24px;
-  margin: -2px 10px 7px 30px;
+  margin: -2px 10px 7px 38px;
   padding: 0 5px 0 7px;
   border-radius: var(--r-xs);
   background: color-mix(in srgb, var(--fg) 4.5%, transparent);
@@ -1196,6 +1247,26 @@ body[data-reduce-motion='on'] .ade-spinner {
 .ade-tray[aria-expanded='true'] .ade-tray__chev {
   rotate: 90deg;
 }
+/* Open, the list under it shows each agent, so the tray is just its heading: "4 agents", starting where the title does, and the chevron to fold it. */
+.ade-tray[aria-expanded='true'] {
+  width: calc(100% - 41px);
+  height: 26px;
+  margin-left: 31px;
+  margin-bottom: 2px;
+  background: none;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.ade-tray[aria-expanded='true']:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.ade-tray__heading {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* A branch's pull request, in GitHub's colours: open green (amber while checks run, red when one fails), draft grey, merged purple, closed red. */
 .ade-pr {
@@ -1235,6 +1306,13 @@ body[data-reduce-motion='on'] .ade-spinner {
 .ade-agent:hover {
   background: var(--hover);
   color: var(--text);
+}
+/* In the tree, each agent's mark starts where the session's title does. */
+.ade-session:not([data-look='thread']) .ade-agent {
+  grid-template-columns: 14px 18px minmax(0, 1fr) auto;
+}
+.ade-session:not([data-look='thread']) .ade-agent > :nth-child(2) {
+  justify-self: end;
 }
 .ade-agent__status {
   color: var(--ade-live);

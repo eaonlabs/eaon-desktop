@@ -1,7 +1,15 @@
 /**
- * A card a worker designs itself (show_ui), for when no ready-made card
+ * A card an agent designs itself (show_ui), for when no ready-made card
  * (workerCards.ts) fits: "How's NVDA doing?" answered with the stock's live
- * price and chart, a few figures, what moved it and a button to set an alert.
+ * price and chart, a few figures, what moved it and a button to set an alert;
+ * a revenue figure with its trend by week, month and year; a flight, its
+ * gate and boarding time. Workers have it, and so does Chat (the IDE).
+ *
+ * A card with an `id` is one the agent keeps: showing a card with the same id
+ * again changes it where it first appeared instead of adding another, so an
+ * agent can keep a build's status, a flight or a dashboard up to date over a
+ * conversation (cardDeck, below). A field's old value shows struck through
+ * beside its new one, given as `was` or worked out from the version before.
  *
  * It is made of blocks, not code: the worker picks and fills them, Eaon
  * draws them in its own style, and nothing the worker writes runs. The
@@ -30,29 +38,68 @@ export interface UiSeries {
   points: UiPoint[]
 }
 
+/** A place on a route: its code, big ("LIS"), and its name and time under it. */
+export interface UiPlace {
+  code: string
+  name?: string
+  time?: string
+  /** The time it was before it changed, shown struck through. */
+  was?: string
+  tone?: UiTone
+}
+export type RouteMode = 'plane' | 'train' | 'car' | 'bus' | 'ship' | 'walk' | 'bike' | 'arrow'
+
+/** A field in a grid: a label over its value, and the value it was before, struck through, if it changed. */
+export interface UiField {
+  label: string
+  value: string
+  was?: string
+  tone?: UiTone
+  detail?: string
+}
+
 export type UiBlock =
   | { type: 'heading'; text: string; detail?: string }
+  /** One big figure: its label, the value large, and how it changed in a pill. */
+  | { type: 'metric'; label: string; value: string; change?: string; tone?: UiTone; detail?: string }
+  | { type: 'fields'; items: UiField[]; columns?: number }
+  | { type: 'route'; from: UiPlace; to: UiPlace; mode: RouteMode; detail?: string }
   | { type: 'text'; text: string }
   | { type: 'stats'; items: { label: string; value: string; change?: string; tone?: UiTone }[] }
-  | { type: 'chart'; style: ChartStyle; unit?: string; views: { label: string; series: UiSeries[] }[] }
+  | { type: 'chart'; style: ChartStyle; unit?: string; views: { label: string; series: UiSeries[] }[]; at?: 'bottom' }
   | { type: 'stock'; symbol: string; range: StockRange; news: boolean }
   | { type: 'table'; columns: string[]; rows: string[][] }
   | { type: 'list'; items: { title: string; detail?: string; value?: string; tone?: UiTone }[] }
   | { type: 'progress'; label: string; value: number; max: number; detail?: string; tone?: UiTone }
   | { type: 'badges'; items: { label: string; tone?: UiTone }[] }
-  | { type: 'tabs'; tabs: { label: string; blocks: UiBlock[] }[] }
+  /** Views of the card to switch between; at the bottom, a segmented control under them (Week · Month · Year). */
+  | { type: 'tabs'; tabs: { label: string; blocks: UiBlock[] }[]; at?: 'bottom' }
   | { type: 'buttons'; actions: CardAction[] }
-  | { type: 'divider' }
+  /** A rule; "ticket" is a perforation with a notch at each side, as on a boarding pass. */
+  | { type: 'divider'; style?: 'ticket' }
 
 export type UiBlockType = UiBlock['type']
 
+/** The small pictures a card's header can carry. */
+export const UI_ICONS = [
+  'plane', 'train', 'car', 'bus', 'ship', 'package', 'truck', 'chart', 'dollar', 'wallet', 'calendar', 'clock', 'cloud', 'sun', 'home',
+  'server', 'git', 'bug', 'check', 'alert', 'rocket', 'user', 'music', 'food', 'ticket', 'mail', 'globe', 'code', 'database', 'cpu', 'terminal', 'test'
+] as const
+export type UiIcon = (typeof UI_ICONS)[number]
+
 export interface WorkerUi {
+  /** The card's own name: showing one with the same id again changes it where it is (see cardDeck). */
+  id?: string
   title?: string
   subtitle?: string
+  icon?: UiIcon
+  /** A pill at the header's end: "Delayed", "Passing", "Live". */
+  status?: { label: string; tone?: UiTone }
   blocks: UiBlock[]
 }
 
-export const UI_BLOCK_TYPES: UiBlockType[] = ['heading', 'text', 'stats', 'chart', 'stock', 'table', 'list', 'progress', 'badges', 'tabs', 'buttons', 'divider']
+export const UI_BLOCK_TYPES: UiBlockType[] = ['heading', 'metric', 'text', 'stats', 'fields', 'route', 'chart', 'stock', 'table', 'list', 'progress', 'badges', 'tabs', 'buttons', 'divider']
+export const ROUTE_MODES: RouteMode[] = ['plane', 'train', 'car', 'bus', 'ship', 'walk', 'bike', 'arrow']
 export const STOCK_RANGES: StockRange[] = ['1d', '5d', '1mo', '6mo', '1y']
 const TONES: UiTone[] = ['up', 'down', 'neutral', 'good', 'warn', 'bad', 'info']
 const STYLES: ChartStyle[] = ['line', 'area', 'bar']
@@ -107,6 +154,26 @@ function series(value: unknown): UiSeries[] {
     .filter((s): s is UiSeries => s !== null)
 }
 
+/** "+2.4%" reads as up and "−3" as down, when no tone is given. */
+const signTone = (change: string | undefined): UiTone | undefined =>
+  change?.startsWith('-') || change?.startsWith('−') ? 'down' : change?.startsWith('+') ? 'up' : undefined
+
+function place(value: unknown): UiPlace | null {
+  const o = typeof value === 'string' ? { code: value } : obj(value)
+  const code = text(o?.code ?? o?.label, 12)
+  if (!o || !code) return null
+  const time = optional(o.time, 24)
+  const was = optional(o.was, 24)
+  const t = tone(o.tone)
+  return { code, ...(optional(o.name, 40) ? { name: optional(o.name, 40) } : {}), ...(time ? { time } : {}), ...(was && was !== time ? { was } : {}), ...(t ? { tone: t } : {}) }
+}
+
+/** A card's id: letters, digits and - _ . : (up to 60), so the agent can name it ("flight-nw214", "ci:main"). */
+export function cardId(value: unknown): string | undefined {
+  const id = typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+  return /^[\w.:-]{1,60}$/.test(id) ? id : undefined
+}
+
 /** One block, or why it can't be drawn. Tabs hold blocks of their own, one level deep. */
 function block(raw: unknown, depth: number): UiBlock | string {
   const b = obj(raw)
@@ -121,6 +188,36 @@ function block(raw: unknown, depth: number): UiBlock | string {
       const t = text(b.text ?? b.body, MAX_TEXT)
       return t ? { type, text: t } : 'text needs text'
     }
+    case 'metric': {
+      const label = text(b.label, 60)
+      const value = text(b.value, 32)
+      if (!label || !value) return 'metric needs label and value'
+      const change = optional(b.change ?? b.delta, 24)
+      const t = tone(b.tone) ?? signTone(change)
+      return { type, label, value, ...(change ? { change } : {}), ...(t ? { tone: t } : {}), ...(optional(b.detail, 120) ? { detail: optional(b.detail, 120) } : {}) }
+    }
+    case 'fields': {
+      const items = list(b.items ?? b.fields, MAX_ITEMS)
+        .map((i) => {
+          const o = obj(i)
+          const label = text(o?.label, 40)
+          const value = text(o?.value, 60)
+          if (!o || !label || !value) return null
+          const was = optional(o.was ?? o.before, 60)
+          const t = tone(o.tone)
+          return { label, value, ...(was && was !== value ? { was } : {}), ...(t ? { tone: t } : {}), ...(optional(o.detail, 80) ? { detail: optional(o.detail, 80) } : {}) }
+        })
+        .filter((i): i is NonNullable<typeof i> => i !== null)
+      const columns = num(b.columns)
+      return items.length ? { type, items, ...(columns && columns >= 1 && columns <= 4 ? { columns: Math.round(columns) } : {}) } : 'fields needs items: [{label, value}]'
+    }
+    case 'route': {
+      const from = place(b.from)
+      const to = place(b.to)
+      if (!from || !to) return 'route needs from and to, each {code, name, time}'
+      const mode = ROUTE_MODES.includes(b.mode as RouteMode) ? (b.mode as RouteMode) : 'arrow'
+      return { type, from, to, mode, ...(optional(b.detail, 120) ? { detail: optional(b.detail, 120) } : {}) }
+    }
     case 'stats': {
       const items = list(b.items ?? b.stats, MAX_ITEMS)
         .map((i) => {
@@ -129,7 +226,7 @@ function block(raw: unknown, depth: number): UiBlock | string {
           const value = text(o?.value, 40)
           if (!o || !label || !value) return null
           const change = optional(o.change ?? o.delta, 24)
-          const t = tone(o.tone) ?? (change?.startsWith('-') || change?.startsWith('−') ? 'down' : change?.startsWith('+') ? 'up' : undefined)
+          const t = tone(o.tone) ?? signTone(change)
           return { label, value, ...(change ? { change } : {}), ...(t ? { tone: t } : {}) }
         })
         .filter((i): i is NonNullable<typeof i> => i !== null)
@@ -151,7 +248,7 @@ function block(raw: unknown, depth: number): UiBlock | string {
             return s.length ? [{ label: '', series: s }] : []
           })()
       if (!views.length) return 'chart needs series: [{name, points: [{x, y}, …]}] with two points or more'
-      return { type, style, views, ...(optional(b.unit, 12) ? { unit: optional(b.unit, 12) } : {}) }
+      return { type, style, views, ...(optional(b.unit, 12) ? { unit: optional(b.unit, 12) } : {}), ...(b.at === 'bottom' && views.length > 1 ? { at: 'bottom' as const } : {}) }
     }
     case 'stock': {
       const symbol = text(b.symbol, 12).toUpperCase().replace(/^\$/, '')
@@ -209,14 +306,14 @@ function block(raw: unknown, depth: number): UiBlock | string {
           return label && inner.length ? { label, blocks: inner } : null
         })
         .filter((t): t is NonNullable<typeof t> => t !== null)
-      return tabs.length >= 2 ? { type, tabs } : 'tabs needs two tabs or more, each {label, blocks}'
+      return tabs.length >= 2 ? { type, tabs, ...(b.at === 'bottom' ? { at: 'bottom' as const } : {}) } : 'tabs needs two tabs or more, each {label, blocks}'
     }
     case 'buttons': {
       const actions = cardActions(b.actions ?? b.buttons)
       return actions ? { type, actions } : 'buttons needs actions: [{label, reply | url}]'
     }
     case 'divider':
-      return { type }
+      return b.style === 'ticket' ? { type, style: 'ticket' } : { type }
     default:
       return `unknown block type "${type || String(b.type)}" (use ${UI_BLOCK_TYPES.join(', ')})`
   }
@@ -240,11 +337,95 @@ export function normalizeUi(input: unknown): { ui: WorkerUi; skipped: string[] }
   if (!blocks.length) return { error: skipped.length ? `Nothing on the card could be drawn: ${skipped.join('; ')}.` : 'Give the card some blocks.' }
   const title = optional(raw.title, 80)
   const subtitle = optional(raw.subtitle, 120)
-  return { ui: { ...(title ? { title } : {}), ...(subtitle ? { subtitle } : {}), blocks }, skipped }
+  const id = cardId(raw.id)
+  const icon = (UI_ICONS as readonly string[]).includes(raw.icon as string) ? (raw.icon as UiIcon) : undefined
+  const statusRaw = typeof raw.status === 'string' ? { label: raw.status } : obj(raw.status)
+  const statusLabel = text(statusRaw?.label, 32)
+  const statusTone = tone(statusRaw?.tone)
+  return {
+    ui: {
+      ...(id ? { id } : {}),
+      ...(title ? { title } : {}),
+      ...(subtitle ? { subtitle } : {}),
+      ...(icon ? { icon } : {}),
+      ...(statusLabel ? { status: { label: statusLabel, ...(statusTone ? { tone: statusTone } : {}) } } : {}),
+      blocks
+    },
+    skipped
+  }
 }
 
 /** A short line for the tool's answer and the thread's preview: what the card shows. */
 export function uiSummary(ui: WorkerUi): string {
   const stock = ui.blocks.find((b): b is Extract<UiBlock, { type: 'stock' }> => b.type === 'stock')
   return ui.title ?? (stock ? `${stock.symbol}` : 'a card')
+}
+
+/**
+ * Every card with an id in a conversation, in order: where each first
+ * appeared (the call that draws it) and its versions, oldest first. A later
+ * call with the same id is drawn as a line saying the card changed; the
+ * first draws the latest version. `calls` are the conversation's show_ui
+ * calls in the order they were made.
+ */
+export interface CardDeck {
+  /** By card id: the first call's id, and the input of every call, in order. */
+  cards: Map<string, { first: string; versions: Record<string, unknown>[] }>
+  /** By call id: the card id it showed. */
+  byCall: Map<string, string>
+}
+
+export function cardDeck(calls: readonly { id: string; input: Record<string, unknown> }[]): CardDeck {
+  const cards = new Map<string, { first: string; versions: Record<string, unknown>[] }>()
+  const byCall = new Map<string, string>()
+  for (const call of calls) {
+    const id = cardId(call.input.id)
+    if (!id) continue
+    byCall.set(call.id, id)
+    const card = cards.get(id)
+    if (card) card.versions.push(call.input)
+    else cards.set(id, { first: call.id, versions: [call.input] })
+  }
+  return { cards, byCall }
+}
+
+/**
+ * The card with what changed since the version before marked: a field (or a
+ * place's time on a route) whose value differs, with no `was` of its own,
+ * shows the old value struck through, so an agent that only sends the new
+ * state still shows what moved. Matched by label (a route by its codes).
+ */
+export function markChanges(ui: WorkerUi, before: WorkerUi | null): WorkerUi {
+  if (!before) return ui
+  const oldFields = new Map<string, string>()
+  const oldTimes = new Map<string, string>()
+  const collect = (blocks: UiBlock[]): void => {
+    for (const b of blocks) {
+      if (b.type === 'fields') for (const f of b.items) oldFields.set(f.label.toLowerCase(), f.value)
+      if (b.type === 'route') for (const p of [b.from, b.to]) if (p.time) oldTimes.set(p.code.toLowerCase(), p.time)
+      if (b.type === 'tabs') for (const t of b.tabs) collect(t.blocks)
+    }
+  }
+  collect(before.blocks)
+  const mark = (blocks: UiBlock[]): UiBlock[] =>
+    blocks.map((b): UiBlock => {
+      if (b.type === 'fields')
+        return {
+          ...b,
+          items: b.items.map((f) => {
+            const old = oldFields.get(f.label.toLowerCase())
+            return f.was || old === undefined || old === f.value ? f : { ...f, was: old }
+          })
+        }
+      if (b.type === 'route') {
+        const at = (p: UiPlace): UiPlace => {
+          const old = oldTimes.get(p.code.toLowerCase())
+          return p.was || !p.time || old === undefined || old === p.time ? p : { ...p, was: old }
+        }
+        return { ...b, from: at(b.from), to: at(b.to) }
+      }
+      if (b.type === 'tabs') return { ...b, tabs: b.tabs.map((t) => ({ ...t, blocks: mark(t.blocks) })) }
+      return b
+    })
+  return { ...ui, blocks: mark(ui.blocks) }
 }

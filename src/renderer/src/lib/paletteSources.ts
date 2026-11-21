@@ -142,7 +142,6 @@ interface SwitchSpec {
 }
 
 const SWITCHES: SwitchSpec[] = [
-  { id: 'suggestedPrompts', title: 'Suggested prompts', keywords: 'starter prompts home screen', read: (s) => s.general.suggestedPrompts, patch: (on) => ({ general: { suggestedPrompts: on } }) },
   { id: 'preventSleep', title: 'Prevent sleep while running', keywords: 'awake caffeinate', read: (s) => s.general.preventSleep, patch: (on) => ({ general: { preventSleep: on } }) },
   { id: 'autoCompact', title: 'Auto-compact long chats', keywords: 'context summarize', read: (s) => s.context.autoCompact, patch: (on) => ({ context: { autoCompact: on } }) },
   { id: 'pointerCursors', title: 'Use pointer cursors', keywords: 'hand cursor hover', read: (s) => s.appearance.pointerCursors, patch: (on) => ({ appearance: { pointerCursors: on } }) },

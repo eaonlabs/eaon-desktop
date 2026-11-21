@@ -18,7 +18,7 @@ export type LogItem =
   | { kind: 'tools'; key: string; parts: ChatToolPart[] }
   /** A call whose result is something to look at, not a line: a swarm's agents, a generated picture. */
   | { kind: 'own'; key: string; part: ChatToolPart }
-  /** A worker's card (show_card) or sign-in request, drawn as a card in its thread. */
+  /** A card: a worker's (show_card) or sign-in request in its thread, or one an agent laid out (show_ui) there or in Chat. */
   | { kind: 'card'; key: string; part: ChatToolPart }
   /** Something a worker did that reads as a line of its own: a routine created, a job handed to a colleague. */
   | { kind: 'event'; key: string; part: ChatToolPart }
@@ -30,6 +30,8 @@ const SHOWN_ELSEWHERE = new Set(['update_plan', 'present_plan'])
 const OWN = new Set(['spawn_agents', 'generate_image'])
 /** In a worker's thread: calls drawn as cards rather than folded into a run. */
 export const CARD_TOOLS = new Set(['show_card', 'show_ui', 'request_sign_in'])
+/** In Chat too: a card the agent laid out itself (agent/cardTool.ts). */
+const CHAT_CARD_TOOLS = new Set(['show_ui'])
 /** In a worker's thread: calls shown as a centred line ("Created routine ⏱ Overnight outbound"). */
 export const EVENT_TOOLS = new Set(['add_routine', 'remove_routine', 'create_worker', 'hand_off', 'message_worker', 'post_to_room', 'save_playbook', 'set_goal'])
 
@@ -67,7 +69,7 @@ export function workLog(parts: ChatMessage['parts'], worker = false): LogItem[] 
     // A card is drawn unless it was refused or failed; an event ("Created ● Vega") only once
     // it has happened, since one can wait for an approval first. Until then, and when
     // it fails, the call stays in the run, where its progress or error shows.
-    if (worker && CARD_TOOLS.has(part.name) && part.status !== 'error' && part.status !== 'denied') {
+    if ((worker ? CARD_TOOLS : CHAT_CARD_TOOLS).has(part.name) && part.status !== 'error' && part.status !== 'denied') {
       push({ kind: 'card', key: part.id, part })
       return
     }
