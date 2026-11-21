@@ -622,8 +622,8 @@
 .composer__tray > .context-meter {
   margin-left: 4px;
 }
-/* The model's highest reasoning level lights up on the model button, as it
-   does in the picker's slider (ReasoningEffort.module.css): a brief flare
+/* The model's highest reasoning level lights up on the model button, as the
+   picker's slider stirs at it (EffortTrack.tsx): a brief flare
    when it's chosen, then a band of light through the word every few
    seconds, with a soft glow of the accent. */
 .chip--model .chip__effort[data-top],

@@ -17,6 +17,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Work in a project opens the folder picker straight away** on a new chat; once a project is chosen, its button still lists your projects.
 - **No suggestion chips on the start page.** Research, Organize files, Build an app and Use my browser are gone from under the message box, and Settings → General's Suggested prompts switch with them. Appearance's glass preview doesn't draw them either.
 - **A cleaner temporary chat start page.** The mark sits beside "You’re in a temporary chat" on one line, and a two-line note under the box says what it means. The project strip under the box is hidden, since a temporary chat can't be in a project. Turning it on no longer moves the box.
+- **Reasoning, redrawn.** The model menu's reasoning control is a flat track with the level named above it. Its filled part is drawn in characters that thicken toward a white handle, and they stir at the model's highest level.
 - **A plainer start page in a project:** "What should we build in <project>?", with no logo or suggestions.
 - **Quieter replies:** copy, reply and the time stay under a reply; the votes, reactions, More and what the turn cost show on hover.
 - **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
