@@ -93,45 +93,6 @@
   margin-bottom: 18px;
 }
 
-/* Capability chips under the home composer: a starting prompt each, and the
-   first hint that Chat does things rather than only answering. They wrap to a
-   second line on a narrow window instead of shrinking into unreadable pills. */
-.home-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  width: var(--composer-chat-w);
-  max-width: calc(100% - 48px);
-  margin: 20px 0 0;
-}
-.suggestion-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: color-mix(in srgb, var(--canvas) 72%, transparent);
-  height: 34px;
-  padding: 0 14px 0 12px;
-  border-radius: var(--r-pill);
-  box-shadow: 0 0 0 1px var(--border-soft);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  white-space: nowrap;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-  animation: chip-in var(--dur-spring) var(--spring-moderate) backwards;
-  animation-delay: calc(80ms + var(--i, 0) * var(--stagger));
-}
-.suggestion-chip svg {
-  color: var(--text-3);
-  transition: color var(--dur) var(--ease);
-}
-.suggestion-chip:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.suggestion-chip:hover svg {
-  color: var(--text-2);
-}
 @keyframes chip-in {
   from {
     opacity: 0;
@@ -139,39 +100,6 @@
   }
 }
 
-/* The ADE home's suggestion cards — wired to settings.general.suggestedPrompts.
-   Chat's home uses the lighter .home-chips row instead; the two must keep
-   separate class names, since the ADE reuses these (see code/CodeView.tsx). */
-.suggestions {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  width: var(--composer-w);
-  max-width: calc(100% - 48px);
-  margin: 0 0 20px;
-}
-.suggestion-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 16px;
-  min-height: 104px;
-  border-radius: var(--r-lg);
-  background: var(--surface-1);
-  box-shadow: 0 0 0 1px var(--border-soft);
-  text-align: left;
-  transition: background var(--dur) var(--ease);
-}
-.suggestion-card:hover {
-  background: var(--surface-2);
-}
-.suggestion-card__label {
-  font-size: var(--fs-sm);
-  line-height: 1.35;
-  color: var(--text-2);
-  white-space: pre-line;
-}
 
 /* The ADE home's project-folder bar, stacked above .composer — negative
    margin equal to the padding tucks the shared edge behind the composer's

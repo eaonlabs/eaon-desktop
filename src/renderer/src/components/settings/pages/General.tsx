@@ -95,9 +95,6 @@ export function GeneralPage(): JSX.Element {
           <Row title="Auto-compact long chats" description="Summarize older messages when a chat nears the model’s limit, so it can keep going" more="Nothing in the chat is removed; the summary is added to it.">
             <Switch label="Auto-compact long chats" checked={settings.context?.autoCompact !== false} onChange={(on) => void patchSettings({ context: { autoCompact: on } })} />
           </Row>
-          <Row title="Suggested prompts" description="Starter prompts under the message box on the home screen">
-            <Switch label="Suggested prompts" checked={g.suggestedPrompts} onChange={(on) => void patchSettings({ general: { suggestedPrompts: on } })} />
-          </Row>
         </Card>
       </Section>
 

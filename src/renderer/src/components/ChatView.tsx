@@ -7,16 +7,12 @@ import {
   CalendarClock,
   Check,
   ChevronDown,
-  Compass,
   Copy,
   Eye,
   FileDown,
   FileText,
   FolderInput,
   FolderOpen,
-  FolderTree,
-  Globe,
-  Hammer,
   HeartPulse,
   Hourglass,
   KeyRound,
@@ -199,30 +195,14 @@ export function ChatView(): JSX.Element {
   return shown ? <Conversation chat={shown} /> : <Home />
 }
 
-/**
- * Chips under the home composer. Each drops a starting prompt into the box —
- * and together they are how someone new learns that Chat is an agent: it
- * researches, works with files, builds things, uses the browser and runs on a
- * schedule, not only answers questions.
- */
-const SUGGESTIONS: { icon: typeof Compass; label: string; prompt: string }[] = [
-  { icon: Compass, label: 'Research', prompt: 'Research the following and write up what you find, with sources: ' },
-  { icon: FolderTree, label: 'Organize files', prompt: 'Tidy up my Downloads folder: group files into sensible subfolders and tell me what you moved.' },
-  { icon: Hammer, label: 'Build an app', prompt: 'Build me ' },
-  { icon: Globe, label: 'Use my browser', prompt: 'In my browser, ' }
-]
-
 function Home(): JSX.Element {
-  const { settings, setComposerDraft, browserOpen, toggleBrowser } = useApp(
-    useShallow((s) => ({ settings: s.settings, setComposerDraft: s.setComposerDraft, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser }))
-  )
-  const showSuggestions = settings?.general.suggestedPrompts !== false
+  const { browserOpen, toggleBrowser } = useApp(useShallow((s) => ({ browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser })))
   const isWork = useIsWork()
   // A chat in a project codes; an ordinary one has none of the coding tools.
   const coding = useCoding() && isWork
-  // The next chat isn't kept: the page says so in place of the chips, and the box is dashed.
+  // The next chat isn't kept: the page says so under its title, and the box is dashed.
   const temporary = useApp((s) => s.pendingTemporary) && isWork
-  // A project's start page is only its question and the box: the project by name, no mark, no chips.
+  // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
 
   return (
@@ -238,7 +218,7 @@ function Home(): JSX.Element {
         }
       />
       <AsciiField className="home__field" />
-      {/* The mark, the title and the box together in the middle of the page, the chips under the box.
+      {/* The mark, the title and the box together in the middle of the page.
           Sending the first message glides the box down to the foot of the conversation (ChatView). */}
       <div className="home">
         <div className="home__hero">
@@ -265,22 +245,6 @@ function Home(): JSX.Element {
         <div className="home__dock">
           <Composer variant="home" />
         </div>
-        {showSuggestions && !temporary && !project && (
-            <div className="home-chips" role="group" aria-label="Things Eaon can do">
-              {SUGGESTIONS.map((s, index) => (
-                <button
-                  key={s.label}
-                  type="button"
-                  className="suggestion-chip"
-                  style={{ ['--i' as string]: index }}
-                  onClick={() => setComposerDraft(s.prompt)}
-                >
-                  <s.icon size={15} strokeWidth={1.9} />
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          )}
       </div>
       {coding && <WorkspaceCard over />}
       {coding && <TerminalDrawer />}
