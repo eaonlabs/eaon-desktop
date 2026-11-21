@@ -42,30 +42,32 @@ export function findTrigger(text: string, caret: number, chars: readonly Trigger
 
 export interface Rankable {
   title: string
+  /** The name typed after "/" ("plan" for "/plan"); it ranks as the title does. */
+  command?: string
   /** Other words it answers to: a command's name ("plan"), a plugin's id. */
   keywords?: string
 }
 
 /**
- * Items matching `query`, best first: a title that starts with it, then a
- * word in the title that does, then a keyword, then the title containing it
- * anywhere. Ties keep the order given, which is the menu's own order. An
- * empty query keeps everything.
+ * Items matching `query`, best first: a command name or title that starts
+ * with it, then a word in either that does, then a keyword, then either
+ * containing it anywhere. Ties keep the order given, which is the menu's own
+ * order. An empty query keeps everything.
  */
 export function rankItems<T extends Rankable>(items: readonly T[], query: string): T[] {
   const q = query.trim().toLowerCase()
   if (!q) return [...items]
   const scored: { item: T; score: number; index: number }[] = []
   items.forEach((item, index) => {
-    const title = item.title.toLowerCase()
+    const names = [item.command, item.title].filter((name): name is string => Boolean(name)).map((name) => name.toLowerCase())
     const keywords = (item.keywords ?? '').toLowerCase()
-    const score = title.startsWith(q)
+    const score = names.some((name) => name.startsWith(q))
       ? 0
-      : title.split(/[\s\-_/.]+/).some((word) => word.startsWith(q))
+      : names.some((name) => name.split(/[\s\-_/.:]+/).some((word) => word.startsWith(q)))
         ? 1
         : keywords.split(/\s+/).some((word) => word.startsWith(q))
           ? 2
-          : title.includes(q) || keywords.includes(q)
+          : names.some((name) => name.includes(q)) || keywords.includes(q)
             ? 3
             : -1
     if (score >= 0) scored.push({ item, score, index })

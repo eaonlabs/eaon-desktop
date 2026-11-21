@@ -112,10 +112,11 @@ export function skillItems(skills: SkillInfo[], disabled: string[]): SuggestItem
     .filter((skill) => !off.has(skill.name))
     .map((skill) => ({
       id: `skill:${skill.name}`,
+      command: skill.name,
       title: skill.name,
       keywords: 'skill',
       section: 'Skills',
-      description: skill.description.length > 90 ? `${skill.description.slice(0, 87)}…` : skill.description || undefined,
+      description: skill.description || undefined,
       icon: <BookOpen size={16} strokeWidth={1.8} />,
       insert: `Use the ${skill.name} skill:`
     }))
@@ -123,13 +124,15 @@ export function skillItems(skills: SkillInfo[], disabled: string[]): SuggestItem
 
 /** Permission levels as commands; `levels` names them for the composer at hand (the app's, or a worker's own). */
 export function permissionItems<L extends string>(
-  levels: { id: L; title: string; keywords: string; icon: ReactNode }[],
+  levels: { id: L; command: string; title: string; description?: string; keywords: string; icon: ReactNode }[],
   current: L | undefined,
   onPick: (level: L) => void
 ): SuggestItem[] {
   return levels.map((level) => ({
     id: `permission:${level.id}`,
+    command: level.command,
     title: level.title,
+    description: level.description,
     keywords: `permissions approval ${level.keywords}`,
     section: 'Permissions',
     icon: level.icon,
