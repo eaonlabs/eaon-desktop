@@ -184,36 +184,26 @@
   font-size: 10.5px;
 }
 
-/* A project's tag: its initials on its tint (shared/threadList.ts hueOf).
-   Each hue is an oklch angle; the tile and its letters are mixed from it
-   for the theme, so every project reads in light and dark alike. */
+/* A project's tag: its owner's picture, or else a plain folder. */
 .thread-badge {
-  --badge-h: 290;
   flex: none;
   display: grid;
   place-items: center;
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: oklch(0.6 0.13 var(--badge-h) / 0.26);
-  color: oklch(0.84 0.11 var(--badge-h));
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
 }
-[data-theme='light'] .thread-badge {
-  background: oklch(0.72 0.12 var(--badge-h) / 0.28);
-  color: oklch(0.42 0.14 var(--badge-h));
+.thread-badge--folder {
+  color: var(--text-3);
 }
-.thread-badge[data-hue='0'] { --badge-h: 290; }
-.thread-badge[data-hue='1'] { --badge-h: 75; }
-.thread-badge[data-hue='2'] { --badge-h: 140; }
-.thread-badge[data-hue='3'] { --badge-h: 250; }
-.thread-badge[data-hue='4'] { --badge-h: 25; }
-.thread-badge[data-hue='5'] { --badge-h: 200; }
-.thread-badge[data-hue='6'] { --badge-h: 340; }
-.thread-badge[data-hue='7'] { --badge-h: 110; }
+.thread-badge--folder svg {
+  width: 100%;
+  height: 100%;
+}
+/* In a nav row it takes the row's icon colour, brightening with it. */
+.nav-item__icon .thread-badge--folder {
+  color: inherit;
+}
 /* The picture of whoever owns the project's repository, in the tag's place. */
 img.thread-badge--picture {
   object-fit: cover;

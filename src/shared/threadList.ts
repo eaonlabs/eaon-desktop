@@ -5,27 +5,6 @@
  * that are plain logic live here, where they can be tested.
  */
 
-/** Two letters for a project's tag: its first two words' initials ("Acme Web" → AW, `pixel-quest` → PQ), or a one-word name's first two letters. */
-export function initialsOf(name: string): string {
-  const words = name
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .split(/[\s._\-/\\]+/)
-    .filter(Boolean)
-  if (words.length === 0) return '?'
-  const letters = words.length > 1 ? [...words[0]][0] + [...words[1]][0] : [...words[0]].slice(0, 2).join('')
-  return letters.toUpperCase()
-}
-
-/** How many tints a project's tag can take (threads.css has one per number). */
-export const BADGE_HUES = 8
-
-/** A project's tint, the same for its name every time, so a project keeps its colour across lists and launches. */
-export function hueOf(name: string): number {
-  let hash = 0
-  for (const ch of name) hash = (Math.imul(hash, 31) + ch.codePointAt(0)!) >>> 0
-  return hash % BADGE_HUES
-}
-
 /** How long something has been working, as the row says it: 31s, 5m, 1h 5m. */
 export function workingFor(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
