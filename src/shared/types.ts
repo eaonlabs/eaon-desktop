@@ -421,6 +421,8 @@ export interface SeeThrough {
   readable?: boolean
   /** How soft the wallpaper is behind the whole window, 0–100, as frosted glass is; 0 shows it sharp. Unset is 0. */
   blur?: number
+  /** Fade out: the wallpaper shows at the top of the window and dissolves in dots into the theme's colour toward the bottom. Unset is off. */
+  fade?: boolean
 }
 
 /**

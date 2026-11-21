@@ -40,6 +40,14 @@
   opacity: var(--see-tint, 0.55);
   transition: opacity 240ms var(--ease);
 }
+/* Fade out: the page's colour coming in as dots toward the bottom (SeeThrough.tsx draws it in `color`). */
+.see-through__fade {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--canvas);
+}
 
 /* macOS: the title bars drag through the app while see-through is on, so the
    picture can keep up with the window (SeeThrough.tsx). The system's own

@@ -445,6 +445,9 @@ function SeeThroughSection(): JSX.Element | null {
             <Row title="Wallpaper blur" description="How soft the wallpaper is behind the window, like frosted glass. At 0 it shows sharp">
               <Slider label="Wallpaper blur" value={see.blur ?? 0} min={0} max={100} onChange={(blur) => set({ blur })} />
             </Row>
+            <Row title="Fade out" description="Show the wallpaper at the top of the window only, dissolving in dots into the theme’s colour toward the bottom, where you read and type">
+              <Switch label="Fade out" checked={see.fade === true} onChange={(fade) => set({ fade })} />
+            </Row>
             <Row title="Style" description={styleInfo(style).hint} />
             <WallpaperStyles
               value={style}
