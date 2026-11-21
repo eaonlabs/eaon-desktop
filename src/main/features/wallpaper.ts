@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, nativeImage, protocol, screen, systemPreferences, type Display, type WebContents } from 'electron'
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
+import { access, constants, copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -136,7 +136,9 @@ async function previewOf(path: string): Promise<string | null> {
 
 /**
  * The picture behind the window on `display`: the user's own when they chose
- * one, one of Eaon's in the version for the theme, or the desktop's.
+ * one, one of Eaon's in the version for the theme, or the desktop's. When the
+ * desktop's can't be read, Eaon's first stands in rather than nothing (see
+ * desktopPicture).
  */
 async function wallpaperPath(display: Display, light: boolean): Promise<string | null> {
   const see = store.getSettings().appearance.seeThrough
@@ -148,7 +150,25 @@ async function wallpaperPath(display: Display, light: boolean): Promise<string |
     if (own) return own
   }
   if (source === 'eaon') return join(eaonDir(), wallpaperFile(see.wallpaper, light))
-  return desktopPath(display)
+  const desktop = await desktopPicture(display)
+  return desktop.readable ? desktop.path : join(eaonDir(), wallpaperFile(undefined, light))
+}
+
+/**
+ * The file the OS says the desktop on `display` shows, and whether it can be
+ * read. It can name a file that is gone: a live wallpaper app (a video drawn
+ * over the desktop) leaves the name of an old frame behind, and a picture
+ * set from Downloads can be moved or deleted while the desktop keeps showing
+ * its own copy. Or it names none (Linux).
+ */
+async function desktopPicture(display: Display): Promise<{ path: string | null; readable: boolean }> {
+  const path = await desktopPath(display).catch(() => null)
+  if (!path) return { path: null, readable: false }
+  const readable = await access(path, constants.R_OK).then(
+    () => true,
+    () => false
+  )
+  return { path, readable }
 }
 
 /** The picture on `display`, or null when the OS won't say. */
@@ -341,6 +361,13 @@ export const wallpaperFeature: Feature = {
     ipcMain.handle('wallpaper:preview', async (): Promise<string | null> => {
       const own = await customPath(store.getSettings().appearance.seeThrough.custom)
       return own && !isVideoWallpaper(own) ? previewOf(own) : null
+    })
+    // Whether the desktop's own picture can be read, for Settings to say so when it can't.
+    ipcMain.handle('wallpaper:desktop', async (event): Promise<{ name: string | null; readable: boolean }> => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      const display = window ? screen.getDisplayMatching(window.getContentBounds()) : screen.getPrimaryDisplay()
+      const { path, readable } = await desktopPicture(display)
+      return { name: path ? basename(path) : null, readable }
     })
     // The picture behind the window now, small: what Settings' style previews are drawn from.
     ipcMain.handle('wallpaper:thumbnail', async (event, light: unknown): Promise<string | null> => {
