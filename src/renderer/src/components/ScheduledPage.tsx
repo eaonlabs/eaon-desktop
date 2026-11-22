@@ -207,6 +207,7 @@ export function ScheduledPage(): JSX.Element {
                   }
                 >
                   <Switch
+                    label="Keep running in the background"
                     checked={background.enabled}
                     onChange={(enabled) => attempt(() => window.api.app.setBackground(enabled).then(setBackground))}
                   />
