@@ -32,6 +32,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **The context popover shows what fills the context,** a colour each: messages, tool calls, pictures, the summary of older messages, and the system prompt and tools, then free space, the room kept for summarizing and how far off that is. What the chat has used is one line under it.
 
 ### Fixed
+- **Mermaid diagrams draw again.** Every flowchart in a reply showed "Couldn't draw this diagram" and its source: Mermaid 12 lays flowcharts out with a library Eaon leaves out of the app, and now uses the one Eaon includes.
 - **See-through no longer goes black when the desktop's picture is gone.** macOS can name a wallpaper file that has been moved or deleted, or a live wallpaper app can leave an old frame's name behind. Eaon's Dusk now stands in, and Settings → Appearance says why and suggests Custom for a picture or video of your own.
 - **No row sliced off at the foot of a sidebar.** Chat's, the ADE's and Settings' lists faded only as far as they could still scroll, so a row half under the icons at the foot was cut in a hard line. The fade now follows how much of a row is hidden, clears completely at the edge, and eases in with no visible start.
 - **Frosted glass is smooth again.** Over a see-through wallpaper, the sidebars, the message box, menus, dialogs and cards had a grain over them that looked like sandpaper on a Retina screen and made dark glass look grey and dirty. It's gone, so the glass is a clean blur.
