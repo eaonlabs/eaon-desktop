@@ -322,7 +322,7 @@ export const LIBRARY: LibraryModel[] = [
     links: { huggingFace: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16' },
     variants: [
       hf('q4_k_m', 'Q4_K_M', 'unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf'], 25_266_255_936),
-      hf('q8_0', 'Q8_0', 'ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q8_0.gguf'], 33_585_495_616)
+      hf('q8_0', 'Q8_0', 'ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q8_0.gguf'], 33_585_495_648)
     ],
     recommended: [
       { ramGB: 32, variant: 'q4_k_m' },
