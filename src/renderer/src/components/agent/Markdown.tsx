@@ -6,6 +6,8 @@ import { MermaidBlock } from './MermaidBlock'
 import { MathView } from './MathView'
 import { MarkdownTable } from './MarkdownTables'
 import { FileRef, parseFileRef } from './FileRef'
+import { githubLabel, isGitHubUrl } from './githubLink'
+import { Octicon } from '../pullRequests/octicons'
 import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from './markdownBlocks'
 
 /**
@@ -113,16 +115,58 @@ const safeDecode = (text: string): string => {
 /** Links open in the user's browser; anything but the web and mail is shown as text. */
 const OPENABLE = /^(https?:|mailto:)/i
 
-function renderInline(text: string, keyPrefix: string, mentions: Mentions = null): ReactNode[] {
+/**
+ * GitHub's mark before a label, kept on a line with the label's first word: a
+ * mark left at the end of one line and its words on the next reads as noise.
+ */
+function withMark(label: ReactNode): ReactNode {
+  const nodes = Array.isArray(label) ? label : [label]
+  const [first, ...rest] = nodes
+  const mark = <Octicon name="mark-github" className="md__gh-mark" />
+  if (typeof first !== 'string') {
+    return (
+      <>
+        <span className="md__gh-lead">
+          {mark}
+          {first}
+        </span>
+        {rest}
+      </>
+    )
+  }
+  const cut = first.search(/\s/)
+  const word = cut < 0 ? first : first.slice(0, cut)
+  return (
+    <>
+      <span className="md__gh-lead">
+        {mark}
+        {word}
+      </span>
+      {cut < 0 ? null : first.slice(cut)}
+      {rest}
+    </>
+  )
+}
+
+/**
+ * `inLink` is a link's own label: nothing in it becomes a link of its own (a
+ * link inside a link can't be clicked), so a path in backticks there is code.
+ */
+function renderInline(text: string, keyPrefix: string, mentions: Mentions = null, inLink = false): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
   let key = 0
 
-  const link = (href: string, label: ReactNode): ReactNode =>
-    OPENABLE.test(href) ? (
+  const link = (href: string, label: ReactNode): ReactNode => {
+    if (inLink) return <span key={`${keyPrefix}-${key++}`}>{label}</span>
+    if (!OPENABLE.test(href)) return <span key={`${keyPrefix}-${key++}`}>{label}</span>
+    const github = isGitHubUrl(href)
+    return (
       <a
         key={`${keyPrefix}-${key++}`}
         href={href}
+        className={github ? 'md__gh' : undefined}
+        title={github ? href : undefined}
         onClick={(event) => {
           // Opened in the user's browser rather than navigating this window,
           // which has no chrome to get back from.
@@ -130,11 +174,10 @@ function renderInline(text: string, keyPrefix: string, mentions: Mentions = null
           void window.api.app.openExternal(href)
         }}
       >
-        {label}
+        {github ? withMark(label) : label}
       </a>
-    ) : (
-      <span key={`${keyPrefix}-${key++}`}>{label}</span>
     )
+  }
 
   for (const match of text.matchAll(INLINE)) {
     const at = match.index ?? 0
@@ -143,7 +186,7 @@ function renderInline(text: string, keyPrefix: string, mentions: Mentions = null
 
     if (g.code !== undefined) {
       // A path in backticks opens the file, where the chat has a code panel to open it in.
-      const file = parseFileRef(g.code)
+      const file = inLink ? null : parseFileRef(g.code)
       out.push(
         file ? (
           <FileRef key={`${keyPrefix}-${key++}`} text={g.code} path={file.path} line={file.line} />
@@ -156,14 +199,14 @@ function renderInline(text: string, keyPrefix: string, mentions: Mentions = null
     } else if (g.dmath !== undefined || g.pmath !== undefined || g.imath !== undefined) {
       out.push(<MathView key={`${keyPrefix}-${key++}`} src={(g.dmath ?? g.pmath ?? g.imath).trim()} display={g.dmath !== undefined} raw={match[0]} />)
     } else if (g.bold !== undefined || g.boldU !== undefined) {
-      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`, mentions)}</strong>)
+      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`, mentions, inLink)}</strong>)
     } else if (g.strike !== undefined) {
-      out.push(<del key={`${keyPrefix}-${key++}`}>{renderInline(g.strike, `${keyPrefix}-${key}`, mentions)}</del>)
+      out.push(<del key={`${keyPrefix}-${key++}`}>{renderInline(g.strike, `${keyPrefix}-${key}`, mentions, inLink)}</del>)
     } else if (g.italic !== undefined || g.italicU !== undefined) {
-      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`, mentions)}</em>)
+      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`, mentions, inLink)}</em>)
     } else if (g.href !== undefined) {
-      const file = OPENABLE.test(g.href) ? null : parseFileRef(safeDecode(g.href.replace(/^file:\/\//, '')))
-      const label = g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`) : g.href
+      const file = inLink || OPENABLE.test(g.href) ? null : parseFileRef(safeDecode(g.href.replace(/^file:\/\//, '')))
+      const label = g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`, null, true) : (githubLabel(g.href) ?? g.href)
       out.push(
         file ? (
           <FileRef key={`${keyPrefix}-${key++}`} text={g.href} path={file.path} line={file.line} asCode={false}>
@@ -174,8 +217,9 @@ function renderInline(text: string, keyPrefix: string, mentions: Mentions = null
         )
       )
     } else if (g.angle !== undefined || g.bare !== undefined) {
+      // A bare GitHub address says what it points at: owner/repo#12, files.ts:75.
       const href = g.angle ?? g.bare
-      out.push(link(href, href))
+      out.push(link(href, githubLabel(href) ?? href))
     }
     last = at + match[0].length
   }
