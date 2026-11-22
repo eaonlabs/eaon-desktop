@@ -33,6 +33,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Fixed
 - **Mermaid diagrams draw again.** Every flowchart in a reply showed "Couldn't draw this diagram" and its source: Mermaid 12 lays flowcharts out with a library Eaon leaves out of the app, and now uses the one Eaon includes.
+- **Two models' download sizes match Hugging Face again.** Qwen3.8 27B (Q4_K_M) and Nemotron 3.5 Lightning (Q8_0) were uploaded again after the list was made, so the progress bar could pass 100% and the free-space check asked for too little.
 - **See-through no longer goes black when the desktop's picture is gone.** macOS can name a wallpaper file that has been moved or deleted, or a live wallpaper app can leave an old frame's name behind. Eaon's Dusk now stands in, and Settings → Appearance says why and suggests Custom for a picture or video of your own.
 - **No row sliced off at the foot of a sidebar.** Chat's, the ADE's and Settings' lists faded only as far as they could still scroll, so a row half under the icons at the foot was cut in a hard line. The fade now follows how much of a row is hidden, clears completely at the edge, and eases in with no visible start.
 - **Frosted glass is smooth again.** Over a see-through wallpaper, the sidebars, the message box, menus, dialogs and cards had a grain over them that looked like sandpaper on a Retina screen and made dark glass look grey and dirty. It's gone, so the glass is a clean blur.
