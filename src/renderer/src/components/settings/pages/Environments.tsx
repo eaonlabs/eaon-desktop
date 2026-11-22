@@ -7,6 +7,7 @@ import { notify } from '../../Notice'
 import { Card, ConfirmDialog, Row, Section, Select } from '../../ui'
 import { EnvironmentDialog, ExeAccountLine, useExeAccount } from '../../environments/EnvironmentDialog'
 import { EnvironmentIcon } from '../../environments/EnvironmentPicker'
+import { ProvidersPanel, type Picked } from '../../environments/Providers'
 import '../../environments/environments.css'
 
 /**
@@ -20,6 +21,7 @@ export function EnvironmentsPage(): JSX.Element {
   const list = environmentsOf(saved)
   const [editing, setEditing] = useState<CloudEnvironment | 'new' | null>(null)
   const [removing, setRemoving] = useState<CloudEnvironment | null>(null)
+  const [grabbing, setGrabbing] = useState<Picked | null>(null)
   const [checks, setChecks] = useState<Record<string, { busy: boolean; ok?: boolean; message?: string }>>({})
   const usesExe = list.some((env) => env.kind === 'exe')
   const exe = useExeAccount(usesExe)
@@ -118,6 +120,17 @@ export function EnvironmentsPage(): JSX.Element {
         </Card>
       </Section>
 
+      <Section label="Providers">
+        <Card>
+          <div className="env-providers">
+            <p className="env-providers__lede">
+              The VM providers whose command-line tools are on this computer, and the machines they can see. Pick one to run sessions on it. Eaon only reads what they list; it never starts, makes or changes anything there.
+            </p>
+            <ProvidersPanel picked={grabbing} onPick={setGrabbing} />
+          </div>
+        </Card>
+      </Section>
+
       {usesExe && (
         <Section label="exe.dev">
           <Card>
@@ -130,6 +143,7 @@ export function EnvironmentsPage(): JSX.Element {
       )}
 
       {editing && <EnvironmentDialog editing={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {grabbing && <EnvironmentDialog key={`${grabbing.provider.id}:${grabbing.machine.id}`} initialPick={grabbing} onClose={() => setGrabbing(null)} />}
       {removing && (
         <ConfirmDialog
           open

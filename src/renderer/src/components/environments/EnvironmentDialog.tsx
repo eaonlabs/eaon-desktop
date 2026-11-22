@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { Check, Cloud, Loader2, Plus, RefreshCw, Server } from 'lucide-react'
+import { Boxes, Check, Cloud, Loader2, Plus, RefreshCw, Server } from 'lucide-react'
 import type { SshHost } from '@shared/adeRemote'
 import { useShallow } from 'zustand/react/shallow'
 import { shortId, type CloudEnvironment, type EnvironmentKind, type ExeAccount } from '@shared/environments'
 import { useApp } from '../../state/store'
 import { Details, Modal, Select } from '../ui'
+import { ProvidersPanel, type Picked } from './Providers'
 import './environments.css'
 
 const clean = (error: unknown): string =>
@@ -44,10 +45,24 @@ export function useExeAccount(on: boolean): { account: ExeAccount | null; refres
  * in. Saved into Settings → Environments; a new one becomes where the next
  * session runs.
  */
-export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: CloudEnvironment | null; onClose: () => void; onSaved?: (env: CloudEnvironment) => void }): JSX.Element {
+export function EnvironmentDialog({
+  editing,
+  initialPick,
+  onClose,
+  onSaved
+}: {
+  editing?: CloudEnvironment | null
+  /** A provider's machine picked already (Settings → Environments' list): the dialog opens on it. */
+  initialPick?: Picked | null
+  onClose: () => void
+  onSaved?: (env: CloudEnvironment) => void
+}): JSX.Element {
   const { saved, patchSettings } = useApp(useShallow((s) => ({ saved: s.settings?.environments, patchSettings: s.patchSettings })))
   const environments = saved ?? []
-  const [kind, setKind] = useState<EnvironmentKind>(editing?.kind ?? 'exe')
+  // What is being set up: exe.dev, a machine a provider's CLI found, or any machine over SSH.
+  const [kind, setKind] = useState<EnvironmentKind | 'provider'>(initialPick ? 'provider' : (editing?.kind ?? 'exe'))
+  const [picked, setPicked] = useState<Picked | null>(initialPick ?? null)
+  const [pickedUser, setPickedUser] = useState(initialPick?.machine.user ?? '')
   const [name, setName] = useState(editing?.name ?? '')
   const [named, setNamed] = useState(Boolean(editing))
   // exe.dev
@@ -79,10 +94,23 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
       () => setHosts([])
     )
   }, [])
-  useEffect(() => setResult(null), [kind, vm, hostId, folder, addingHost])
+  useEffect(() => setResult(null), [kind, vm, hostId, folder, addingHost, picked])
 
   const host = hosts?.find((h) => h.id === hostId) ?? null
-  const suggested = kind === 'exe' ? (vm === NEW_VM ? 'exe.dev' : `exe.dev · ${vm}`) : addingHost ? hostForm.hostname.trim() || 'SSH machine' : (host?.label ?? 'SSH machine')
+  const suggested =
+    kind === 'provider'
+      ? picked
+        ? picked.provider.id === 'exe'
+          ? `exe.dev · ${picked.machine.name}`
+          : `${picked.machine.name} (${picked.provider.name})`
+        : 'Provider machine'
+      : kind === 'exe'
+        ? vm === NEW_VM
+          ? 'exe.dev'
+          : `exe.dev · ${vm}`
+        : addingHost
+          ? hostForm.hostname.trim() || 'SSH machine'
+          : (host?.label ?? 'SSH machine')
   const shownName = named ? name : suggested
   const vms = account?.ok ? account.vms : []
 
@@ -91,6 +119,18 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
   /** The environment the form describes; a host typed in is added to the ADE's hosts first. */
   const build = async (): Promise<CloudEnvironment> => {
     const base = { id: editing?.id ?? `env-${shortId(8)}`, name: shownName.trim() || suggested, createdAt: editing?.createdAt ?? Date.now() }
+    if (kind === 'provider') {
+      if (!picked) throw new Error('Pick a machine.')
+      const grabbed = await window.api.environments.grab({
+        provider: picked.provider.id,
+        machine: picked.machine.id,
+        name: base.name,
+        ...(pickedUser.trim() ? { user: pickedUser.trim() } : {}),
+        folder: folder.trim() || '~/eaon'
+      })
+      if (!grabbed.ok) throw new Error(grabbed.error)
+      return { ...grabbed.env, id: base.id }
+    }
     if (kind === 'exe') {
       return {
         ...base,
@@ -157,7 +197,9 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
   }
 
   const ready =
-    kind === 'exe'
+    kind === 'provider'
+      ? Boolean(picked)
+      : kind === 'exe'
       ? Boolean(account?.ok) && (vm === NEW_VM || vms.some((v) => v.name === vm))
       : addingHost
         ? hostForm.hostname.trim().length > 0
@@ -201,12 +243,40 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
       >
         {!editing && (
           <div className="env-kinds" role="radiogroup" aria-label="Kind of environment">
-            <KindCard kind="exe" on={kind === 'exe'} onPick={setKind} icon={<Cloud size={18} strokeWidth={1.8} />} title="exe.dev" text="Fast Linux VMs with Claude Code, Codex and git ready. A fresh one for each session, or one of yours." />
-            <KindCard kind="ssh" on={kind === 'ssh'} onPick={setKind} icon={<Server size={18} strokeWidth={1.8} />} title="Any machine over SSH" text="A VM at Hetzner, DigitalOcean or AWS, or a computer at home. Sessions go in a folder there." />
+            <KindCard kind="exe" on={kind === 'exe'} onPick={setKind} icon={<Cloud size={18} strokeWidth={1.8} />} title="exe.dev" text="A fresh Linux VM for each session, with Claude Code and Codex ready." />
+            <KindCard kind="provider" on={kind === 'provider'} onPick={setKind} icon={<Boxes size={18} strokeWidth={1.8} />} title="From a provider" text="A machine on AWS, Google Cloud, Azure, Codespaces, Tailscale and more." />
+            <KindCard kind="ssh" on={kind === 'ssh'} onPick={setKind} icon={<Server size={18} strokeWidth={1.8} />} title="Any machine" text="A server or computer you reach over SSH, by its address." />
           </div>
         )}
 
-        {kind === 'exe' ? (
+        {kind === 'provider' ? (
+          <>
+            <ProvidersPanel
+              picked={picked}
+              onPick={(pick) => {
+                setPicked(pick)
+                setPickedUser(pick.machine.user ?? '')
+              }}
+            />
+            {picked && (
+              <>
+                {picked.machine.why && <p className="env-dialog__hint env-dialog__hint--warn">{picked.machine.why}</p>}
+                {picked.provider.id !== 'exe' && (
+                  <div className="env-dialog__grid env-dialog__grid--two">
+                    <label className="field">
+                      <span className="field-label">Log in as</span>
+                      <input className="input" spellCheck={false} placeholder="the provider’s default" value={pickedUser} onChange={(e) => setPickedUser(e.target.value)} />
+                    </label>
+                    <label className="field">
+                      <span className="field-label">Folder for sessions</span>
+                      <input className="input" spellCheck={false} placeholder="~/eaon" value={folder} onChange={(e) => setFolder(e.target.value)} />
+                    </label>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        ) : kind === 'exe' ? (
           <>
             <ExeAccountLine account={account} onRefresh={refresh} />
             {account?.ok && (
@@ -311,19 +381,21 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
           </>
         )}
 
-        <label className="field">
-          <span className="field-label">Name</span>
-          <input
-            className="input"
-            value={shownName}
-            maxLength={60}
-            placeholder={suggested}
-            onChange={(e) => {
-              setNamed(true)
-              setName(e.target.value)
-            }}
-          />
-        </label>
+        {(kind !== 'provider' || picked) && (
+          <label className="field">
+            <span className="field-label">Name</span>
+            <input
+              className="input"
+              value={shownName}
+              maxLength={60}
+              placeholder={suggested}
+              onChange={(e) => {
+                setNamed(true)
+                setName(e.target.value)
+              }}
+            />
+          </label>
+        )}
 
         {result && (
           <p className="env-dialog__result" data-ok={result.ok || undefined} role="status">
@@ -341,9 +413,14 @@ export function EnvironmentDialog({ editing, onClose, onSaved }: { editing?: Clo
   )
 }
 
-function KindCard({ kind, on, onPick, icon, title, text }: { kind: EnvironmentKind; on: boolean; onPick: (kind: EnvironmentKind) => void; icon: JSX.Element; title: string; text: string }): JSX.Element {
+function KindCard<K extends string>({ kind, on, onPick, icon, title, text }: { kind: K; on: boolean; onPick: (kind: K) => void; icon: JSX.Element; title: string; text: string }): JSX.Element {
   return (
     <button type="button" role="radio" aria-checked={on} className="env-kind" data-on={on || undefined} onClick={() => onPick(kind)}>
+      {on && (
+        <span className="env-kind__tick" aria-hidden>
+          <Check size={11} strokeWidth={3} />
+        </span>
+      )}
       <span className="env-kind__icon">{icon}</span>
       <span className="env-kind__title">{title}</span>
       <span className="env-kind__text">{text}</span>

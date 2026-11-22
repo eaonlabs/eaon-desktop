@@ -39,6 +39,16 @@ export interface SshHost {
    * shared/environments.ts), whose key nobody could have checked before.
    */
   trustNew?: boolean
+  /**
+   * An ssh config file of the machine's provider (Lima's, OrbStack's, one
+   * GitHub's CLI wrote for a codespace), read instead of ~/.ssh/config:
+   * `ssh -F <file> <alias>`. The user's own config is never changed.
+   */
+  configFile?: string | null
+  /** How ssh reaches the machine through its provider's CLI (Coder's `coder ssh --stdio`), when it isn't by address. */
+  proxyCommand?: string | null
+  /** Which provider's CLI found it (shared/environments.ts ProviderId), for its name and mark. */
+  provider?: string | null
 }
 
 export interface ManualHostInput {

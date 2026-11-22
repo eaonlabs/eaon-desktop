@@ -54,6 +54,8 @@ export interface CloudEnvironment {
   kind: EnvironmentKind
   exe?: ExeEnvironment
   ssh?: SshEnvironment
+  /** A machine picked from a provider's CLI (Codespaces, AWS, Lima…): which provider, and the machine by its id there. */
+  provider?: { id: ProviderId; machine: string }
   createdAt: number
 }
 
@@ -196,6 +198,7 @@ export function environmentSummary(env: CloudEnvironment, hostLabel?: (id: strin
     const size = [env.exe?.cpu ? `${env.exe.cpu} CPU` : null, env.exe?.memory ? `${env.exe.memory} GB` : null].filter(Boolean).join(', ')
     return `A new exe.dev VM for each session${size ? ` (${size})` : ''}`
   }
+  if (env.provider) return `${PROVIDER_NAMES[env.provider.id] ?? env.provider.id} · ${env.provider.machine} · ${env.ssh?.folder || '~'}`
   const host = env.ssh ? (hostLabel?.(env.ssh.hostId) ?? env.ssh.hostId.replace(/^cfg:/, '')) : 'no host'
   return `${host} · ${env.ssh?.folder || '~'}`
 }
@@ -208,4 +211,83 @@ export function environmentsOf(list: CloudEnvironment[] | undefined): CloudEnvir
 /** A session's place in a few words, for a header or a sidebar row. */
 export function placeLabel(place: SessionPlace): string {
   return place.vm ?? place.host ?? place.name
+}
+
+/* ------------------------------------------------------------- providers */
+
+/**
+ * VM providers whose command-line tools Eaon looks for on this computer
+ * (main/features/environments/providers.ts), so a machine of theirs can be
+ * picked and used as an environment without typing an address.
+ */
+export type ProviderId = 'exe' | 'codespaces' | 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner' | 'linode' | 'vultr' | 'coder' | 'tailscale' | 'lima' | 'orbstack'
+
+/** A machine a provider's CLI lists. */
+export interface ProviderMachine {
+  id: string
+  name: string
+  /** The provider's word for its state (running, stopped, Available…). */
+  status: string
+  running: boolean
+  /** Where it is and what it is, in a few words: `fsn1 · cx22`, `linux · online`. */
+  detail: string | null
+  /** The user ssh logs in as, when the provider says or Eaon can tell; the person can change it. */
+  user: string | null
+  /** Why it can't be used as it is, and how to fix it ("Stopped: start it with limactl start deb"). */
+  why: string | null
+}
+
+export type ProviderState =
+  /** Its CLI isn't on this computer. */
+  | 'missing'
+  /** Installed, not signed in (or missing a permission). */
+  | 'signed-out'
+  | 'ready'
+  /** It answered with something Eaon couldn't read. */
+  | 'error'
+
+export interface ProviderStatus {
+  id: ProviderId
+  name: string
+  state: ProviderState
+  /** The CLI found, for people: `az`, `gh`. */
+  cli: string | null
+  /** Who it is signed in as, or which project or subscription, when the CLI says. */
+  account: string | null
+  /** What's wrong, in words. */
+  message: string | null
+  /** A command to run in Terminal to fix it: sign in, grant a permission, install. */
+  fix: string | null
+  machines: ProviderMachine[]
+  /** Its site, for people who don't have it yet. */
+  site: string
+}
+
+/** Picking a provider's machine as an environment. */
+export interface GrabRequest {
+  provider: ProviderId
+  machine: string
+  name: string
+  /** The user to log in as; the provider's own when left out. */
+  user?: string
+  /** The folder sessions go in there. */
+  folder?: string
+}
+
+export type GrabResult = { ok: true; env: CloudEnvironment } | { ok: false; error: string }
+
+export const PROVIDER_NAMES: Record<ProviderId, string> = {
+  exe: 'exe.dev',
+  codespaces: 'GitHub Codespaces',
+  aws: 'AWS EC2',
+  gcp: 'Google Cloud',
+  azure: 'Azure',
+  digitalocean: 'DigitalOcean',
+  hetzner: 'Hetzner Cloud',
+  linode: 'Linode',
+  vultr: 'Vultr',
+  coder: 'Coder',
+  tailscale: 'Tailscale',
+  lima: 'Lima',
+  orbstack: 'OrbStack'
 }

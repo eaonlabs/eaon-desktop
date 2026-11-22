@@ -36,6 +36,9 @@ export function sshArgv(host: SshHost, opts: { interactive: boolean }): string[]
   // A command run in the background has nobody to type a password: fail rather than hang.
   else args.push('-o', 'BatchMode=yes')
   if (host.trustNew) args.push('-o', 'StrictHostKeyChecking=accept-new')
+  // A provider's own config (Lima, OrbStack, a codespace): read in place of ~/.ssh/config.
+  if (host.configFile) args.unshift('-F', host.configFile)
+  if (host.proxyCommand) args.push('-o', `ProxyCommand=${host.proxyCommand}`)
   if (host.source === 'config' && host.alias) {
     args.push(host.alias)
     return args

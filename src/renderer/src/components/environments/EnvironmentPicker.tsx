@@ -5,11 +5,13 @@ import { environmentsOf, environmentSummary, LOCAL_ENVIRONMENT, type CloudEnviro
 import { codeProject, useApp } from '../../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { EnvironmentDialog } from './EnvironmentDialog'
+import { ProviderMark } from './Providers'
 import './environments.css'
 
-/** An environment's mark: exe.dev's cloud, or a server for a machine over SSH. */
-export function EnvironmentIcon({ env, size = 15 }: { env: Pick<CloudEnvironment, 'kind'> | null; size?: number }): JSX.Element {
+/** An environment's mark: its provider's, exe.dev's cloud, or a server for a machine over SSH. */
+export function EnvironmentIcon({ env, size = 15 }: { env: (Pick<CloudEnvironment, 'kind'> & Partial<Pick<CloudEnvironment, 'provider'>>) | null; size?: number }): JSX.Element {
   if (!env) return <Laptop size={size} strokeWidth={1.8} />
+  if (env.provider) return <ProviderMark id={env.provider.id} size={size + 3} />
   return env.kind === 'exe' ? <Cloud size={size} strokeWidth={1.8} /> : <Server size={size} strokeWidth={1.8} />
 }
 

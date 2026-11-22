@@ -9,16 +9,21 @@ import {
   type BringBackResult,
   type CloudEnvironment,
   type ExeAccount,
+  type GrabRequest,
+  type GrabResult,
+  type ProviderStatus,
   type PrepareRequest,
   type PrepareResult,
   type SessionPlace
 } from '@shared/environments'
+import { app } from 'electron'
 import { store } from '../store'
 import { sshRun } from '../remoteWork'
 import { sshHosts } from './ade'
 import { bringBack, bringBackBranch } from './environments/bringBack'
 import { CopyError, copyProject, ensureRemoteFolder } from './environments/copy'
 import { ExeClient } from './environments/exe'
+import { hostFor, sniff } from './environments/providers'
 import { allowFolders } from './workspaceFiles'
 import type { Feature } from './types'
 
@@ -184,12 +189,59 @@ export async function bringBackPlace(place: SessionPlace, name: string): Promise
   return bringBack({ host, remote: at.path, project: place.source, base: place.base ?? null, branch: bringBackBranch(name), where: place.vm ?? host.label })
 }
 
+/** exe.dev among the providers: not a CLI of its own, but the user's ssh key signed up there. */
+async function exeStatus(): Promise<ProviderStatus> {
+  const base = { id: 'exe' as const, name: 'exe.dev', cli: 'ssh', site: 'https://exe.dev', account: null, message: null, fix: null, machines: [] }
+  const account = await exe.account()
+  if (!account.ok) {
+    if (account.reason === 'no-ssh') return { ...base, state: 'missing', fix: null, message: account.message }
+    if (account.reason === 'not-registered') return { ...base, state: 'missing', message: 'This computer’s SSH key isn’t signed up with exe.dev.', fix: 'ssh exe.dev' }
+    return { ...base, state: account.reason === 'no-plan' ? 'signed-out' : 'error', message: account.message, fix: account.reason === 'no-plan' ? 'open https://exe.dev/billing' : null }
+  }
+  return {
+    ...base,
+    state: 'ready',
+    account: account.email,
+    machines: account.vms.map((vm) => ({
+      id: vm.name,
+      name: vm.name,
+      status: vm.status,
+      running: /running/i.test(vm.status),
+      detail: [vm.cpus ? `${vm.cpus} CPU` : null, vm.memoryGb ? `${vm.memoryGb} GB` : null, vm.host].filter(Boolean).join(' · ') || null,
+      user: null,
+      why: null
+    }))
+  }
+}
+
+/** Every provider found on this computer, exe.dev first. */
+export async function providers(): Promise<ProviderStatus[]> {
+  const [exeDev, rest] = await Promise.all([exeStatus().catch(() => null), sniff()])
+  return [...(exeDev ? [exeDev] : []), ...rest]
+}
+
+/** A provider's machine as an environment: for exe.dev, one of its VMs; otherwise an SSH host made from what its CLI said. */
+export async function grab(req: GrabRequest): Promise<GrabResult> {
+  const name = (req.name ?? '').trim().slice(0, 60)
+  if (!name) return { ok: false, error: 'Give it a name.' }
+  const base = { id: `env-${shortId(8)}`, name, createdAt: Date.now() }
+  try {
+    if (req.provider === 'exe') return { ok: true, env: { ...base, kind: 'exe', exe: { vm: req.machine } } }
+    const host = sshHosts.put(await hostFor(req.provider, req.machine, { user: req.user, dataDir: app.getPath('userData') }))
+    return { ok: true, env: { ...base, kind: 'ssh', ssh: { hostId: host.id, folder: req.folder?.trim() || '~/eaon' }, provider: { id: req.provider, machine: host.label.replace(/ \(.*\)$/, '') } } }
+  } catch (error) {
+    return { ok: false, error: clean(error) }
+  }
+}
+
 export const environmentsFeature: Feature = {
   id: 'environments',
   register({ ipcMain }) {
     allowFolders(placeFolders)
     ipcMain.handle('environments:exe-account', (): Promise<ExeAccount> => exe.account())
     ipcMain.handle('environments:check', (_e, env: CloudEnvironment) => check(env))
+    ipcMain.handle('environments:providers', (): Promise<ProviderStatus[]> => providers())
+    ipcMain.handle('environments:grab', (_e, req: GrabRequest): Promise<GrabResult> => grab(req))
     ipcMain.handle('environments:prepare', (event, req: PrepareRequest) =>
       prepare(req, (step) => {
         if (!event.sender.isDestroyed()) event.sender.send('environments:progress', { key: req.key, step })

@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { BringBackResult, CloudEnvironment, ExeAccount, PrepareProgress, PrepareRequest, PrepareResult, SessionPlace } from '@shared/environments'
+import type { BringBackResult, CloudEnvironment, ExeAccount, GrabRequest, GrabResult, PrepareProgress, PrepareRequest, PrepareResult, ProviderStatus, SessionPlace } from '@shared/environments'
 
 /**
  * Renderer bridge for cloud environments (Settings → Environments, the
@@ -9,6 +9,10 @@ import type { BringBackResult, CloudEnvironment, ExeAccount, PrepareProgress, Pr
 export const environmentsApi = {
   /** Who this computer's SSH key is on exe.dev, and their VMs; or why it can't be used. */
   exeAccount: (): Promise<ExeAccount> => ipcRenderer.invoke('environments:exe-account'),
+  /** The CLI sniffer: each VM provider's command-line tool on this computer, signed in or not, and its machines. */
+  providers: (): Promise<ProviderStatus[]> => ipcRenderer.invoke('environments:providers'),
+  /** A provider's machine, picked, as an environment (not saved yet). */
+  grab: (req: GrabRequest): Promise<GrabResult> => ipcRenderer.invoke('environments:grab', req),
   /** Whether an environment can be reached, in words. */
   check: (env: CloudEnvironment): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('environments:check', env),
   /** Makes the place a session runs in, with a copy of the project; steps come to `onProgress`. */
