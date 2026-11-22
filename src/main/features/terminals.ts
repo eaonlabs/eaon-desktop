@@ -20,7 +20,7 @@ import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccoun
 import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
-import { remoteExec, remotePaneCommand, shQuote, sshArgv, sshBinary, tmuxName } from './ade/ssh'
+import { remoteExec, remotePaneCommand, remotePaneKill, sshArgv, sshBinary } from './ade/ssh'
 import type { SshHost } from '@shared/adeRemote'
 import { onWorktreeRemoval } from './ade/git'
 import { remoteLocation } from '@shared/adeRemote'
@@ -693,7 +693,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         const host = remotePanes.get(paneId)
         if (host) {
           remotePanes.delete(paneId)
-          void remoteExec(host, `tmux kill-session -t ${shQuote(tmuxName(paneId))} 2>/dev/null; true`, { timeoutMs: 20_000 })
+          void remoteExec(host, remotePaneKill(paneId), { timeoutMs: 20_000 })
         }
       })
     },

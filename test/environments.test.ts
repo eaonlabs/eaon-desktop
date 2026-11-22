@@ -8,7 +8,7 @@ import type { SshHost } from '../src/shared/adeRemote'
 import { environmentSummary, environmentsOf, exeHost, exeHostId, isVmName, slugOf, vmNameFor, type CloudEnvironment } from '../src/shared/environments'
 import { accountProblem, newVmArgs, vmsFrom, whoamiFrom } from '../src/main/features/environments/exe'
 import { bringBackBranch } from '../src/main/features/environments/bringBack'
-import { remotePaneCommand, sshArgv, tmuxName } from '../src/main/features/ade/ssh'
+import { remotePaneCommand, remotePaneKill, sshArgv, tmuxName } from '../src/main/features/ade/ssh'
 import { remoteLine } from '../src/main/engines/remote'
 import { forwarded } from '../src/main/engines/claude'
 import { KeptProcess, runState, stopRun } from '../src/main/engines/kept'
@@ -130,10 +130,30 @@ test('a pane on another machine lives in a tmux session there, its agent started
   assert.equal(tmuxName('pane:1/2'), 'eaon-pane-1-2')
   const line = remotePaneCommand('/home/me/app', 'p1', 'claude --resume x')
   assert.match(line, /^cd '\/home\/me\/app' 2>\/dev\/null; if command -v tmux/)
-  assert.ok(line.includes(`tmux new-session -A -s 'eaon-p1' -c '/home/me/app' 'claude --resume x; exec "$SHELL" -l' ';' set-option status off`))
   // Without tmux there, the shell and the agent as before.
   assert.ok(line.endsWith(`exec "$SHELL" -lc 'claude --resume x; exec "$SHELL" -l'`))
   assert.ok(remotePaneCommand('/a', 'p', null).endsWith('exec "$SHELL" -l'))
+
+  // Run as a shell there would, with a tmux that says what it was asked.
+  const home = join(scratch, 'pane-home')
+  const bin = join(scratch, 'pane-bin')
+  const app = join(home, 'app')
+  mkdirSync(app, { recursive: true })
+  mkdirSync(bin, { recursive: true })
+  writeFileSync(join(bin, 'tmux'), '#!/bin/sh\nfor a in "$@"; do printf "[%s]" "$a"; done\n')
+  chmodSync(join(bin, 'tmux'), 0o755)
+  const ran = spawnSync('/bin/sh', ['-c', remotePaneCommand(app, 'p1', 'claude --resume x')], {
+    env: { HOME: home, PATH: `${bin}:/usr/bin:/bin`, SHELL: '/bin/sh' },
+    encoding: 'utf8'
+  })
+  // Eaon's own tmux: no status line, and no alternate screen or "scroll up N", so what scrolls off
+  // is kept as the pane's scrollback; then the pane's session, joined or started with the agent.
+  assert.equal(
+    ran.stdout,
+    `[-L][eaon][start-server][;][set][-g][status][off][;][set][-s][terminal-overrides[90]][*:smcup@:rmcup@:indn@][;][new-session][-A][-s][eaon-p1][-c][${app}][claude --resume x; exec "$SHELL" -l]`
+  )
+  // Closing it ends the session in Eaon's tmux, and in the user's, where panes ran before.
+  assert.equal(remotePaneKill('p1'), "tmux -L eaon kill-session -t 'eaon-p1' 2>/dev/null; tmux kill-session -t 'eaon-p1' 2>/dev/null; true")
 })
 
 test('an agent there starts in the folder, through a login shell, every word as it was', () => {
