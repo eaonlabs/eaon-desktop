@@ -8,11 +8,21 @@ import { EnvironmentDialog } from './EnvironmentDialog'
 import { ProviderMark } from './Providers'
 import './environments.css'
 
-/** An environment's mark: its provider's, exe.dev's cloud, or a server for a machine over SSH. */
-export function EnvironmentIcon({ env, size = 15 }: { env: (Pick<CloudEnvironment, 'kind'> & Partial<Pick<CloudEnvironment, 'provider'>>) | null; size?: number }): JSX.Element {
-  if (!env) return <Laptop size={size} strokeWidth={1.8} />
-  if (env.provider) return <ProviderMark id={env.provider.id} size={size + 3} />
-  return env.kind === 'exe' ? <Cloud size={size} strokeWidth={1.8} /> : <Server size={size} strokeWidth={1.8} />
+/**
+ * An environment's mark: its provider's logo (exe.dev's too), or a server for
+ * a machine over SSH. `tile` draws it on a tile of that size, as lists do.
+ */
+export function EnvironmentIcon({ env, size = 15, tile }: { env: (Pick<CloudEnvironment, 'kind'> & Partial<Pick<CloudEnvironment, 'provider'>>) | null; size?: number; tile?: number }): JSX.Element {
+  const provider = env?.provider?.id ?? (env?.kind === 'exe' ? 'exe' : null)
+  if (provider) return <ProviderMark id={provider} size={tile ?? size + 3} />
+  const icon = !env ? <Laptop size={size} strokeWidth={1.8} /> : env.kind === 'exe' ? <Cloud size={size} strokeWidth={1.8} /> : <Server size={size} strokeWidth={1.8} />
+  return tile ? (
+    <span className="env-tile" style={{ width: tile, height: tile }}>
+      {icon}
+    </span>
+  ) : (
+    icon
+  )
 }
 
 /** The environments set up, and which one a new session runs in (this computer when it's gone or none is picked). */

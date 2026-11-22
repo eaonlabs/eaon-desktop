@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
-import { Boxes, Check, Cloud, Loader2, Plus, RefreshCw, Server } from 'lucide-react'
+import { useEffect, useState, type JSX } from 'react'
+import { Check, CircleAlert, KeyRound, Loader2, Plug, Plus, RefreshCw, Server, Sparkles } from 'lucide-react'
 import type { SshHost } from '@shared/adeRemote'
 import { useShallow } from 'zustand/react/shallow'
-import { shortId, type CloudEnvironment, type EnvironmentKind, type ExeAccount } from '@shared/environments'
+import { shortId, type CloudEnvironment, type ExeAccount } from '@shared/environments'
 import { useApp } from '../../state/store'
-import { Details, Modal, Select } from '../ui'
-import { ProvidersPanel, type Picked } from './Providers'
+import { Details, Modal, Select, Switch } from '../ui'
+import { ProviderMark, ProvidersPanel, type Picked } from './Providers'
 import './environments.css'
 
 const clean = (error: unknown): string =>
@@ -45,22 +45,27 @@ export function useExeAccount(on: boolean): { account: ExeAccount | null; refres
  * in. Saved into Settings → Environments; a new one becomes where the next
  * session runs.
  */
+export type DialogTab = 'exe' | 'provider' | 'ssh'
+
 export function EnvironmentDialog({
   editing,
   initialPick,
+  initialTab,
   onClose,
   onSaved
 }: {
   editing?: CloudEnvironment | null
   /** A provider's machine picked already (Settings → Environments' list): the dialog opens on it. */
   initialPick?: Picked | null
+  /** The kind it opens on. */
+  initialTab?: DialogTab
   onClose: () => void
   onSaved?: (env: CloudEnvironment) => void
 }): JSX.Element {
   const { saved, patchSettings } = useApp(useShallow((s) => ({ saved: s.settings?.environments, patchSettings: s.patchSettings })))
   const environments = saved ?? []
   // What is being set up: exe.dev, a machine a provider's CLI found, or any machine over SSH.
-  const [kind, setKind] = useState<EnvironmentKind | 'provider'>(initialPick ? 'provider' : (editing?.kind ?? 'exe'))
+  const [kind, setKind] = useState<DialogTab>(initialPick ? 'provider' : (editing?.kind ?? initialTab ?? 'exe'))
   const [picked, setPicked] = useState<Picked | null>(initialPick ?? null)
   const [pickedUser, setPickedUser] = useState(initialPick?.machine.user ?? '')
   const [name, setName] = useState(editing?.name ?? '')
@@ -205,70 +210,96 @@ export function EnvironmentDialog({
         ? hostForm.hostname.trim().length > 0
         : Boolean(hostId)
 
-  const vmOptions = useMemo(
-    () => [
-      { value: NEW_VM, label: 'A new VM for each session' },
-      ...vms.map((v) => ({ value: v.name, label: `${v.name}${v.status && !/running/i.test(v.status) ? ` (${v.status})` : ''}` }))
-    ],
-    [vms]
-  )
+
+  const tabs: { id: DialogTab; label: string; icon: JSX.Element }[] = [
+    { id: 'exe', label: 'exe.dev', icon: <ProviderMark id="exe" size={18} /> },
+    { id: 'provider', label: 'Your providers', icon: <Plug size={15} strokeWidth={1.9} /> },
+    { id: 'ssh', label: 'SSH machine', icon: <Server size={15} strokeWidth={1.9} /> }
+  ]
 
   return (
     <Modal
       open
       onClose={() => busy === null && onClose()}
-      title={editing ? `Edit ${editing.name}` : 'New environment'}
-      width={540}
+      title={editing ? `Edit ${editing.name}` : 'Add environment'}
+      width={560}
       actions={
         <>
+          <button type="button" className="btn btn--ghost envd-check" onClick={() => void check()} disabled={!ready || busy !== null}>
+            {busy === 'check' ? <Loader2 size={14} strokeWidth={2} className="spinner" /> : <Plug size={14} strokeWidth={1.9} />}
+            {busy === 'check' ? 'Checking…' : 'Check connection'}
+          </button>
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={busy !== null}>
             Cancel
           </button>
-          <button type="button" className="btn" onClick={() => void check()} disabled={!ready || busy !== null}>
-            {busy === 'check' ? <Loader2 size={14} strokeWidth={2} className="spinner" /> : null}
-            {busy === 'check' ? 'Checking…' : 'Check connection'}
-          </button>
           <button type="button" className="btn btn--primary" onClick={() => void save()} disabled={!ready || busy !== null}>
-            {busy === 'save' ? 'Saving…' : editing ? 'Save' : 'Add environment'}
+            {busy === 'save' ? (kind === 'provider' && picked?.provider.id === 'freestyle' ? 'Making its token…' : 'Saving…') : editing ? 'Save' : 'Add environment'}
           </button>
         </>
       }
     >
       <form
-        className="env-dialog"
+        className="envd"
         onSubmit={(e) => {
           e.preventDefault()
           if (ready && busy === null) void save()
         }}
       >
         {!editing && (
-          <div className="env-kinds" role="radiogroup" aria-label="Kind of environment">
-            <KindCard kind="exe" on={kind === 'exe'} onPick={setKind} icon={<Cloud size={18} strokeWidth={1.8} />} title="exe.dev" text="A fresh Linux VM for each session, with Claude Code and Codex ready." />
-            <KindCard kind="provider" on={kind === 'provider'} onPick={setKind} icon={<Boxes size={18} strokeWidth={1.8} />} title="From a provider" text="A machine on AWS, Google Cloud, Azure, Codespaces, Tailscale and more." />
-            <KindCard kind="ssh" on={kind === 'ssh'} onPick={setKind} icon={<Server size={18} strokeWidth={1.8} />} title="Any machine" text="A server or computer you reach over SSH, by its address." />
+          <div className="envd-tabs" role="tablist" aria-label="Kind of environment">
+            {tabs.map((tab, i) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={kind === tab.id}
+                // One stop for Tab, the arrows move along: the tab focused is always the one shown.
+                tabIndex={kind === tab.id ? 0 : -1}
+                className="envd-tab"
+                data-on={kind === tab.id || undefined}
+                onClick={() => setKind(tab.id)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+                  e.preventDefault()
+                  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
+                  setKind(next.id)
+                  ;(e.currentTarget.parentElement?.children[tabs.indexOf(next)] as HTMLElement | undefined)?.focus()
+                }}
+              >
+                <span className="envd-tab__icon">{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
           </div>
         )}
+        <p className="envd-lede">{LEDE[kind]}</p>
 
         {kind === 'provider' ? (
           <>
             <ProvidersPanel
               picked={picked}
+              focus={initialPick?.provider.id ?? null}
               onPick={(pick) => {
                 setPicked(pick)
                 setPickedUser(pick.machine.user ?? '')
               }}
             />
             {picked && (
-              <>
-                {picked.machine.why && <p className="env-dialog__hint env-dialog__hint--warn">{picked.machine.why}</p>}
+              <div className="envd-picked">
+                {picked.machine.why && (
+                  <p className="envd-note" data-tone="warn">
+                    <CircleAlert size={14} strokeWidth={2} />
+                    {picked.machine.why}
+                  </p>
+                )}
                 {picked.provider.id === 'freestyle' && (
-                  <p className="env-dialog__hint env-dialog__hint--key">
-                    Freestyle lets SSH in with a token for the VM. Adding this makes one on your Freestyle account: an identity allowed on {picked.machine.name} only, kept in a file of
-                    Eaon’s only you can read. Removing the environment deletes it.
+                  <p className="envd-note">
+                    <KeyRound size={14} strokeWidth={1.9} />
+                    Adding it makes an SSH token on your Freestyle account that only works for {picked.machine.name}. It stays in a file only you can read, and goes when you remove this.
                   </p>
                 )}
                 {picked.provider.id !== 'exe' && (
-                  <div className="env-dialog__grid env-dialog__grid--two">
+                  <div className="envd-row">
                     <label className="field">
                       <span className="field-label">Log in as</span>
                       <input className="input" spellCheck={false} placeholder="the provider’s default" value={pickedUser} onChange={(e) => setPickedUser(e.target.value)} />
@@ -279,7 +310,7 @@ export function EnvironmentDialog({
                     </label>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </>
         ) : kind === 'exe' ? (
@@ -287,27 +318,42 @@ export function EnvironmentDialog({
             <ExeAccountLine account={account} onRefresh={refresh} />
             {account?.ok && (
               <>
-                <div className="field">
-                  <span className="field-label">Where sessions run</span>
-                  <Select value={vm} options={vmOptions} onChange={setVm} label="Where sessions run" />
+                <div className="envd-choices" role="radiogroup" aria-label="Where sessions run">
+                  <Choice on={vm === NEW_VM} onPick={() => setVm(NEW_VM)} icon={<Sparkles size={16} strokeWidth={1.8} />} title="New VM per session" text="Fresh each time, gone with its chat" />
+                  <Choice
+                    on={vm !== NEW_VM}
+                    disabled={vms.length === 0}
+                    onPick={() => setVm(vms[0]?.name ?? NEW_VM)}
+                    icon={<Server size={16} strokeWidth={1.8} />}
+                    title="One of my VMs"
+                    text={vms.length === 0 ? 'None on exe.dev yet' : 'A folder per session'}
+                  />
                 </div>
                 {vm === NEW_VM ? (
                   <>
-                    <div className="env-dialog__grid">
-                      <SizeField label="CPUs" value={cpu} options={CPUS} unit="" onChange={setCpu} />
-                      <SizeField label="Memory" value={memory} options={MEMORY} unit=" GB" onChange={setMemory} />
-                      <SizeField label="Disk" value={disk} options={DISK} unit=" GB" onChange={setDisk} />
+                    <div className="envd-size">
+                      <span className="envd-size__label">Size</span>
+                      <SizeSelect label="CPUs" value={cpu} options={CPUS} unit=" CPU" onChange={setCpu} />
+                      <SizeSelect label="Memory" value={memory} options={MEMORY} unit=" GB memory" onChange={setMemory} />
+                      <SizeSelect label="Disk" value={disk} options={DISK} unit=" GB disk" onChange={setDisk} />
                     </div>
-                    <Details label={image.trim() || setup.trim() ? 'More options (set)' : 'More options'}>
-                      <div className="env-dialog__more">
+                    <div className="envd-switch">
+                      <span className="envd-switch__text">
+                        <span className="envd-switch__title">Delete the VM with its chat</span>
+                        <span className="envd-switch__sub">Sessions in the ADE keep theirs until you delete it here</span>
+                      </span>
+                      <Switch checked={removeWithChat} onChange={setRemoveWithChat} label="Delete the VM with its chat" />
+                    </div>
+                    <Details label={image.trim() || setup.trim() ? 'Image and setup (set)' : 'Image and setup'}>
+                      <div className="envd-more">
                         <label className="field">
                           <span className="field-label">Image</span>
-                          <input className="input" spellCheck={false} placeholder="exeuntu, exe.dev’s own (git, Claude Code, Codex)" value={image} onChange={(e) => setImage(e.target.value)} />
+                          <input className="input" spellCheck={false} placeholder="exeuntu, exe.dev’s own" value={image} onChange={(e) => setImage(e.target.value)} />
                         </label>
                         <label className="field">
                           <span className="field-label">Setup script</span>
                           <textarea
-                            className="input env-dialog__script"
+                            className="input envd-script"
                             rows={3}
                             spellCheck={false}
                             placeholder={'Runs once when a VM first starts, e.g.\nsudo apt-get install -y nodejs npm'}
@@ -317,14 +363,20 @@ export function EnvironmentDialog({
                         </label>
                       </div>
                     </Details>
-                    <label className="env-dialog__check">
-                      <input type="checkbox" checked={removeWithChat} onChange={(e) => setRemoveWithChat(e.target.checked)} />
-                      <span>Delete a session’s VM when its chat is deleted</span>
-                    </label>
-                    <p className="env-dialog__hint">Each session gets its own VM, named after it. Sessions in the ADE keep theirs until you delete it in Settings → Environments.</p>
                   </>
                 ) : (
-                  <p className="env-dialog__hint">Each session gets a folder of its own in ~/eaon on {vm}, with a copy of the project.</p>
+                  <div className="envd-vms" role="radiogroup" aria-label="Your VMs">
+                    {vms.map((v) => (
+                      <button key={v.name} type="button" role="radio" aria-checked={vm === v.name} className="machine" data-on={vm === v.name || undefined} onClick={() => setVm(v.name)}>
+                        <span className="machine__dot" data-running={/running/i.test(v.status) || undefined} aria-hidden />
+                        <span className="machine__body">
+                          <span className="machine__name">{v.name}</span>
+                          <span className="machine__detail">{[v.status, v.cpus ? `${v.cpus} CPU` : null, v.memoryGb ? `${v.memoryGb} GB` : null, v.host].filter(Boolean).join(' · ')}</span>
+                        </span>
+                        {vm === v.name && <Check size={14} strokeWidth={2.2} className="machine__check" />}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </>
             )}
@@ -332,31 +384,37 @@ export function EnvironmentDialog({
         ) : (
           <>
             {!addingHost ? (
-              <div className="field">
-                <span className="field-label">Host</span>
-                {hosts === null ? (
-                  <div className="env-dialog__loading">
-                    <Loader2 size={14} strokeWidth={2} className="spinner" /> Reading ~/.ssh/config…
-                  </div>
-                ) : (
-                  <Select
-                    value={hostId || ADD_HOST}
-                    label="Host"
-                    options={[
-                      ...hosts.map((h) => ({ value: h.id, label: h.source === 'config' ? h.label : `${h.label} (added in Eaon)`, icon: <Server size={14} strokeWidth={1.8} /> })),
-                      { value: ADD_HOST, label: 'Add a host…', icon: <Plus size={14} strokeWidth={1.8} /> }
-                    ]}
-                    onChange={(value) => (value === ADD_HOST ? setAddingHost(true) : setHostId(value))}
-                  />
-                )}
+              <div className="envd-row envd-row--host">
+                <div className="field">
+                  <span className="field-label">Host</span>
+                  {hosts === null ? (
+                    <div className="env-dialog__loading">
+                      <Loader2 size={14} strokeWidth={2} className="spinner" /> Reading ~/.ssh/config…
+                    </div>
+                  ) : (
+                    <Select
+                      value={hostId || ADD_HOST}
+                      label="Host"
+                      options={[
+                        ...hosts.map((h) => ({ value: h.id, label: h.label, icon: <Server size={14} strokeWidth={1.8} /> })),
+                        { value: ADD_HOST, label: 'Add a host…', icon: <Plus size={14} strokeWidth={1.8} /> }
+                      ]}
+                      onChange={(value) => (value === ADD_HOST ? setAddingHost(true) : setHostId(value))}
+                    />
+                  )}
+                </div>
+                <label className="field">
+                  <span className="field-label">Folder for sessions</span>
+                  <input className="input" spellCheck={false} placeholder="~/eaon" value={folder} onChange={(e) => setFolder(e.target.value)} />
+                </label>
               </div>
             ) : (
-              <div className="env-dialog__host">
+              <div className="envd-host">
                 <label className="field">
                   <span className="field-label">Host name or address</span>
                   <input autoFocus className="input" spellCheck={false} placeholder="build-box.example.com" value={hostForm.hostname} onChange={(e) => setHostForm({ ...hostForm, hostname: e.target.value })} />
                 </label>
-                <div className="env-dialog__grid">
+                <div className="envd-row envd-row--three">
                   <label className="field">
                     <span className="field-label">User</span>
                     <input className="input" spellCheck={false} placeholder="optional" value={hostForm.user} onChange={(e) => setHostForm({ ...hostForm, user: e.target.value })} />
@@ -370,6 +428,10 @@ export function EnvironmentDialog({
                     <input className="input" spellCheck={false} placeholder="optional" value={hostForm.identityFile} onChange={(e) => setHostForm({ ...hostForm, identityFile: e.target.value })} />
                   </label>
                 </div>
+                <label className="field">
+                  <span className="field-label">Folder for sessions</span>
+                  <input className="input" spellCheck={false} placeholder="~/eaon" value={folder} onChange={(e) => setFolder(e.target.value)} />
+                </label>
                 {(hosts?.length ?? 0) > 0 && (
                   <button type="button" className="env-dialog__link" onClick={() => setAddingHost(false)}>
                     Pick a saved host instead
@@ -377,18 +439,15 @@ export function EnvironmentDialog({
                 )}
               </div>
             )}
-            <label className="field">
-              <span className="field-label">Folder for sessions</span>
-              <input className="input" spellCheck={false} placeholder="~/eaon" value={folder} onChange={(e) => setFolder(e.target.value)} />
-            </label>
-            <p className="env-dialog__hint">
-              Each session gets its own folder in it, with a copy of the project. Eaon connects with your SSH keys and agent, as Terminal does; a key with a passphrase needs to be in the agent (ssh-add).
+            <p className="envd-note">
+              <KeyRound size={14} strokeWidth={1.9} />
+              Eaon signs in with your SSH keys and agent, as Terminal does. A key with a passphrase needs to be in the agent (ssh-add).
             </p>
           </>
         )}
 
         {(kind !== 'provider' || picked) && (
-          <label className="field">
+          <label className="field envd-name">
             <span className="field-label">Name</span>
             <input
               className="input"
@@ -404,14 +463,15 @@ export function EnvironmentDialog({
         )}
 
         {result && (
-          <p className="env-dialog__result" data-ok={result.ok || undefined} role="status">
-            {result.ok ? <Check size={14} strokeWidth={2.2} /> : null}
-            {result.message}
+          <p className="envd-result" data-ok={result.ok || undefined} role="status">
+            {result.ok ? <Check size={14} strokeWidth={2.4} /> : <CircleAlert size={14} strokeWidth={2.2} />}
+            <span>{result.message}</span>
           </p>
         )}
         {error && (
-          <p className="ade-dialog__error" role="alert">
-            {error}
+          <p className="envd-result" role="alert">
+            <CircleAlert size={14} strokeWidth={2.2} />
+            <span>{error}</span>
           </p>
         )}
       </form>
@@ -419,28 +479,28 @@ export function EnvironmentDialog({
   )
 }
 
-function KindCard<K extends string>({ kind, on, onPick, icon, title, text }: { kind: K; on: boolean; onPick: (kind: K) => void; icon: JSX.Element; title: string; text: string }): JSX.Element {
+/** A short line under the tabs, for each kind. */
+const LEDE: Record<DialogTab, string> = {
+  exe: 'Linux VMs with git, Claude Code and Codex ready to go.',
+  provider: 'Machines your providers’ command-line tools can see on this computer.',
+  ssh: 'Any server or computer you can reach over SSH.'
+}
+
+function Choice({ on, onPick, icon, title, text, disabled }: { on: boolean; onPick: () => void; icon: JSX.Element; title: string; text: string; disabled?: boolean }): JSX.Element {
   return (
-    <button type="button" role="radio" aria-checked={on} className="env-kind" data-on={on || undefined} onClick={() => onPick(kind)}>
-      {on && (
-        <span className="env-kind__tick" aria-hidden>
-          <Check size={11} strokeWidth={3} />
-        </span>
-      )}
-      <span className="env-kind__icon">{icon}</span>
-      <span className="env-kind__title">{title}</span>
-      <span className="env-kind__text">{text}</span>
+    <button type="button" role="radio" aria-checked={on} className="envd-choice" data-on={on || undefined} disabled={disabled} onClick={onPick}>
+      <span className="envd-choice__icon">{icon}</span>
+      <span className="envd-choice__body">
+        <span className="envd-choice__title">{title}</span>
+        <span className="envd-choice__text">{text}</span>
+      </span>
+      <span className="envd-choice__radio" aria-hidden />
     </button>
   )
 }
 
-function SizeField({ label, value, options, unit, onChange }: { label: string; value: string; options: string[]; unit: string; onChange: (value: string) => void }): JSX.Element {
-  return (
-    <div className="field">
-      <span className="field-label">{label}</span>
-      <Select value={value} label={label} options={[{ value: DEFAULT, label: 'Default' }, ...options.map((o) => ({ value: o, label: `${o}${unit}` }))]} onChange={onChange} />
-    </div>
-  )
+function SizeSelect({ label, value, options, unit, onChange }: { label: string; value: string; options: string[]; unit: string; onChange: (value: string) => void }): JSX.Element {
+  return <Select value={value} label={label} options={[{ value: DEFAULT, label: `Default ${unit.trim().split(' ').pop()}` }, ...options.map((o) => ({ value: o, label: `${o}${unit}` }))]} onChange={onChange} />
 }
 
 /** Whether this computer can use exe.dev, and what to do when it can't. */

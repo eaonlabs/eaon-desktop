@@ -191,8 +191,6 @@ export const SETTINGS_ROWS: SettingsRowEntry[] = [
   { page: "ade", title: "Hold to talk", description: "", section: "" },
   { page: "ade", title: "Key", description: "Press the key to hold: Option, Command, Control or Shift on either side, a function key, or Scroll Lock, Pause, Insert or Menu. Esc keeps the one you had. Hold it on its own: pressed with another key it stays a shortcut. Esc while holding cancels.", section: "" },
   { page: "ade", title: "Copy ignored files into a new worktree", description: "A new worktree is a fresh checkout, so it has none of the files git ignores, and an agent can’t run the app without its .env. The New session dialog lists the matching files and offers to copy them. Turn this on to have that box ticked.", section: "Files for new worktrees" },
-  { page: "environments", title: "Run new sessions on", description: "Picked under the message box when a session starts, and in the ADE’s New session.", section: "New sessions" },
-  { page: "environments", title: "VMs Eaon made", description: "None yet. Each session on exe.dev gets one, named after it. Each is a session’s. Deleting one removes everything on it.", section: "" },
   { page: "payments", title: "When the agent wants to buy something", description: "", section: "Purchases" },
   { page: "payments", title: "Automatic purchases terms", description: "Accepted . Withdrawing turns automatic purchases off.", section: "Purchases" },
   { page: "payments", title: "Add a card first", description: "Payments stay off until there is a card to pay with.", section: "Purchases" },

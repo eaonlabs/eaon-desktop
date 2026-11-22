@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import { Check, ChevronDown, Copy, Loader2, RefreshCw } from 'lucide-react'
+import { Check, Copy, Loader2, RefreshCw } from 'lucide-react'
 import type { ProviderId, ProviderMachine, ProviderStatus } from '@shared/environments'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { notify } from '../Notice'
@@ -106,57 +106,35 @@ export interface Picked {
 }
 
 /**
- * The VM providers found on this computer (the CLI sniffer), each with what
- * it can see: signed in, its machines to pick from; signed out, the command
- * that fixes it; not there, folded away with how to get it.
+ * The VM providers found on this computer (the CLI sniffer), in the add
+ * dialog: each one signed in is a group of its machines to pick from; one
+ * signed out says the command that fixes it. The ones not installed are in
+ * Settings → Environments, not here.
  */
-export function ProvidersPanel({ picked, onPick }: { picked: Picked | null; onPick: (pick: Picked) => void }): JSX.Element {
+export function ProvidersPanel({ picked, onPick, focus = null }: { picked: Picked | null; onPick: (pick: Picked) => void; focus?: ProviderId | null }): JSX.Element {
   const { providers, error, refresh } = useProviders(true)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const found = providers?.filter((p) => p.state !== 'missing') ?? []
-  const missing = providers?.filter((p) => p.state === 'missing') ?? []
+  const rank = (p: ProviderStatus): number => (p.id === focus ? 0 : p.state === 'ready' && p.machines.length > 0 ? 1 : p.state === 'ready' ? 3 : 2)
+  const found = (providers?.filter((p) => p.state !== 'missing') ?? []).sort((a, b) => rank(a) - rank(b))
   return (
     <div className="providers">
-      <div className="providers__head">
-        <span className="providers__title">Found on this computer</span>
-        <button type="button" className="btn btn--sm btn--ghost" onClick={refresh} disabled={providers === null}>
-          {providers === null ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : <RefreshCw size={13} strokeWidth={2} />}
-          {providers === null ? 'Looking…' : 'Look again'}
-        </button>
-      </div>
       {error && (
-        <p className="ade-dialog__error" role="alert">
+        <p className="envd-result" role="alert">
           {error}
         </p>
       )}
-      {providers === null && !error && (
-        <div className="providers__loading">
-          <Loader2 size={14} strokeWidth={2} className="spinner" />
-          Looking for aws, gcloud, az, gh, doctl, hcloud, tailscale, limactl and more…
-        </div>
-      )}
-      {providers !== null && found.length === 0 && <p className="providers__none">None of the providers’ command-line tools are on this computer yet.</p>}
-      <div className="providers__list">
+      <div className="prov-groups">
+        {providers === null && [0, 1, 2].map((i) => <div key={i} className="prov-group prov-group--ghost" />)}
+        {providers !== null && found.length === 0 && <p className="providers__none">None of the providers’ command-line tools are on this computer yet.</p>}
         {found.map((p) => (
-          <div key={p.id} className="provider" data-state={p.state}>
-            <div className="provider__row">
-              <ProviderMark id={p.id} />
-              <span className="provider__body">
-                <span className="provider__name">
-                  {p.name}
-                  {p.cli && <span className="provider__cli">{p.cli}</span>}
-                </span>
-                <span className="provider__status">{summary(p)}</span>
-              </span>
-              {p.state !== 'ready' && <span className="provider__dot" data-state={p.state} aria-hidden />}
+          <div key={p.id} className="prov-group" data-state={p.state}>
+            <div className="prov-group__head">
+              <ProviderMark id={p.id} size={22} />
+              <span className="prov-group__name">{p.name}</span>
+              <span className="prov-group__meta">{p.state === 'ready' ? (p.account ?? (p.cli ? `via ${p.cli}` : '')) : p.state === 'signed-out' ? 'Not signed in' : 'Didn’t answer'}</span>
             </div>
-            {p.state !== 'ready' && p.fix && (
-              <div className="provider__fix">
-                In Terminal: <FixCommand command={p.fix} />
-              </div>
-            )}
+            {p.state === 'ready' && p.machines.length === 0 && <div className="prov-group__empty">No machines yet</div>}
             {p.state === 'ready' && p.machines.length > 0 && (
-              <div className="provider__machines" role="radiogroup" aria-label={`${p.name}’s machines`}>
+              <div className="prov-group__machines" role="radiogroup" aria-label={`${p.name}’s machines`}>
                 {p.machines.map((m) => {
                   const on = picked?.provider.id === p.id && picked.machine.id === m.id
                   return (
@@ -169,55 +147,36 @@ export function ProvidersPanel({ picked, onPick }: { picked: Picked | null; onPi
                       data-on={on || undefined}
                       data-blocked={m.why ? true : undefined}
                       onClick={() => onPick({ provider: p, machine: m })}
-                      title={m.why ?? undefined}
                     >
                       <span className="machine__dot" data-running={m.running || undefined} aria-hidden />
                       <span className="machine__body">
                         <span className="machine__name">{m.name}</span>
                         <span className="machine__detail">{m.why ?? [m.status, m.detail].filter(Boolean).join(' · ')}</span>
                       </span>
-                      {on && <Check size={14} strokeWidth={2.2} className="machine__check" />}
+                      <span className="machine__radio" aria-hidden>
+                        {on && <Check size={12} strokeWidth={3} />}
+                      </span>
                     </button>
                   )
                 })}
               </div>
             )}
+            {p.state !== 'ready' && (
+              <div className="prov-group__fix">
+                <span>{p.message ?? 'It needs signing in.'}</span>
+                {p.fix && <FixCommand command={p.fix} />}
+              </div>
+            )}
           </div>
         ))}
       </div>
-      {missing.length > 0 && (
-        <div className="providers__more" data-open={moreOpen || undefined}>
-          <button type="button" className="providers__more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
-            <span className="providers__more-marks">
-              {missing.slice(0, 6).map((p) => (
-                <ProviderMark key={p.id} id={p.id} size={18} />
-              ))}
-            </span>
-            {missing.length} more {missing.length === 1 ? 'provider' : 'providers'} Eaon can use once its tool is installed
-            <ChevronDown size={13} strokeWidth={2} className="providers__more-chevron" />
-          </button>
-          {moreOpen && (
-            <div className="providers__missing">
-              {missing.map((p) => (
-                <div key={p.id} className="provider provider--missing">
-                  <div className="provider__row">
-                    <ProviderMark id={p.id} size={22} />
-                    <span className="provider__body">
-                      <span className="provider__name">{p.name}</span>
-                      <span className="provider__status">{p.message ?? 'Not on this computer'}</span>
-                    </span>
-                  </div>
-                  {p.fix && (
-                    <div className="provider__fix">
-                      <FixCommand command={p.fix} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <div className="providers__foot">
+        <button type="button" className="providers__again" onClick={refresh} disabled={providers === null}>
+          {providers === null ? <Loader2 size={12} strokeWidth={2.2} className="spinner" /> : <RefreshCw size={12} strokeWidth={2.2} />}
+          {providers === null ? 'Looking…' : 'Look again'}
+        </button>
+        <span>Not listed? Install its CLI, then look again.</span>
+      </div>
     </div>
   )
 }
