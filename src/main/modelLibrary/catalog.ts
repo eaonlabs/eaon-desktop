@@ -130,7 +130,7 @@ export const LIBRARY: LibraryModel[] = [
     links: { huggingFace: 'Qwen/Qwen3.8-27B' },
     variants: [
       hf('ud-q3_k_xl', 'UD-Q3_K_XL', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q3_K_XL.gguf', 'mmproj-F16.gguf'], 14_074_000_992),
-      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 17_392_047_712),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 17_491_867_232),
       hf('q8_0', 'Q8_0', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-Q8_0.gguf', 'mmproj-F16.gguf'], 29_974_693_536)
     ],
     recommended: [
