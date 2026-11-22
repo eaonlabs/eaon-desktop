@@ -84,6 +84,20 @@ test('the ADE dock reads the folders another feature lets it into, as they are w
   await assert.rejects(() => call('workspace-files:list', outside) as Promise<unknown>, /outside the work folder/)
 })
 
+test('the code panel shows a picture in the work folder, and nothing else that way', async () => {
+  const { call, work, outside } = setup()
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
+  writeFileSync(join(work, 'Art.WEBP'), png)
+  writeFileSync(join(work, 'notes.txt'), 'hi\n')
+  writeFileSync(join(outside, 'secret.png'), png)
+
+  const image = (await call('workspace-files:image', join(work, 'Art.WEBP'))) as { url: string; size: number }
+  assert.equal(image.size, png.length)
+  assert.equal(image.url, `data:image/webp;base64,${png.toString('base64')}`)
+  await assert.rejects(() => call('workspace-files:image', join(work, 'notes.txt')) as Promise<unknown>, /isn’t a picture/)
+  await assert.rejects(() => call('workspace-files:image', join(outside, 'secret.png')) as Promise<unknown>, /outside the work folder/)
+})
+
 test('agent paths resolve against the folder the way the tree lists them', () => {
   assert.equal(joinPath('/Users/me/Eaon', 'src/App.tsx'), '/Users/me/Eaon/src/App.tsx')
   assert.equal(joinPath('/Users/me/Eaon', './src/../README.md'), '/Users/me/Eaon/README.md')

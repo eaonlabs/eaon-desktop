@@ -633,6 +633,7 @@
   flex: none;
   display: flex;
   max-width: 45%;
+  min-width: 0;
   border-right: 1px solid var(--border-soft);
   background: color-mix(in srgb, var(--canvas), var(--sink-color) 10%);
 }
@@ -692,7 +693,14 @@
 }
 .file-surface__crumb-icon {
   display: inline-flex;
+  flex: none;
   margin-right: 5px;
+}
+/* The name on its own, so a long one ends in "…" (a flex box's own text can't). */
+.file-surface__crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .file-surface__sep {
   flex: none;
@@ -743,6 +751,11 @@
 }
 .file-surface__loading {
   flex: 1;
+}
+/* The project's files keep to their column: long names end in "…" rather than
+   widening the list under the file beside it. */
+.file-surface__tree > .files-view {
+  min-width: 0;
 }
 /* No room for both: the file wins. */
 @container dock (max-width: 460px) {

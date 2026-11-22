@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { store } from '../store'
 import type { Feature } from './types'
-import { EDITABLE_LIMIT, type WorkspaceEntry, type WorkspaceFile } from '@shared/workspaceFiles'
+import { EDITABLE_LIMIT, PREVIEW_LIMIT, previewType, type WorkspaceEntry, type WorkspaceFile, type WorkspaceImage } from '@shared/workspaceFiles'
 import { remoteCwd, remoteLocation } from '@shared/adeRemote'
 import { posixNormalize, remoteInside } from '@shared/remotePath'
 import { openRemote, remoteList, remoteRead, remoteWrite } from '../remoteWork'
@@ -143,6 +143,26 @@ export const workspaceFilesFeature: Feature = {
       const buffer = await readFile(file)
       if (isBinary(buffer)) return { kind: 'binary', path: file, size: info.size, modified: info.mtimeMs }
       return { kind: 'text', path: file, text: buffer.toString('utf8'), modified: info.mtimeMs }
+    })
+
+    // A picture, whole, for the panel to show: on this computer or the machine a session runs on.
+    ipcMain.handle('workspace-files:image', async (_e, path: unknown): Promise<WorkspaceImage> => {
+      const file = await allowed(path)
+      const type = previewType(file)
+      if (!type) throw new Error('That isn’t a picture.')
+      const remote = remoteLocation(file)
+      let bytes: Buffer
+      let size: number
+      if (remote) {
+        const project = { ...(await openRemote(file)), root: remoteLocation(remoteRootOf(file)!)!.path }
+        const read = await remoteRead(project, remote.path, PREVIEW_LIMIT + 1)
+        ;({ bytes, size } = read)
+      } else {
+        size = (await stat(file)).size
+        bytes = size > PREVIEW_LIMIT ? Buffer.alloc(0) : await readFile(file)
+      }
+      if (size > PREVIEW_LIMIT) throw new Error('This picture is too large to show here.')
+      return { url: `data:${type};base64,${bytes.toString('base64')}`, size }
     })
 
     // Saves over a file that is already there; the panel does not create files.
