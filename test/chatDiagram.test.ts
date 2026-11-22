@@ -41,6 +41,9 @@ test('Mermaid runs strict, off the page, with no error graphic and plain SVG tex
     assert.equal(config.htmlLabels, false)
     assert.equal(config.suppressErrorRendering, true)
     assert.equal(config.theme, dark ? 'dark' : 'neutral')
+    // ELK is stubbed out of the build (electron.vite.config.ts), and Mermaid 12
+    // picks it for flowcharts unless told otherwise.
+    assert.equal(config.layout, 'dagre')
   }
 })
 
