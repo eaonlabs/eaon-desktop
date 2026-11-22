@@ -49,6 +49,8 @@ export interface SshHost {
   proxyCommand?: string | null
   /** Which provider's CLI found it (shared/environments.ts ProviderId), for its name and mark. */
   provider?: string | null
+  /** What the provider made for Eaon to reach it (a Freestyle identity's id), so it can be taken back when the machine is let go. */
+  providerRef?: string | null
 }
 
 export interface ManualHostInput {

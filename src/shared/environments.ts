@@ -220,7 +220,7 @@ export function placeLabel(place: SessionPlace): string {
  * (main/features/environments/providers.ts), so a machine of theirs can be
  * picked and used as an environment without typing an address.
  */
-export type ProviderId = 'exe' | 'codespaces' | 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner' | 'linode' | 'vultr' | 'coder' | 'tailscale' | 'lima' | 'orbstack'
+export type ProviderId = 'exe' | 'freestyle' | 'codespaces' | 'aws' | 'gcp' | 'azure' | 'digitalocean' | 'hetzner' | 'linode' | 'vultr' | 'coder' | 'tailscale' | 'lima' | 'orbstack'
 
 /** A machine a provider's CLI lists. */
 export interface ProviderMachine {
@@ -278,6 +278,7 @@ export type GrabResult = { ok: true; env: CloudEnvironment } | { ok: false; erro
 
 export const PROVIDER_NAMES: Record<ProviderId, string> = {
   exe: 'exe.dev',
+  freestyle: 'Freestyle',
   codespaces: 'GitHub Codespaces',
   aws: 'AWS EC2',
   gcp: 'Google Cloud',

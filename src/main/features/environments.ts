@@ -23,7 +23,7 @@ import { sshHosts } from './ade'
 import { bringBack, bringBackBranch } from './environments/bringBack'
 import { CopyError, copyProject, ensureRemoteFolder } from './environments/copy'
 import { ExeClient } from './environments/exe'
-import { hostFor, sniff } from './environments/providers'
+import { forgetHost, hostFor, sniff } from './environments/providers'
 import { allowFolders } from './workspaceFiles'
 import type { Feature } from './types'
 
@@ -227,8 +227,34 @@ export async function grab(req: GrabRequest): Promise<GrabResult> {
   const base = { id: `env-${shortId(8)}`, name, createdAt: Date.now() }
   try {
     if (req.provider === 'exe') return { ok: true, env: { ...base, kind: 'exe', exe: { vm: req.machine } } }
-    const host = sshHosts.put(await hostFor(req.provider, req.machine, { user: req.user, dataDir: app.getPath('userData') }))
+    const made = await hostFor(req.provider, req.machine, { user: req.user, dataDir: app.getPath('userData') })
+    // Picked before: what was made to reach it then (a Freestyle token) goes, the new one replaces it.
+    const before = await sshHosts.find(made.id)
+    if (before?.providerRef && before.providerRef !== made.providerRef) await forgetHost(before, app.getPath('userData')).catch(() => undefined)
+    const host = sshHosts.put(made)
     return { ok: true, env: { ...base, kind: 'ssh', ssh: { hostId: host.id, folder: req.folder?.trim() || '~/eaon' }, provider: { id: req.provider, machine: host.label.replace(/ \(.*\)$/, '') } } }
+  } catch (error) {
+    return { ok: false, error: clean(error) }
+  }
+}
+
+/**
+ * An environment removed: a provider's machine is let go (its Freestyle token
+ * deleted there, Eaon's config file for it gone, the host off the list).
+ * Machines over SSH added by hand, and exe.dev's VMs, are left as they are.
+ */
+export async function forget(env: CloudEnvironment): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = env.ssh?.hostId
+  if (!id?.startsWith('prov:')) return { ok: true }
+  // Another environment on the same machine keeps it.
+  const shared = environmentsOf(store.getSettings().environments).some((other) => other.id !== env.id && other.ssh?.hostId === id)
+  if (shared) return { ok: true }
+  const host = await sshHosts.find(id)
+  if (!host) return { ok: true }
+  try {
+    await forgetHost(host, app.getPath('userData'))
+    sshHosts.remove(id)
+    return { ok: true }
   } catch (error) {
     return { ok: false, error: clean(error) }
   }
@@ -242,6 +268,7 @@ export const environmentsFeature: Feature = {
     ipcMain.handle('environments:check', (_e, env: CloudEnvironment) => check(env))
     ipcMain.handle('environments:providers', (): Promise<ProviderStatus[]> => providers())
     ipcMain.handle('environments:grab', (_e, req: GrabRequest): Promise<GrabResult> => grab(req))
+    ipcMain.handle('environments:forget', (_e, env: CloudEnvironment) => forget(env))
     ipcMain.handle('environments:prepare', (event, req: PrepareRequest) =>
       prepare(req, (step) => {
         if (!event.sender.isDestroyed()) event.sender.send('environments:progress', { key: req.key, step })

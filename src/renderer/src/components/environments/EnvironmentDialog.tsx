@@ -261,6 +261,12 @@ export function EnvironmentDialog({
             {picked && (
               <>
                 {picked.machine.why && <p className="env-dialog__hint env-dialog__hint--warn">{picked.machine.why}</p>}
+                {picked.provider.id === 'freestyle' && (
+                  <p className="env-dialog__hint env-dialog__hint--key">
+                    Freestyle lets SSH in with a token for the VM. Adding this makes one on your Freestyle account: an identity allowed on {picked.machine.name} only, kept in a file of
+                    Eaon’s only you can read. Removing the environment deletes it.
+                  </p>
+                )}
                 {picked.provider.id !== 'exe' && (
                   <div className="env-dialog__grid env-dialog__grid--two">
                     <label className="field">

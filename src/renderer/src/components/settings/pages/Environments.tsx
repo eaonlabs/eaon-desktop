@@ -153,7 +153,12 @@ export function EnvironmentsPage(): JSX.Element {
           onConfirm={() => {
             const gone = removing
             setRemoving(null)
-            void patchSettings({ environments: list.filter((e) => e.id !== gone.id), ...(chosen === gone.id ? { environment: LOCAL_ENVIRONMENT } : {}) }).then(() => notify(`${gone.name} is removed.`))
+            // What Eaon made to reach its machine (a Freestyle token) is taken back first.
+            void window.api.environments.forget(gone).then(async (result) => {
+              if (!result.ok) return notify(result.error, 'error')
+              await patchSettings({ environments: list.filter((e) => e.id !== gone.id), ...(chosen === gone.id ? { environment: LOCAL_ENVIRONMENT } : {}) })
+              notify(`${gone.name} is removed.`)
+            })
           }}
         >
           New sessions can’t run there any more. Chats already on it keep their machine{removing.kind === 'exe' ? ', and their VMs stay until you delete them' : ''}.

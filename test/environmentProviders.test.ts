@@ -1,10 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  forgetHost,
   hostFor,
+  parseFreestyle,
   parseAws,
   parseAzure,
   parseCoder,
@@ -167,4 +169,58 @@ test('a picked machine becomes the SSH host that reaches it', async () => {
   const cs = await hostFor('codespaces', 'fluffy-space-x', { dataDir: scratch, run: fake })
   assert.equal(cs.alias, 'cs.fluffy-space-x.main')
   assert.match(readFileSync(cs.configFile!, 'utf8'), /ProxyCommand gh cs ssh -c fluffy-space-x --stdio/)
+})
+
+test('Freestyle: its VMs, and SSH through a token for one VM, made when it is picked and deleted when it is let go', async () => {
+  const listing = JSON.stringify({
+    vms: [
+      { id: 'vm-ea74', state: 'running', slug: 'vm', displayName: null, resources: { cpu: 4, memory: 8192, storage: 32768 }, sourceSnapshotDisplayName: 'Ubuntu 24.04 LTS (4 vCPU · 8 GiB · 32 GB)' },
+      { id: 'vm-bb01', state: 'paused', slug: 'other', resources: {} },
+      { id: 'not a vm id', state: 'running' }
+    ],
+    totalCount: 3
+  })
+  const vms = parseFreestyle(listing)
+  assert.deepEqual(vms.map((m) => [m.id, m.name, m.detail, m.running]), [
+    ['vm-ea74', 'vm', 'Ubuntu 24.04 LTS · 4 vCPU, 8 GiB', true],
+    ['vm-bb01', 'other', null, false]
+  ])
+  assert.match(vms[1].why ?? '', /freestyle vm start other/)
+
+  // Picking it: an identity, allowed on that VM, with a token; written where only this user can read it.
+  const calls: string[][] = []
+  const run: CliRunner = async (_bin, args) => {
+    calls.push(args)
+    if (args[1] === 'create' && args[0] === 'identity') return { ok: true, code: 0, stdout: '{"id":"idn_123","managed":false}', stderr: '' }
+    if (args[1] === 'permission') return { ok: true, code: 0, stdout: '{}', stderr: '' }
+    if (args[1] === 'token') return { ok: true, code: 0, stdout: '{"id":"tok_1","token":"secret-token_9"}', stderr: '' }
+    return { ok: true, code: 0, stdout: '', stderr: '' }
+  }
+  rememberFound('freestyle', '/bin/freestyle', vms)
+  const host = await hostFor('freestyle', 'vm-ea74', { dataDir: scratch, run })
+  assert.deepEqual(calls.slice(0, 3), [
+    ['identity', 'create', '--output', 'json'],
+    ['identity', 'permission', 'grant', 'idn_123', 'vm-ea74', '--output', 'json'],
+    ['identity', 'token', 'create', 'idn_123', '--output', 'json']
+  ])
+  assert.deepEqual([host.alias, host.providerRef, host.source], ['eaon-freestyle-vm-ea74', 'idn_123', 'config'])
+  const config = readFileSync(host.configFile!, 'utf8')
+  assert.match(config, /HostName vm-ea74\.beta-ssh\.freestyle\.sh/)
+  assert.match(config, /User vm-ea74:secret-token_9/)
+  assert.equal(statSync(host.configFile!).mode & 0o777, 0o600, 'the token’s file is the user’s alone')
+  assert.ok(!sshArgv(host, { interactive: false }).some((arg) => arg.includes('secret-token')), 'the token is never on a command line')
+  assert.equal((await hostFor('freestyle', 'vm-ea74', { dataDir: scratch, run, user: 'dev' })).alias, 'eaon-freestyle-vm-ea74')
+  assert.match(readFileSync(host.configFile!, 'utf8'), /User vm-ea74\+dev:secret-token_9/)
+
+  // A step that fails takes the identity back with it.
+  calls.length = 0
+  const failing: CliRunner = async (bin, args) => (args[1] === 'token' ? { ok: false, code: 1, stdout: '', stderr: 'quota reached' } : run(bin, args))
+  await assert.rejects(hostFor('freestyle', 'vm-ea74', { dataDir: scratch, run: failing }), /quota reached/)
+  assert.deepEqual(calls.at(-1), ['identity', 'delete', 'idn_123'])
+
+  // Let go: the identity deleted at Freestyle (its token with it), the file gone.
+  calls.length = 0
+  await forgetHost(host, scratch, run).catch((error: Error) => assert.match(error.message, /CLI isn’t on this computer/))
+  if (calls.length) assert.deepEqual(calls[0], ['identity', 'delete', 'idn_123'])
+  if (calls.length) assert.ok(!existsSync(host.configFile!))
 })

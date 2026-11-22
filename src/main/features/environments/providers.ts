@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants, existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { accessSync, constants, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { SshHost } from '@shared/adeRemote'
@@ -28,25 +28,69 @@ export interface CliResult {
   stderr: string
 }
 
-export type CliRunner = (bin: string, args: string[], timeoutMs?: number) => Promise<CliResult>
+export type CliRunner = (bin: string, args: string[], timeoutMs?: number, cwd?: string) => Promise<CliResult>
 
-export const runCli: CliRunner = (bin, args, timeoutMs = 30_000) =>
+/** A CLI written in JavaScript (`#!/usr/bin/env node`), on a computer whose PATH has no node: run on Eaon's own. */
+function nodeScript(bin: string): boolean {
+  try {
+    return readFileSync(bin, { encoding: 'utf8', flag: 'r' }).slice(0, 64).startsWith('#!/usr/bin/env node') && !onPath('node')
+  } catch {
+    return false
+  }
+}
+
+export const runCli: CliRunner = (bin, args, timeoutMs = 30_000, cwd) =>
   new Promise((resolve) => {
-    execFile(bin, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, env: { ...process.env, NO_COLOR: '1', CI: '1' } }, (error, stdout, stderr) => {
+    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', CI: '1' }
+    const viaNode = nodeScript(bin)
+    if (viaNode) env.ELECTRON_RUN_AS_NODE = '1'
+    execFile(viaNode ? process.execPath : bin, viaNode ? [bin, ...args] : args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, env, ...(cwd ? { cwd } : {}) }, (error, stdout, stderr) => {
       const code = error ? (typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : null) : 0
       resolve({ ok: !error, code, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') || (error?.message ?? '') })
     })
   })
 
 /** Where a provider's CLI often is when the login shell's PATH doesn't say (an app started from the Dock). */
-const EXTRA_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', join(homedir(), '.local', 'bin'), join(homedir(), 'bin'), join(homedir(), 'google-cloud-sdk', 'bin'), join(homedir(), '.orbstack', 'bin')]
+const EXTRA_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  join(homedir(), '.local', 'bin'),
+  join(homedir(), 'bin'),
+  join(homedir(), 'google-cloud-sdk', 'bin'),
+  join(homedir(), '.orbstack', 'bin'),
+  // Where npm, bun, volta and the rest put the CLIs installed with them (Freestyle's is an npm package).
+  join(homedir(), 'node_modules', '.bin'),
+  join(homedir(), '.npm-global', 'bin'),
+  join(homedir(), '.bun', 'bin'),
+  join(homedir(), '.volta', 'bin'),
+  join(homedir(), '.yarn', 'bin'),
+  join(homedir(), 'Library', 'pnpm')
+]
+
+/** npm's own global folder (`prefix` in ~/.npmrc) and each Node nvm has installed. */
+function nodeDirs(): string[] {
+  const dirs: string[] = []
+  try {
+    const prefix = /^\s*prefix\s*=\s*(.+?)\s*$/m.exec(readFileSync(join(homedir(), '.npmrc'), 'utf8'))?.[1]
+    if (prefix) dirs.push(join(prefix.replace(/^~(?=\/)/, homedir()).replace(/^\$\{HOME\}|^\$HOME/, homedir()), 'bin'))
+  } catch {
+    /* no ~/.npmrc */
+  }
+  try {
+    const nvm = join(homedir(), '.nvm', 'versions', 'node')
+    for (const version of readdirSync(nvm)) dirs.push(join(nvm, version, 'bin'))
+  } catch {
+    /* no nvm */
+  }
+  return dirs
+}
 
 /** The first of `bins` found on PATH or in the usual folders, or at one of `paths`. */
 export function findCli(bins: string[], paths: string[] = []): string | null {
   for (const bin of bins) {
     const found = onPath(bin)
     if (found) return found
-    for (const dir of EXTRA_DIRS) {
+    for (const dir of [...EXTRA_DIRS, ...nodeDirs()]) {
       const candidate = join(dir, bin)
       if (executable(candidate)) return candidate
     }
@@ -97,6 +141,7 @@ type Reach =
   | { kind: 'config'; alias: string; configFile: string }
   | { kind: 'proxy'; hostname: string; proxyCommand: string; user?: string | null }
   | { kind: 'codespace'; name: string }
+  | { kind: 'freestyle'; vmId: string }
 
 interface Provider {
   id: ProviderId
@@ -122,6 +167,33 @@ const signedOut = (message: string, fix: string | null): Listing => ({ state: 's
 const failed = (result: CliResult): Listing => ({ state: 'error', message: said(result), fix: null })
 
 /* ------------------------------------------------------------- parsers */
+
+/** `freestyle vm list --output json`: `{"vms": [...]}`. */
+export function parseFreestyle(text: string): Machine[] {
+  return arr(obj(jsonOut(text)).vms).flatMap((vm) => {
+    const id = str(vm.id)
+    if (!id || !/^vm-[A-Za-z0-9]+$/.test(id)) return []
+    const name = str(vm.displayName) ?? str(vm.slug) ?? id
+    const status = str(vm.state) ?? 'unknown'
+    const running = status === 'running'
+    const res = obj(vm.resources)
+    const size = [typeof res.cpu === 'number' ? `${res.cpu} vCPU` : null, typeof res.memory === 'number' ? `${Math.round(res.memory / 1024)} GiB` : null].filter(Boolean).join(', ')
+    const image = (str(vm.sourceSnapshotDisplayName) ?? str(vm.sourceSnapshotSlug) ?? '').replace(/\s*\(.*\)$/, '')
+    return [
+      machine({
+        id,
+        name,
+        status,
+        running,
+        detail: [image || null, size || null].filter(Boolean).join(' · ') || null,
+        user: null,
+        // A paused or stopped one is started by the gateway when ssh reaches it? Not promised: said, with how.
+        why: running || status === 'starting' ? null : `It’s ${status}. Start it: freestyle vm start ${str(vm.slug) ?? id}`,
+        reach: { kind: 'freestyle', vmId: id }
+      })
+    ]
+  })
+}
 
 /** `gh codespace list --json name,displayName,state,repository,machineName` */
 export function parseCodespaces(text: string): Machine[] {
@@ -445,6 +517,29 @@ const json = (result: CliResult, parse: (text: string) => Machine[]): { listing:
 
 export const PROVIDERS: Provider[] = [
   {
+    id: 'freestyle',
+    bins: ['freestyle'],
+    site: 'https://www.freestyle.sh',
+    install: 'npm install -g freestyle',
+    // Run as in Terminal from the home folder: the CLI finds FREESTYLE_API_KEY in ~/.env there, or its login.
+    async list(bin, run) {
+      const result = await run(bin, ['vm', 'list', '--output', 'json'], 60_000, homedir())
+      if (!result.ok) {
+        const text = `${result.stderr}\n${result.stdout}`
+        if (/api key|api-key|not logged in|freestyle login|unauthori[sz]ed|401|credential/i.test(text)) {
+          return { listing: signedOut('The Freestyle CLI has no API key or login. Put FREESTYLE_API_KEY in ~/.env, or sign in.', 'freestyle login') }
+        }
+        return { listing: failed(result) }
+      }
+      const who = await run(bin, ['whoami', '--output', 'json'], 30_000, homedir())
+      const me = obj(jsonOut(who.stdout))
+      const source = str(me.credentialSource)
+      const account = str(obj(me.team).name) ?? str(me.team) ?? (source === 'FREESTYLE_API_KEY' ? 'API key' : source ? 'signed in' : null)
+      const machines = parseFreestyle(result.stdout)
+      return { listing: { machines, account }, machines }
+    }
+  },
+  {
     id: 'codespaces',
     bins: ['gh'],
     site: 'https://github.com/features/codespaces',
@@ -596,6 +691,15 @@ export const PROVIDERS: Provider[] = [
 
 /* --------------------------------------------------------------- sniff */
 
+/** Whether ~/.env sets `name` (read for the name only; the value never leaves the file). */
+function homeEnvHas(name: string): boolean {
+  try {
+    return new RegExp(`^\\s*(export\\s+)?${name}\\s*=\\s*\\S`, 'm').test(readFileSync(join(homedir(), '.env'), 'utf8'))
+  } catch {
+    return false
+  }
+}
+
 /** What was last found, by provider, so picking a machine doesn't ask its CLI again. */
 const lastFound = new Map<ProviderId, { bin: string; machines: Machine[] }>()
 
@@ -605,7 +709,11 @@ export async function sniff(run: CliRunner = runCli, find: (bins: string[], path
     PROVIDERS.map(async (provider): Promise<ProviderStatus> => {
       const base = { id: provider.id, name: PROVIDER_NAMES[provider.id], site: provider.site, account: null, message: null, fix: null, machines: [] }
       const bin = find(provider.bins, provider.paths)
-      if (!bin) return { ...base, state: 'missing', cli: provider.bins[0], fix: provider.install }
+      if (!bin) {
+        // A Freestyle API key with no CLI to use it: said, so the key isn't thought to be ignored.
+        const keyed = provider.id === 'freestyle' && homeEnvHas('FREESTYLE_API_KEY')
+        return { ...base, state: 'missing', cli: provider.bins[0], fix: provider.install, ...(keyed ? { message: 'Your API key is in ~/.env; Eaon uses it through the Freestyle CLI, which isn’t installed.' } : {}) }
+      }
       const cli = bin.split('/').pop() ?? provider.bins[0]
       try {
         const { listing, machines } = await provider.list(bin, run)
@@ -643,6 +751,37 @@ export async function hostFor(providerId: ProviderId, machineId: string, opts: {
       return { ...base, source: 'config', alias: user && !reach.alias.includes('@') ? `${user}@${reach.alias}` : reach.alias, configFile: reach.configFile }
     case 'proxy':
       return { ...base, hostname: reach.hostname, user: user ?? reach.user ?? null, proxyCommand: reach.proxyCommand }
+    case 'freestyle': {
+      // Freestyle's SSH gateway takes a token for the VM in the user name. One identity, allowed on this VM
+      // only, with one token, made now; kept in a config file of Eaon's only it can read, and deleted with
+      // the identity when the machine is let go (forgetHost).
+      const run = opts.run ?? runCli
+      const home = homedir()
+      const made = await run(found.bin, ['identity', 'create', '--output', 'json'], 60_000, home)
+      const identity = str(obj(jsonOut(made.stdout)).id)
+      if (!made.ok || !identity || !/^[A-Za-z0-9_-]+$/.test(identity)) throw new Error(`Freestyle couldn’t make an SSH identity: ${said(made)}`)
+      try {
+        const granted = await run(found.bin, ['identity', 'permission', 'grant', identity, reach.vmId, '--output', 'json', ...(user ? ['--allowed-linux-user', user] : [])], 60_000, home)
+        if (!granted.ok) throw new Error(`Freestyle couldn’t give it access to ${target.name}: ${said(granted)}`)
+        const minted = await run(found.bin, ['identity', 'token', 'create', identity, '--output', 'json'], 60_000, home)
+        const token = str(obj(jsonOut(minted.stdout)).token)
+        if (!minted.ok || !token || !/^[A-Za-z0-9._~+/=-]+$/.test(token)) throw new Error(`Freestyle couldn’t make its token: ${said(minted)}`)
+        const dir = join(opts.dataDir, 'environments', 'ssh')
+        await mkdir(dir, { recursive: true, mode: 0o700 })
+        const alias = `eaon-freestyle-${reach.vmId}`
+        const file = join(dir, `freestyle-${reach.vmId}.config`)
+        const login = `${reach.vmId}${user ? `+${user}` : ''}:${token}`
+        await writeFile(
+          file,
+          `# Written by Eaon for the Freestyle VM ${target.name}: its token is a key to that VM, so this file is yours alone.\n# Removing the environment in Eaon deletes the token at Freestyle and this file.\nHost ${alias}\n  HostName ${reach.vmId}.beta-ssh.freestyle.sh\n  User ${login}\n  StrictHostKeyChecking accept-new\n`,
+          { mode: 0o600 }
+        )
+        return { ...base, source: 'config', alias, configFile: file, providerRef: identity }
+      } catch (error) {
+        await run(found.bin, ['identity', 'delete', identity], 60_000, home).catch(() => undefined)
+        throw error
+      }
+    }
     case 'codespace': {
       const run = opts.run ?? runCli
       const result = await run(found.bin, ['codespace', 'ssh', '--config', '-c', reach.name], 120_000)
@@ -655,6 +794,22 @@ export async function hostFor(providerId: ProviderId, machineId: string, opts: {
       return { ...base, source: 'config', alias, configFile: file }
     }
   }
+}
+
+/**
+ * What Eaon made to reach a provider's machine, taken back when that machine
+ * is let go: a Freestyle identity (and with it its token) deleted at
+ * Freestyle, and a config file of Eaon's removed.
+ */
+export async function forgetHost(host: SshHost, dataDir: string, run: CliRunner = runCli): Promise<void> {
+  if (host.provider === 'freestyle' && host.providerRef && /^[A-Za-z0-9_-]+$/.test(host.providerRef)) {
+    const bin = findCli(['freestyle'])
+    if (!bin) throw new Error('The Freestyle CLI isn’t on this computer any more, so the VM’s SSH token couldn’t be deleted. Delete it with freestyle identity delete ' + host.providerRef)
+    const gone = await run(bin, ['identity', 'delete', host.providerRef], 60_000, homedir())
+    if (!gone.ok && !/not found|404/i.test(gone.stderr)) throw new Error(`Freestyle didn’t delete the VM’s SSH token: ${said(gone)}`)
+  }
+  const ours = join(dataDir, 'environments', 'ssh')
+  if (host.configFile && host.configFile.startsWith(`${ours}/`)) await rm(host.configFile, { force: true })
 }
 
 /** For the tests: what a sniff found, set by hand. */

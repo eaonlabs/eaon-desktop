@@ -8,28 +8,39 @@ import './environments.css'
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
 
-/** A provider's mark: its initials on a tile of its colour. */
-const MARKS: Record<ProviderId, { text: string; color: string }> = {
-  exe: { text: 'exe', color: '#3b3b46' },
-  codespaces: { text: 'GH', color: '#24292f' },
-  aws: { text: 'AWS', color: '#ff9900' },
-  gcp: { text: 'GC', color: '#4285f4' },
-  azure: { text: 'Az', color: '#0078d4' },
-  digitalocean: { text: 'DO', color: '#0069ff' },
-  hetzner: { text: 'Hz', color: '#d50c2d' },
-  linode: { text: 'Li', color: '#00a95c' },
-  vultr: { text: 'Vu', color: '#007bfc' },
-  coder: { text: 'Co', color: '#1c1c1c' },
-  tailscale: { text: 'TS', color: '#242424' },
-  lima: { text: 'Lm', color: '#2f8f4e' },
-  orbstack: { text: 'Ob', color: '#6e3ff3' }
+const files = import.meta.glob('../../assets/environments/*.{png,svg}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>
+const LOGOS: Record<string, string> = Object.fromEntries(Object.entries(files).map(([path, url]) => [path.split('/').pop()!.replace(/\.(png|svg)$/, ''), url]))
+// Azure's is the one Model providers already ships.
+const azure = Object.values(import.meta.glob('../../assets/providers/azure.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>)[0]
+
+/**
+ * Each provider's logo (assets/environments): a white mark on a tile of the
+ * brand's colour, or (`full`) the logo as the provider draws it, filling the
+ * tile. `text` stands in should the file be missing.
+ */
+const MARKS: Record<ProviderId, { color: string; text: string; full?: boolean }> = {
+  exe: { color: '#ffffff', text: 'exe', full: true },
+  freestyle: { color: '#121212', text: 'Fs' },
+  codespaces: { color: '#24292f', text: 'GH' },
+  aws: { color: '#232f3e', text: 'AWS' },
+  gcp: { color: '#4285f4', text: 'GC' },
+  azure: { color: '#ffffff', text: 'Az', full: true },
+  digitalocean: { color: '#0080ff', text: 'DO' },
+  hetzner: { color: '#d50c2d', text: 'Hz' },
+  linode: { color: '#0096d6', text: 'Li' },
+  vultr: { color: '#007bfc', text: 'Vu' },
+  coder: { color: '#090b0b', text: 'Co' },
+  tailscale: { color: '#242424', text: 'TS' },
+  lima: { color: '#2f6f4a', text: 'Lm' },
+  orbstack: { color: '#ffffff', text: 'Ob', full: true }
 }
 
 export function ProviderMark({ id, size = 26 }: { id: ProviderId; size?: number }): JSX.Element {
   const mark = MARKS[id]
+  const src = id === 'azure' ? azure : LOGOS[id]
   return (
-    <span className="provider-mark" style={{ width: size, height: size, background: mark.color, fontSize: mark.text.length > 2 ? size * 0.32 : size * 0.4 }} aria-hidden>
-      {mark.text}
+    <span className="provider-mark" data-full={mark.full || undefined} data-id={id} style={{ width: size, height: size, background: mark.color, fontSize: mark.text.length > 2 ? size * 0.32 : size * 0.4 }} aria-hidden>
+      {src ? <img src={src} alt="" draggable={false} /> : mark.text}
     </span>
   )
 }

@@ -13,6 +13,8 @@ export const environmentsApi = {
   providers: (): Promise<ProviderStatus[]> => ipcRenderer.invoke('environments:providers'),
   /** A provider's machine, picked, as an environment (not saved yet). */
   grab: (req: GrabRequest): Promise<GrabResult> => ipcRenderer.invoke('environments:grab', req),
+  /** An environment being removed: what Eaon made to reach its machine (a Freestyle token) is taken back. */
+  forget: (env: CloudEnvironment): Promise<{ ok: true } | { ok: false; error: string }> => ipcRenderer.invoke('environments:forget', env),
   /** Whether an environment can be reached, in words. */
   check: (env: CloudEnvironment): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('environments:check', env),
   /** Makes the place a session runs in, with a copy of the project; steps come to `onProgress`. */
