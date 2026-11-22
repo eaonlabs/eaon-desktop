@@ -51,15 +51,6 @@
   align-items: center;
   gap: 9px;
 }
-.place-setup__icon {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
-  color: color-mix(in srgb, var(--accent) 60%, var(--text));
-}
 .place-setup__title {
   flex: 1;
   min-width: 0;
@@ -120,64 +111,68 @@
   white-space: nowrap;
 }
 
-/* ------------------------------------------------------- header badge */
+/* ------------------------------------------------------- header chip */
 
-.place-badge {
+/* Where a chat runs, in its header: a quiet control like the header's others,
+   the machine's logo with its state as a dot on the logo's corner (as the
+   ADE's sidebar marks a session's), and the machine's name. */
+.place-chip {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
   flex-shrink: 1;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
-  max-width: 240px;
+  max-width: 220px;
   height: 26px;
-  margin-left: 4px;
-  padding: 0 7px 0 8px;
-  border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  margin-left: 6px;
+  padding: 0 9px 0 6px;
+  border-radius: var(--r-sm);
   font-size: var(--fs-sm);
-  color: color-mix(in srgb, var(--accent) 50%, var(--text));
-  transition: background var(--dur) var(--ease);
+  font-weight: 500;
+  color: var(--text-2);
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease);
 }
-.place-badge:hover,
-.place-badge[data-open] {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.place-chip:hover,
+.place-chip[data-open] {
+  background: var(--hover);
+  color: var(--text);
 }
-.place-badge svg {
+.place-chip:active {
+  scale: 0.96;
+}
+.place-chip__mark {
+  position: relative;
+  display: inline-flex;
   flex: none;
 }
-.place-badge__label {
+.place-chip__state {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--git-added);
+  box-shadow: 0 0 0 2px var(--canvas);
+  transition: background-color 200ms var(--ease);
+}
+.place-chip[data-state='preparing'] .place-chip__state {
+  background: var(--accent);
+  animation: place-pulse 1.2s ease-in-out infinite;
+}
+.place-chip[data-state='idle'] .place-chip__state {
+  background: var(--text-4);
+}
+.place-chip[data-state='failed'] .place-chip__state {
+  background: var(--danger);
+}
+.place-chip__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-.place-badge__dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--git-added);
-}
-.place-badge[data-state='preparing'] .place-badge__dot {
-  background: var(--accent);
-  animation: place-pulse 1.2s ease-in-out infinite;
-}
-.place-badge[data-state='idle'] .place-badge__dot {
-  background: var(--text-4);
-}
-.place-badge[data-state='failed'] {
-  background: var(--danger-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent);
-  color: var(--text);
-}
-.place-badge[data-state='failed'] .place-badge__dot {
-  background: var(--danger);
-}
-.place-badge__chevron {
-  color: var(--text-3);
 }
 @keyframes place-pulse {
   50% {
@@ -216,7 +211,7 @@
 @media (prefers-reduced-motion: reduce) {
   .place-setup,
   .place-setup__step,
-  .place-badge[data-state='preparing'] .place-badge__dot {
+  .place-chip[data-state='preparing'] .place-chip__state {
     animation: none;
   }
 }

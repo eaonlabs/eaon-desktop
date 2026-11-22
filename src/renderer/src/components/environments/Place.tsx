@@ -1,17 +1,36 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { ArrowDownToLine, Check, ChevronDown, Copy, ExternalLink, Globe, Loader2, SquareTerminal, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, Check, Copy, ExternalLink, Globe, Loader2, Server, SquareTerminal, Trash2 } from 'lucide-react'
 import { remoteLocation } from '@shared/adeRemote'
-import { placeLabel, type SessionPlace } from '@shared/environments'
+import { environmentsOf, placeLabel, providerOf, type ProviderId, type SessionPlace } from '@shared/environments'
 import type { Chat } from '@shared/types'
 import { useApp } from '../../state/store'
 import { useChatCode } from '../chatCode/chatCodeStore'
 import { notify } from '../Notice'
 import { ConfirmDialog, MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
-import { EnvironmentIcon } from './EnvironmentPicker'
+import { ProviderMark } from './Providers'
 import './environments.css'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+
+/** Whose machine a session is on: kept on it, or (made before that was) its environment's. */
+function usePlaceProvider(place: SessionPlace | undefined): ProviderId | undefined {
+  const env = useApp((s) => (place ? environmentsOf(s.settings?.environments).find((e) => e.id === place.envId) : undefined))
+  if (!place) return undefined
+  return place.provider ?? (env ? providerOf(env) : place.kind === 'exe' ? 'exe' : undefined)
+}
+
+/** A session's machine as a mark: its provider's logo, or a server for a machine over SSH. */
+export function PlaceMark({ place, size = 16 }: { place: SessionPlace; size?: number }): JSX.Element {
+  const provider = usePlaceProvider(place)
+  return provider ? (
+    <ProviderMark id={provider} size={size} />
+  ) : (
+    <span className="env-tile" style={{ width: size, height: size }}>
+      <Server size={Math.round(size * 0.62)} strokeWidth={2} />
+    </span>
+  )
+}
 
 /** Seconds since `from`, ticking while shown. */
 function useElapsed(from: number): number {
@@ -53,9 +72,7 @@ export function PlaceSetup({ place }: { place: SessionPlace }): JSX.Element {
   return (
     <div className="place-setup" role="status" aria-live="polite">
       <div className="place-setup__head">
-        <span className="place-setup__icon">
-          <EnvironmentIcon env={place} size={16} />
-        </span>
+        <PlaceMark place={place} size={26} />
         <span className="place-setup__title">Setting up {place.name}</span>
         <span className="place-setup__time">{elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}</span>
       </div>
@@ -83,8 +100,10 @@ export function PlaceBadge({ chat }: { chat: Chat }): JSX.Element | null {
   const [bringing, setBringing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const running = useApp((s) => Boolean(s.runs[chat.id]))
+  // A provider's machine by its own name (sessions from before places kept it: their environment's).
+  const machine = useApp((s) => (place ? environmentsOf(s.settings?.environments).find((e) => e.id === place.envId)?.provider?.machine : undefined))
   if (!place) return null
-  const label = placeLabel(place)
+  const label = place.vm ?? place.machine ?? machine ?? placeLabel(place)
   const ready = place.state === 'ready'
   // Not set up yet, and nothing setting it up: it is when the session's next message goes.
   const state = place.state === 'preparing' && !running ? 'idle' : place.state
@@ -108,16 +127,17 @@ export function PlaceBadge({ chat }: { chat: Chat }): JSX.Element | null {
       <button
         ref={anchor}
         type="button"
-        className="place-badge"
-        data-state={state}
+        className="place-chip"
+        data-state={bringing ? 'preparing' : state}
         data-open={menu.open || undefined}
         onClick={menu.toggle}
         title={ready ? `Runs on ${place.host ?? label} (${place.name})` : state === 'failed' ? `${place.name} isn’t ready: ${place.error ?? ''}` : state === 'idle' ? `Runs on ${place.name}, set up with the next message` : `Setting up ${place.name}`}
       >
-        {bringing || state === 'preparing' ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : <EnvironmentIcon env={place} size={13} />}
-        <span className="place-badge__label">{label}</span>
-        <span className="place-badge__dot" aria-hidden />
-        <ChevronDown size={12} strokeWidth={2} className="place-badge__chevron" />
+        <span className="place-chip__mark">
+          <PlaceMark place={place} size={16} />
+          <span className="place-chip__state" aria-hidden />
+        </span>
+        <span className="place-chip__label">{label}</span>
       </button>
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={300} className="place-menu">
         <div className="place-menu__head">

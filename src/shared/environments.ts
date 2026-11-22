@@ -68,6 +68,9 @@ export interface SessionPlace {
   envId: string
   name: string
   kind: EnvironmentKind
+  /** Whose machine it is (exe.dev, Freestyle…), for its logo, and the machine by name there. */
+  provider?: ProviderId
+  machine?: string
   state: 'preparing' | 'ready' | 'failed'
   /** The copy's folder, `ssh://…`, once it is ready. */
   folder?: string
@@ -210,7 +213,12 @@ export function environmentsOf(list: CloudEnvironment[] | undefined): CloudEnvir
 
 /** A session's place in a few words, for a header or a sidebar row. */
 export function placeLabel(place: SessionPlace): string {
-  return place.vm ?? place.host ?? place.name
+  return place.vm ?? place.machine ?? place.host ?? place.name
+}
+
+/** Whose machine an environment's sessions run on, for its logo: its provider's, or exe.dev's. */
+export function providerOf(env: Pick<CloudEnvironment, 'kind' | 'provider'>): ProviderId | undefined {
+  return env.provider?.id ?? (env.kind === 'exe' ? 'exe' : undefined)
 }
 
 /* ------------------------------------------------------------- providers */

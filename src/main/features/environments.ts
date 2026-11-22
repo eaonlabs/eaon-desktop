@@ -2,6 +2,7 @@ import { basename } from 'node:path'
 import { isRemote, remoteCwd, remoteLocation, type SshHost } from '@shared/adeRemote'
 import {
   environmentsOf,
+  providerOf,
   exeHost,
   exeHostId,
   shortId,
@@ -90,7 +91,16 @@ export async function prepare(req: PrepareRequest, onStep: (step: string) => voi
   if (!env) return { ok: false, error: 'That environment isn’t in Settings → Environments any more. Pick another one.' }
   if (typeof req.project !== 'string' || !req.project || isRemote(req.project)) return { ok: false, error: 'This project is already on another machine, so it runs there.' }
   const at = Date.now()
-  const place: SessionPlace = { envId: env.id, name: env.name, kind: env.kind, state: 'preparing', source: req.project, at }
+  const place: SessionPlace = {
+    envId: env.id,
+    name: env.name,
+    kind: env.kind,
+    ...(providerOf(env) ? { provider: providerOf(env) } : {}),
+    ...(env.provider ? { machine: env.provider.machine } : {}),
+    state: 'preparing',
+    source: req.project,
+    at
+  }
   const controller = new AbortController()
   preparing.get(req.key)?.abort()
   preparing.set(req.key, controller)

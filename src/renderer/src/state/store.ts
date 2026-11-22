@@ -35,7 +35,7 @@ import {
   type ResolvedSelection
 } from '@shared/modelSelection'
 import { CLI_ENGINES } from '@shared/engines'
-import { environmentsOf, LOCAL_ENVIRONMENT, type SessionPlace } from '@shared/environments'
+import { environmentsOf, LOCAL_ENVIRONMENT, providerOf, type SessionPlace } from '@shared/environments'
 import { classifyTask, pickModel, routeRecord, type AdaptiveRoute } from '@shared/adaptive'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
@@ -847,7 +847,16 @@ export function pendingPlace(settings: Settings | null, project: Project | null,
   if (id === LOCAL_ENVIRONMENT) return null
   const env = environmentsOf(settings.environments).find((e) => e.id === id)
   if (!env) return null
-  return { envId: env.id, name: env.name, kind: env.kind, state: 'preparing', source: project.folder, at: now }
+  return {
+    envId: env.id,
+    name: env.name,
+    kind: env.kind,
+    ...(providerOf(env) ? { provider: providerOf(env) } : {}),
+    ...(env.provider ? { machine: env.provider.machine } : {}),
+    state: 'preparing',
+    source: project.folder,
+    at: now
+  }
 }
 
 /** Whether the chat on screen is a coding session: one in a project with a folder. */

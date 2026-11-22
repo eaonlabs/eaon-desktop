@@ -98,7 +98,7 @@ scenario('Cloud environments: a session runs on a copy elsewhere, and its work c
   assert.match(said, /Choose a model|Pick Codex or Claude/)
   assert.ok(!existsSync(join(home, 'eaon')), 'no copy was made for a model that can’t run there')
   // The header says where it will run, not yet set up.
-  await page.find('.place-badge[data-state="idle"]', { text: /Devbox/ })
+  await page.find('.place-chip[data-state="idle"]', { text: /Devbox/ })
   await page.screenshot('environment-needs-engine')
 
   // Getting the place ready, as a session's first turn does: the copy in ~/eaon on the machine, with each step said.
