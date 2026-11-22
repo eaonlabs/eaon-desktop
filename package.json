@@ -32,6 +32,8 @@
     "test:main": "node scripts/test-main.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:sweep": "node test/sweep/ui-sweep.mjs",
+    "check:release": "node scripts/release-check.mjs",
+    "check:release:watch": "node scripts/release-check-watch.mjs",
     "postinstall": "node scripts/fix-node-pty.mjs",
     "verify:plugins": "node scripts/verify-plugins.mjs",
     "verify:models": "node scripts/verify-model-library.mjs",
