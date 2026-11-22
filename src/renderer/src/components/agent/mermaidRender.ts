@@ -59,6 +59,10 @@ export function diagramConfig(dark: boolean): MermaidConfig {
     // fonts or colours from: labels are plain SVG text, in a system font.
     htmlLabels: false,
     theme: dark ? 'dark' : 'neutral',
+    // The layout the build includes. Left to itself, Mermaid 12 lays a
+    // flowchart out with ELK, which the build leaves out (lib/elkStub.ts),
+    // and every flowchart came back as "Couldn't draw this diagram".
+    layout: 'dagre',
     fontFamily: 'ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, Arial, sans-serif',
     // Failures are the caller's to show (the code block); Mermaid's own error picture and console noise stay off.
     suppressErrorRendering: true,
