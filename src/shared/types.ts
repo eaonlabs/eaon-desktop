@@ -7,6 +7,7 @@ import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
 import type { AgentPermission, AgentPermissionChoice } from './agentPermissions'
 import type { CloudEnvironment, SessionPlace } from './environments'
+import type { AppTab, ChatSide } from './tabs'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -364,7 +365,7 @@ export type AppIcon = 'default' | 'agent' | AppIconBackground
 /** The Disc E on another background than the default dark tile. */
 export type AppIconBackground = 'light' | 'ocean' | 'sunset' | 'forest' | 'grape' | 'aurora' | 'peaks'
 export const APP_ICON_BACKGROUNDS: readonly AppIconBackground[] = ['light', 'ocean', 'sunset', 'forest', 'grape', 'aurora', 'peaks']
-export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
+export type LaunchMode = 'chat' | 'ide' | 'workers' | 'ade' | 'last'
 /**
  * How the chat agent asks before acting. `ask`: before every change. `auto`:
  * only before risky ones. `full`: never, except for what can't be undone —
@@ -479,6 +480,8 @@ export interface Settings {
     launchAtLogin: boolean
     /** Which mode the app opens in: a fixed one, or wherever it was left. */
     launchMode: LaunchMode
+    /** The top bar's tabs, in order (shared/tabs.ts). Unset is every tab. */
+    tabs?: AppTab[]
   }
   appearance: {
     mode: ThemeMode
@@ -746,6 +749,8 @@ export interface Settings {
   disabledPlugins: string[]
   disabledSkills: string[]
   activeWorkspaceId: string
+  /** Which of the chat workspace's tabs is in front, Chat or the IDE (shared/tabs.ts). Unset is Chat. */
+  chatSide?: ChatSide
   selectedModelId: string | null
   /**
    * Which provider serves the selected model. The id alone is ambiguous once a

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowUpRight, Check, CornerDownLeft, FolderInput, Laptop, LayoutGrid, Loader2, Moon, Palette, Sun } from 'lucide-react'
+import { AppWindow, ArrowLeft, ArrowUpRight, Check, CornerDownLeft, FolderInput, Laptop, LayoutGrid, Loader2, Moon, Palette, Sun } from 'lucide-react'
+import { TabsPicker } from '../settings/TabsPicker'
 import { useShallow } from 'zustand/react/shallow'
 import type { LinkMethod } from '@shared/linkAccounts'
 import { providerReadiness } from '@shared/modelSelection'
@@ -22,7 +23,7 @@ import '../../styles/onboarding.css'
 /**
  * The first-run setup: a few short steps over the whole window on a fresh
  * install (main/features/onboarding.ts decides which installs are fresh).
- * Welcome, a model, light or dark, work from other apps (sessions, scripts
+ * Welcome, a model, light or dark, which tabs to have, work from other apps (sessions, scripts
  * and MCP servers, only when there are some), the Tokn account that tracks
  * usage, then an offer of the tour. Every step can be skipped, and so can
  * the whole setup; nothing in it is needed to use Eaon, and all of it is in
@@ -45,6 +46,7 @@ const STEPS = [
   { id: 'welcome', label: 'Welcome' },
   { id: 'models', label: 'Models' },
   { id: 'look', label: 'Appearance' },
+  { id: 'tabs', label: 'Tabs' },
   { id: 'import', label: 'Import' },
   { id: 'tokn', label: 'Tokn profile' },
   { id: 'ready', label: 'Finish' }
@@ -175,6 +177,7 @@ function Setup(): JSX.Element {
             {step === 'welcome' && <Welcome updated={updated} onNext={next} />}
             {step === 'models' && <ModelsStep ready={ready} refresh={() => void refreshProviders()} onNext={next} />}
             {step === 'look' && <LookStep onNext={next} />}
+            {step === 'tabs' && <TabsStep onNext={next} />}
             {step === 'import' && <ImportStep onNext={next} />}
             {step === 'tokn' && <ToknStep onNext={next} />}
             {step === 'ready' && <Ready updated={updated} onTour={() => void finish('done', true)} onStart={() => void finish('done', false)} />}
@@ -534,6 +537,33 @@ function LookStep({ onNext }: { onNext: () => void }): JSX.Element {
             </span>
           </button>
         ))}
+      </div>
+      <Actions>
+        <Primary onClick={onNext}>Continue</Primary>
+      </Actions>
+    </>
+  )
+}
+
+/**
+ * Which tabs the top bar has and their order: Chat, Workers, the IDE and the
+ * ADE, each on or off. The same list as Settings → General → Tabs.
+ */
+function TabsStep({ onNext }: { onNext: () => void }): JSX.Element {
+  return (
+    <>
+      <Header
+        hero={
+          <Tile>
+            <AppWindow size={20} strokeWidth={1.8} />
+          </Tile>
+        }
+        title="Pick your tabs"
+      >
+        Keep the ones you’ll use, in the order you want them. You can change this later in Settings → General.
+      </Header>
+      <div className="onboarding__tabs" style={stagger(3)}>
+        <TabsPicker />
       </div>
       <Actions>
         <Primary onClick={onNext}>Continue</Primary>

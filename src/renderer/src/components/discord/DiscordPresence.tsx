@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { discordPlace, type DiscordStatus } from '@shared/discordPresence'
-import { useApp, useWorkspaceKind } from '../../state/store'
+import { useApp, useTabs, useWorkspaceKind } from '../../state/store'
 import { useAppActivity, type AppActivity } from './useAppActivity'
 
 /** The app's activity, narrowed to what the Discord card says. */
@@ -27,7 +27,8 @@ export function DiscordPresence(): JSX.Element | null {
 
 function ActivePresence(): null {
   const discord = useApp((s) => s.settings!.discord)
-  const place = discordPlace(useWorkspaceKind())
+  const kind = useWorkspaceKind()
+  const place = useTabs().active === 'ide' ? 'ide' : discordPlace(kind)
   const status = discordStatus(useAppActivity())
   const { showStatus, showElapsed, showButton } = discord
 

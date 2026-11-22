@@ -77,7 +77,8 @@ scenario('Cloud environments: a session runs on a copy elsewhere, and its work c
   )
   await page.reload()
 
-  // The project's start page: the picker under the box says where the session will run.
+  // The project's start page, in the IDE: the picker under the box says where the session will run.
+  await page.click('.mode-switch__option', { text: 'IDE' })
   await page.click('.sidebar .nav-item--sub', { text: /Start a session in this project/ })
   await page.find('.composer-pill--env', { text: /Devbox/ })
   await page.screenshot('environment-picker')

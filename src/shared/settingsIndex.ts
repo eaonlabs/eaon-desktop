@@ -58,7 +58,7 @@ export const SETTINGS_PAGES: SettingsPageEntry[] = [
 ]
 
 export const SETTINGS_ROWS: SettingsRowEntry[] = [
-  { page: "general", title: "Open on launch", description: "The mode Eaon opens in", section: "Startup" },
+  { page: "general", title: "Open on launch", description: "The tab Eaon opens in", section: "Startup" },
   { page: "general", title: "Launch at login", description: "Start Eaon in the background when you log in, so scheduled tasks run", section: "Startup" },
   { page: "general", title: "Prevent sleep while running", description: "Keep the computer awake while the assistant works on a task", section: "Startup" },
   { page: "general", title: "Notify me when an agent needs me", description: "A system notification when a task finishes or an agent waits for your OK, while Eaon isn’t in front", section: "Startup" },

@@ -26,7 +26,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, codeProject, messageText, runIn, useApp, useCoding, useIsWork, vmDeletedWith } from '../state/store'
+import { codeFolder, codeProject, messageText, runIn, useApp, useChatSide, useCoding, useIsWork, vmDeletedWith } from '../state/store'
 import { Composer } from './Composer'
 import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
@@ -205,6 +205,8 @@ function Home(): JSX.Element {
   const temporary = useApp((s) => s.pendingTemporary) && isWork
   // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
+  // Beside Chat, the IDE's start page is always in a project; with none yet it asks for one.
+  const side = useChatSide()
 
   return (
     <>
@@ -238,7 +240,9 @@ function Home(): JSX.Element {
                 </span>
                 ?
               </>
-            ) : isWork ? (
+            ) : side === 'ide' ? (
+              'Open a project to start coding'
+            ) : isWork && side !== 'chat' ? (
               'What should we work on?'
             ) : (
               'What can I help with?'

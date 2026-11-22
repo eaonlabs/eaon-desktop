@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
+import { shownTabs, type AppTab } from '@shared/tabs'
 import { shortcutLabel } from '../../lib/platform'
 import { useApp } from '../../state/store'
 import { useOnboarding, type TourKind } from './onboardingStore'
@@ -20,8 +21,8 @@ import { useOnboarding, type TourKind } from './onboardingStore'
  */
 
 interface Stop {
-  /** The tab the stop is in: Chat, Workers or ADE (their workspace ids). */
-  workspace: 'work' | 'workers' | 'eaon-code'
+  /** The tab the stop is in. */
+  tab: AppTab
   selector?: string
   text?: string
   /** Where the card goes, if there's room. */
@@ -30,32 +31,41 @@ interface Stop {
   body: string
 }
 
+/** Where a stop shows with the tabs as set: its own tab, or Chat for the IDE's (and back) when only one of them is there; none when its tab is hidden. */
+function tourTab(tab: AppTab): AppTab | null {
+  const tabs = shownTabs(useApp.getState().settings?.general.tabs)
+  if (tabs.includes(tab)) return tab
+  if (tab === 'ide' && tabs.includes('chat')) return 'chat'
+  if (tab === 'chat' && tabs.includes('ide')) return 'ide'
+  return null
+}
+
 const mod = (): string => (window.api.platform === 'darwin' ? '⌘' : 'Ctrl+')
 
 const stops = (): Stop[] => [
   {
-    workspace: 'work',
+    tab: 'chat',
     selector: '.mode-switch',
     side: 'bottom',
-    title: 'Three places to work',
-    body: `Chat for questions and tasks, Workers for agents that keep going on their own, and the ADE for coding agents. ${mod()}1, ${mod()}2 and ${mod()}3 switch between them.`
+    title: 'Your tabs',
+    body: `Chat for questions and tasks, Workers for agents that keep going on their own, the IDE for coding in a project, and the ADE for coding agents in terminals. ${mod()}1, ${mod()}2 and so on switch between them, and Settings → General picks which you have.`
   },
   {
-    workspace: 'work',
+    tab: 'chat',
     selector: '.main .composer',
     side: 'top',
     title: 'Ask, or hand over a task',
     body: 'Type a question or describe a task. Eaon can search the web, work with your files and use your browser when you let it. Attach files with +.'
   },
   {
-    workspace: 'work',
+    tab: 'chat',
     selector: '.main .chip--model',
     side: 'top',
     title: 'Pick a model',
     body: 'Switch models whenever you like, right from here. Accounts, API keys and local models all show up in this list.'
   },
   {
-    workspace: 'work',
+    tab: 'chat',
     // The whole panel: New chat and search above, projects and chats in the list under them.
     selector: '.sidebar__panel',
     side: 'right',
@@ -63,7 +73,7 @@ const stops = (): Stop[] => [
     body: `New chats, projects and everything recent live here. Search sits at the top, and ${mod()}B hides the sidebar.`
   },
   {
-    workspace: 'workers',
+    tab: 'workers',
     selector: '.sidebar .nav-item',
     text: 'Automations',
     side: 'right',
@@ -71,7 +81,7 @@ const stops = (): Stop[] => [
     body: 'Run a prompt on its own: every morning, every few minutes, or on any cron schedule. Each run lands in the sidebar as a new chat.'
   },
   {
-    workspace: 'eaon-code',
+    tab: 'ade',
     // "Choose folder…" on the ADE's first page; with a project open, its header.
     selector: '.main .code-home__cta, .main .code-header',
     side: 'bottom',
@@ -79,7 +89,7 @@ const stops = (): Stop[] => [
     body: 'Open a project to run Claude Code, Codex and other agents side by side in real terminals. Review what they changed, comment on any line, and send the comments back.'
   },
   {
-    workspace: 'eaon-code',
+    tab: 'ade',
     // Rings or a bar, whichever Settings → Usage & limits shows.
     selector: '.usage-rings, .usage-pill',
     side: 'bottom',
@@ -87,7 +97,7 @@ const stops = (): Stop[] => [
     body: 'How much of your Claude and Codex plans is left, and when it resets. Switch accounts from here when one runs low.'
   },
   {
-    workspace: 'eaon-code',
+    tab: 'ade',
     selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
@@ -99,42 +109,42 @@ const stops = (): Stop[] => [
 /** What's new since 2026.6, for an install updated from it, tab by tab. */
 const whatsNewStops = (): Stop[] => [
   {
-    workspace: 'work',
+    tab: 'chat',
     side: 'bottom',
     title: `What’s new in Eaon ${WHATS_NEW_RELEASE}`,
     body: 'A one-minute look at what has changed since 2026.6, tab by tab. You can take it again from Settings → General.'
   },
   {
-    workspace: 'work',
+    tab: 'chat',
     selector: '.main .chip--model',
     side: 'top',
     title: 'Free models with Eaon Lite',
     body: 'MiMo v2.6 Flash and Muse Spark are in the model picker under Eaon Lite, free for everyone. No key, no sign-in.'
   },
   {
-    workspace: 'work',
+    tab: 'chat',
     selector: '.main .composer-pill--permission',
     side: 'top',
     title: 'A new message box',
     body: 'Choose here how much Eaon may do without asking. Approvals now show just above the box, and you can paste a screenshot straight in.'
   },
   {
-    workspace: 'work',
+    tab: 'ide',
     selector: '.main .composer-pill--project, .main .ws-card',
     side: 'top',
     title: 'Work in a project',
     body: 'Pick a folder and the chat becomes a coding session in that project, listed under Projects. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
   },
   {
-    // In Chat, where its switch is always at the top right: the ADE's shows only with a project open.
-    workspace: 'work',
+    // In the IDE, where its switch is always at the top right: the ADE's shows only with a project open.
+    tab: 'ide',
     selector: '.main .panel-toggles [aria-label="Dock"], .dock',
     side: 'bottom',
     title: 'A dock beside your agents',
     body: `The dock at the top right, beside a chat and beside an ADE session's terminals, shows a page in the browser (${shortcutLabel('⇧⌘B')}), the files, the diff and the pull request. Design Mode sends what you point at to an agent, and in the ADE, Hand off passes a stuck agent's work to another.`
   },
   {
-    workspace: 'workers',
+    tab: 'workers',
     selector: '.sidebar .nav-item',
     text: 'New worker',
     side: 'right',
@@ -142,7 +152,7 @@ const whatsNewStops = (): Stop[] => [
     body: 'Give a worker a goal and an end time and it keeps at it, woken when a background job ends or a page it watches changes. Teach one a task by doing it in its browser.'
   },
   {
-    workspace: 'workers',
+    tab: 'workers',
     selector: '.sidebar .nav-item',
     text: 'Automations',
     side: 'right',
@@ -150,7 +160,7 @@ const whatsNewStops = (): Stop[] => [
     body: 'Scheduled is now Automations, with cron schedules: @daily, every few minutes or any pattern, in your time zone, with the next runs spelled out.'
   },
   {
-    workspace: 'workers',
+    tab: 'workers',
     selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
@@ -158,14 +168,14 @@ const whatsNewStops = (): Stop[] => [
     body: 'Settings → Workers → Worker computer moves your workers to a computer you leave on, like a Raspberry Pi, so they keep going while this one sleeps. They now answer in Slack, Matrix, Mattermost and Zulip too.'
   },
   {
-    workspace: 'eaon-code',
+    tab: 'ade',
     selector: '.usage-rings, .usage-pill',
     side: 'bottom',
     title: 'Plan limits, up top',
     body: 'How much is left on your Claude Code, Codex, Cursor, Copilot and other plans, and when each resets. Settings → Usage & limits has the details.'
   },
   {
-    workspace: 'eaon-code',
+    tab: 'ade',
     selector: '.sidebar .nav-item, .sidebar .foot-bar__btn',
     text: 'Settings',
     side: 'right',
@@ -251,7 +261,11 @@ export function Tour(): JSX.Element | null {
 
 function TourOverlay({ tour }: { tour: TourKind }): JSX.Element {
   const endTour = useOnboarding((s) => s.endTour)
-  const [list] = useState(tour === 'whatsNew' ? whatsNewStops : stops)
+  // Only the stops in tabs that are there; the IDE's go to Chat when Chat has the projects too.
+  const [list] = useState(() => (tour === 'whatsNew' ? whatsNewStops() : stops()).flatMap((stop) => {
+    const tab = tourTab(stop.tab)
+    return tab ? [{ ...stop, tab }] : []
+  }))
   const [index, setIndex] = useState(0)
   const [layout, setLayout] = useState<Placement | null>(null)
   // The card glides from stop to stop, but lands at the first one without sliding in from nowhere.
@@ -270,8 +284,7 @@ function TourOverlay({ tour }: { tour: TourKind }): JSX.Element {
   // Into the stop's tab, then find its element once that tab has drawn.
   useEffect(() => {
     const app = useApp.getState()
-    const target = app.workspaces.find((w) => w.id === stop.workspace)
-    if (target && app.settings?.activeWorkspaceId !== target.id) app.setWorkspace(target.id)
+    app.setTab(stop.tab)
     if (app.view !== 'chat') app.setView('chat')
   }, [stop])
 
@@ -320,7 +333,7 @@ function TourOverlay({ tour }: { tour: TourKind }): JSX.Element {
       // A short fade, then back where a first-time user starts.
       window.setTimeout(() => {
         const app = useApp.getState()
-        if (app.settings?.activeWorkspaceId !== 'work' && app.workspaces.some((w) => w.id === 'work')) app.setWorkspace('work')
+        app.setTab(shownTabs(app.settings?.general.tabs)[0])
         endTour(how)
       }, 180)
     },

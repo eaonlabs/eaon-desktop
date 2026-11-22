@@ -317,6 +317,15 @@
   margin-bottom: 10px;
   padding-left: 2px;
 }
+/* A line between a section's label and its card, saying what it holds. */
+.settings__section-note {
+  margin: -4px 0 10px;
+  padding-left: 2px;
+  max-width: 62ch;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
 /* A line under a page's title that says what the page is for. */
 .settings__lede + .settings__section {
   margin-top: 26px;

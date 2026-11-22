@@ -8,6 +8,7 @@ import { logCrash } from './crashGuard'
 import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
 import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
 import { enforceSettings } from './enterprise/policy'
+import { TAB_KIND } from '@shared/tabs'
 
 /**
  * What `providers.json` keeps per provider: the user's changes, layered over
@@ -526,9 +527,10 @@ export const store = {
     const settings = this.getSettings()
     const mode = settings.general.launchMode
     if (!mode || mode === 'last') return
-    const kind = mode === 'ade' ? 'code' : mode
-    const target = this.getWorkspaces().find((w) => w.kind === kind)
-    if (target && target.id !== settings.activeWorkspaceId) this.saveSettings({ ...settings, activeWorkspaceId: target.id })
+    const target = this.getWorkspaces().find((w) => w.kind === TAB_KIND[mode])
+    // Chat and the IDE are one workspace; which of them is in front is its side.
+    const side = mode === 'chat' || mode === 'ide' ? mode : settings.chatSide
+    if (target && (target.id !== settings.activeWorkspaceId || side !== settings.chatSide)) this.saveSettings({ ...settings, activeWorkspaceId: target.id, chatSide: side })
   },
 
   getProjects(): Project[] {

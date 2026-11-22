@@ -29,7 +29,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { codeFolder, runIn, useApp, useCoding, useIsWork } from '../state/store'
+import { codeFolder, runIn, useApp, useChatSide, useCoding, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -166,6 +166,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const isAgent = useIsWork()
   // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
   const coding = useCoding()
+  // Chat or the IDE, when each has its own chats: Chat's box has no project to pick, and the IDE's starts in one.
+  const side = useChatSide()
+  const needsProject = variant === 'home' && side === 'ide' && !coding
   // A conversation outside a project: its tray has no project or branch to show.
   const compact = variant === 'chat' && !(coding && isAgent)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
@@ -322,7 +325,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       setConnecting(true)
       return
     }
-    if (noModel || (!text.trim() && attachments.length === 0)) return
+    if (noModel || needsProject || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
       // The files go back first; if they can't, nothing is resent and the edit stays open.
@@ -785,10 +788,18 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={!streaming && ((noModel && !needsConnect) || dictating || (!text.trim() && attachments.length === 0))}
+      disabled={!streaming && ((noModel && !needsConnect) || needsProject || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={!streaming && needsConnect ? 'Connect a model to send this' : !streaming && noModel ? 'Pick a model that can be used — see above' : undefined}
+      title={
+        !streaming && needsProject
+          ? 'Open a project first: the IDE works in a folder'
+          : !streaming && needsConnect
+            ? 'Connect a model to send this'
+            : !streaming && noModel
+              ? 'Pick a model that can be used — see above'
+              : undefined
+      }
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />
@@ -929,7 +940,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
       {/* Tucked under the box on a project's start page: its folder, and the branch. Once the
           chat has begun the strip goes; the header names the project. */}
-      {variant === 'home' && isAgent && (
+      {variant === 'home' && isAgent && side !== 'chat' && (
         <div className="composer__tray">
           <EnvironmentPicker />
           <ProjectPicker />

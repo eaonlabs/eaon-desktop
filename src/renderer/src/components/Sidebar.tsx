@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
-import { useApp, useWorkspaceKind, vmDeletedWith, type ChatListItem } from '../state/store'
+import { useApp, useChatSide, useWorkspaceKind, vmDeletedWith, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
 import { FadingBody } from './FadingBody'
@@ -22,6 +22,7 @@ import { ageLabel } from '@shared/adeSessions'
 import { ConfirmDialog, MenuItem, Modal, Popover, useDisclosure } from './ui'
 import { RemoteFolderDialog } from './RemoteFolderDialog'
 import type { Project } from '@shared/types'
+import type { ChatSide } from '@shared/tabs'
 import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
 
 export function Sidebar(): JSX.Element {
@@ -152,6 +153,16 @@ function ChatMenu(): JSX.Element {
     useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat }))
   )
   const { on: tradingOn } = useTradingOn()
+  const side = useChatSide()
+  // The IDE's places are its projects: a new chat (in the project it's on) and the search row.
+  if (side === 'ide') {
+    return (
+      <>
+        <NavItem icon={<SquarePen {...ICON} />} label="New chat" onClick={() => newChat()} />
+        <ChatFind />
+      </>
+    )
+  }
   return (
     <>
       <NavItem icon={<SquarePen {...ICON} />} label="New chat" onClick={() => newChat()} />
@@ -186,7 +197,10 @@ function ChatMenu(): JSX.Element {
 function ChatNav(): JSX.Element {
   const view = useChatSidebar((s) => s.view)
   const searching = useChatSidebar((s) => s.query.trim() !== '')
-  return view === 'list' || searching ? <ChatThreads /> : <ChatTree />
+  // With Chat and the IDE both tabs, Chat lists the chats outside a project and the IDE the ones in one.
+  const side = useChatSide()
+  if (side === 'chat') return <ChatThreads side={side} />
+  return view === 'list' || searching ? <ChatThreads side={side} /> : <ChatTree side={side} />
 }
 
 /** How long a reply runs before its chat joins Working under the list: a quick answer stays where it is. */
@@ -305,10 +319,12 @@ function projectOfChat(chatId: string): Project | null {
  * held still under the pointer; then the chats outside a project under
  * Chats, a line each, as they always were.
  */
-function ChatThreads(): JSX.Element {
+function ChatThreads({ side }: { side: ChatSide | null }): JSX.Element {
   const { view, activeChatId, runs } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, runs: s.runs })))
   const searching = useChatSidebar((s) => s.query.trim() !== '')
-  const threads = useChatThreads()
+  const all = useChatThreads()
+  // Chat's side has no project chats, and the IDE's no chats outside a project.
+  const threads = side === 'chat' ? { ...all, rows: NO_ROWS } : side === 'ide' ? { ...all, loose: NO_ROWS } : all
   const { order, hold } = useHeldOrder(threads.rows.map((chat) => chat.id))
   const byId = new Map(threads.rows.map((chat) => [chat.id, chat]))
   const [editing, setEditing] = useState<Project | null>(null)
@@ -343,9 +359,32 @@ function ChatThreads(): JSX.Element {
           })}
         </div>
       )}
-      <LooseChats loose={threads.loose} divided={threads.rows.length > 0} searching={searching} />
+      {side !== 'ide' && <LooseChats loose={threads.loose} divided={threads.rows.length > 0} searching={searching} />}
+      {side === 'ide' && !searching && threads.rows.length === 0 && <IdeEmpty />}
       {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} />}
     </>
+  )
+}
+const NO_ROWS: ChatListItem[] = []
+
+/** The IDE with no project yet: what it is for, and the way to start. */
+function IdeEmpty(): JSX.Element {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const adding = useDisclosure()
+  const start = (folder: string | null): void => {
+    if (!folder) return
+    const app = useApp.getState()
+    app.newChat(app.projectForFolder(folder).id)
+  }
+  return (
+    <div className="sidebar__empty sidebar__empty--ide">
+      <p>Open a project folder to code in it with an agent.</p>
+      <button ref={anchor} type="button" className="sidebar__empty-action" data-open={adding.open || undefined} onClick={adding.toggle}>
+        <FolderPlus size={14} strokeWidth={1.9} />
+        Open a project
+      </button>
+      <FolderMenu anchor={anchor} open={adding.open} onClose={adding.close} onChoose={start} />
+    </div>
   )
 }
 
@@ -353,7 +392,9 @@ function ChatThreads(): JSX.Element {
 function ChatDock(): JSX.Element | null {
   const view = useChatSidebar((s) => s.view)
   const searching = useChatSidebar((s) => s.query.trim() !== '')
-  if (view !== 'list' && !searching) return null
+  // The chats it lists are in projects: the IDE's.
+  const side = useChatSide()
+  if (side === 'chat' || (view !== 'list' && !searching)) return null
   return <ChatWorking />
 }
 
@@ -394,6 +435,8 @@ function ChatWorking(): JSX.Element | null {
 /** The search row under Chat's places: the search, how the list is shown, and a new project. */
 function ChatFind(): JSX.Element {
   const { query, setQuery } = useChatSidebar(useShallow((s) => ({ query: s.query, setQuery: s.setQuery })))
+  // Projects are the IDE's: Chat's search row has no view of them and starts none.
+  const plain = useChatSide() === 'chat'
   const addAnchor = useRef<HTMLButtonElement>(null)
   const adding = useDisclosure()
   const start = (folder: string | null): void => {
@@ -404,10 +447,12 @@ function ChatFind(): JSX.Element {
   return (
     <>
       <SidebarFind value={query} onChange={setQuery} label="Search chats and what was said in them">
-        <ChatViewMenu />
-        <FindTool ref={addAnchor} label="New project: choose a folder to code in" open={adding.open} onClick={adding.toggle}>
-          <FolderPlus size={15} strokeWidth={1.8} />
-        </FindTool>
+        {!plain && <ChatViewMenu />}
+        {!plain && (
+          <FindTool ref={addAnchor} label="New project: choose a folder to code in" open={adding.open} onClick={adding.toggle}>
+            <FolderPlus size={15} strokeWidth={1.8} />
+          </FindTool>
+        )}
       </SidebarFind>
       <FolderMenu anchor={addAnchor} open={adding.open} onClose={adding.close} onChoose={start} />
     </>
@@ -446,7 +491,7 @@ function ChatViewMenu(): JSX.Element {
 }
 
 /** Chat's projects, then its chats outside them. */
-function ChatTree(): JSX.Element {
+function ChatTree({ side }: { side: ChatSide | null }): JSX.Element {
   const chats = useSortedChats()
   const projectChatIds = useApp(useShallow((s) => s.chats.filter((c) => c.projectId && !c.archived).map((c) => c.id)))
   const loose = useMemo(() => {
@@ -467,7 +512,7 @@ function ChatTree(): JSX.Element {
   return (
     <>
       <Projects />
-      <LooseChats loose={loose} divided />
+      {side !== 'ide' && <LooseChats loose={loose} divided />}
     </>
   )
 }
@@ -625,6 +670,7 @@ function ChatSortButton(): JSX.Element {
  * folder and instructions, shows the folder, or deletes it.
  */
 function Projects(): JSX.Element {
+  const side = useChatSide()
   const sort = useChatSidebar((s) => s.projectSort)
   // Ids, not projects: a reply finishing moves a project only when the order really changes.
   const order = useApp(useShallow((s) => sortProjects(s.visibleProjects(), s.chats, sort).map((p) => p.id)))
@@ -662,7 +708,7 @@ function Projects(): JSX.Element {
       </SidebarHead>
       <FolderMenu anchor={addAnchor} open={adding.open} onClose={adding.close} onChoose={start} />
       {projects.length === 0 ? (
-        <div className="sidebar__empty">No projects</div>
+        side === 'ide' ? <IdeEmpty /> : <div className="sidebar__empty">No projects</div>
       ) : (
         projects.map((project) => <ProjectRow key={project.id} project={project} onEdit={() => setEditing(project)} />)
       )}
@@ -999,6 +1045,7 @@ const ChatRow = memo(function ChatRow({
   const [confirm, setConfirm] = useState<'delete' | 'archive' | null>(null)
   // Moving to a project picks its folder, from where the row is.
   const [moving, setMoving] = useState(false)
+  const side = useChatSide()
   const moveTo = (folder: string | null): void => {
     const app = useApp.getState()
     app.moveChat(chat.id, folder ? app.projectForFolder(folder).id : null)
@@ -1186,7 +1233,8 @@ const ChatRow = memo(function ChatRow({
           onChoose={moveTo}
           // Its own project isn't somewhere to move it to.
           current={inProject ? projectFolderOf(chat.id) : null}
-          none={inProject ? 'Move to Chats' : undefined}
+          // With the IDE a tab of its own, out of a project is to the Chat tab.
+          none={inProject ? (side ? 'Move to Chat' : 'Move to Chats') : undefined}
         />
       )}
       <ConfirmDialog
