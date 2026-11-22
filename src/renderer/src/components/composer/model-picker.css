@@ -355,7 +355,7 @@
 }
 .mp__section {
   padding: 7px 8px 3px;
-  color: var(--mp-text-3);
+  color: var(--mp-text-2);
   font-size: 11px;
 }
 .mp__row[data-attention] .mp__row-name {
