@@ -8,7 +8,9 @@
  */
 const RELEASE_NAMES: Record<string, string> = {
   '2026.7.3': '2026.7.2.1',
-  '2026.7.8': '2026.7.7.1'
+  '2026.7.8': '2026.7.7.1',
+  // 2026.7.7.1 already went out as 2026.7.8, so the release named 2026.7.8 is 2026.7.9 underneath.
+  '2026.7.9': '2026.7.8'
 }
 
 export function versionLabel(version: string): string {
