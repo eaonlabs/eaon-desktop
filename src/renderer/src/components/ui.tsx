@@ -543,7 +543,8 @@ export function Switch({
   onChange: (next: boolean) => void
   dimmed?: boolean
   disabled?: boolean
-  label?: string
+  /** What it switches, for screen readers: a switch is only a knob, with no words of its own. */
+  label: string
 }): JSX.Element {
   return (
     <button

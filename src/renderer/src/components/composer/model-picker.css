@@ -7,6 +7,7 @@
   --mp-bg: #181715;
   --mp-line: rgba(255, 255, 255, 0.075);
   --mp-text: #ececec;
+  /* Text-2 is the quietest text that is read (5.2:1 here). Text-3 is for the placeholder and icons only. */
   --mp-text-2: #8d8a87;
   --mp-text-3: #6e6b68;
   --mp-kbd: #a29e9b;
@@ -34,9 +35,10 @@
   --mp-bg: #ffffff;
   --mp-line: rgba(0, 0, 0, 0.07);
   --mp-text: #1d1d1f;
-  --mp-text-2: #7a7a80;
+  /* Text-2 and the shortcut keys are read: at least 4.5:1 on white (and on the keys' tint). Text-3 is for the placeholder and icons only. */
+  --mp-text-2: #6e6e73;
   --mp-text-3: #a3a3a8;
-  --mp-kbd: #8a8a90;
+  --mp-kbd: #6e6e73;
   --mp-icon: #6e6e73;
   --mp-hover: rgba(0, 0, 0, 0.04);
   --mp-blue: #3f7fd6;
@@ -353,7 +355,7 @@
 }
 .mp__section {
   padding: 7px 8px 3px;
-  color: var(--mp-text-3);
+  color: var(--mp-text-2);
   font-size: 11px;
 }
 .mp__row[data-attention] .mp__row-name {
@@ -657,6 +659,6 @@
 }
 .mp__row-hint {
   margin-left: 8px;
-  color: var(--mp-text-3);
+  color: var(--mp-text-2);
   font-size: 12px;
 }

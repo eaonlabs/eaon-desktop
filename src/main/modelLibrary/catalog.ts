@@ -130,7 +130,7 @@ export const LIBRARY: LibraryModel[] = [
     links: { huggingFace: 'Qwen/Qwen3.8-27B' },
     variants: [
       hf('ud-q3_k_xl', 'UD-Q3_K_XL', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q3_K_XL.gguf', 'mmproj-F16.gguf'], 14_074_000_992),
-      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 17_392_047_712),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 17_491_867_232),
       hf('q8_0', 'Q8_0', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-Q8_0.gguf', 'mmproj-F16.gguf'], 29_974_693_536)
     ],
     recommended: [
@@ -322,7 +322,7 @@ export const LIBRARY: LibraryModel[] = [
     links: { huggingFace: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16' },
     variants: [
       hf('q4_k_m', 'Q4_K_M', 'unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf'], 25_266_255_936),
-      hf('q8_0', 'Q8_0', 'ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q8_0.gguf'], 33_585_495_616)
+      hf('q8_0', 'Q8_0', 'ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q8_0.gguf'], 33_585_495_648)
     ],
     recommended: [
       { ramGB: 32, variant: 'q4_k_m' },

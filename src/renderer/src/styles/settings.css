@@ -2193,6 +2193,11 @@ body[data-reduce-motion='on'] .star-card {
   font-size: var(--fs-xxs, 11px);
   text-align: center;
 }
+/* The title keeps room for a line of its own; past that, the scope picker
+   goes under it instead of squeezing it into a column (a narrow window). */
+.rules__bar > .row__body {
+  flex: 1 1 280px;
+}
 .rules__scope {
   margin-left: auto;
   display: flex;

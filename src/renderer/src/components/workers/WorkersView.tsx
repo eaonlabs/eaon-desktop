@@ -125,7 +125,8 @@ function Team(): JSX.Element {
                 <Users size={14} strokeWidth={2} />
                 <span>New team</span>
               </button>
-              <button className="header-btn" onClick={() => openEditor(null)}>
+              {/* Named for when a narrow window leaves only the icon. */}
+              <button className="header-btn" onClick={() => openEditor(null)} aria-label="New worker" title="A new worker: a name, a colour, a personality and a job">
                 <Plus size={14} strokeWidth={2} />
                 <span>New worker</span>
               </button>
