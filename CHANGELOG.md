@@ -5,6 +5,8 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [2026.7.8.1] — 2026-11-23
+
 ### Added
 - **Cloud environments.** Run a session on another machine instead of this computer: an exe.dev VM (a fresh one for each session, or one of yours) or any machine you reach over SSH. Set one up in Settings → Environments, then pick where a session runs under the message box (beside the project) or in the ADE’s New session; the picker only shows once one is set up. The session works on a copy of the project made there (its branch and history, the changes you haven’t committed, and new files; not ignored ones like .env), and its agent runs there too: Codex or Claude Code, kept going by a small helper on that machine, so you can close your laptop or lose the network and it carries on. Eaon catches up with everything it did when you’re back. ADE panes there run inside tmux for the same reason. Bring changes back puts the session’s work in the project here as a branch, without touching your checkout.
 - **Machines from your providers.** Eaon looks for the command-line tools of popular VM providers on this computer (exe.dev, GitHub Codespaces, AWS, Google Cloud, Azure, DigitalOcean, Hetzner, Linode, Vultr, Coder, Tailscale, Lima and OrbStack), says which are signed in, and lists their machines. Pick one in Settings → Environments or New environment and it becomes a place sessions run, reached the way the provider reaches it (its own SSH config, or its CLI as a proxy); your ~/.ssh/config isn’t changed. One that isn’t signed in shows the command that signs it in, and one that isn’t installed, how to get it. Eaon only reads what they list; it never starts, makes or changes anything at the provider.
