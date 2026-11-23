@@ -40,7 +40,7 @@ import { CLI_ENGINES } from '@shared/engines'
 import { environmentsOf, LOCAL_ENVIRONMENT, providerOf, type SessionPlace } from '@shared/environments'
 import { classifyTask, pickModel, routeRecord, type AdaptiveRoute } from '@shared/adaptive'
 import { lastTurnFailed } from './chatStatus'
-import { activeTab, shownTabs, sideOfChat, splitsChats, TAB_KIND, type AppTab, type ChatSide } from '@shared/tabs'
+import { activeTab, chatSideIn, shownTabs, sideOfChat, splitsChats, TAB_KIND, type AppTab, type ChatSide } from '@shared/tabs'
 import { chatChanges, Checkpoint } from './chatSync'
 import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { cleanPlanSteps, planApprovalMessage, planChanged } from '@shared/planEdit'
@@ -1134,8 +1134,11 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   startTemporaryChat: () => {
-    // Temporary chats have no project: they're Chat's.
-    if (chatSideOf(get()) === 'ide') showSide('chat')
+    // Temporary chats have no project: they're Chat's, and the IDE alone has nowhere for one.
+    if (chatSideOf(get()) === 'ide') {
+      if (!shownTabs(get().settings?.general.tabs).includes('chat')) return
+      showSide('chat')
+    }
     get().newChat()
     set({ pendingTemporary: true })
   },
@@ -1664,9 +1667,8 @@ export const useApp = create<AppState>((set, get) => ({
     const settings = state.settings
     const target = state.workspaces.find((w) => w.kind === TAB_KIND[tab]) ?? (TAB_KIND[tab] === 'chat' ? state.workspaces.find((w) => w.kind === 'work') : undefined)
     if (!settings || !target) return
-    const split = splitsChats(shownTabs(settings.general.tabs))
     const leavingSide = chatSideOf(state)
-    const side: ChatSide | null = split && TAB_KIND[tab] === 'chat' ? (tab as ChatSide) : null
+    const side: ChatSide | null = TAB_KIND[tab] === 'chat' ? chatSideIn(tab as ChatSide, shownTabs(settings.general.tabs)) : null
     if (settings.activeWorkspaceId === target.id && leavingSide === side) return
     // Each tab keeps the chat that was open when it was left, so coming back
     // from the ADE lands there rather than on a fresh chat.
@@ -1815,13 +1817,13 @@ export const useApp = create<AppState>((set, get) => ({
 
 /**
  * Which of Chat and the IDE is in front, or null when another tab is, or
- * when only one of them is a tab and so has every chat (shared/tabs.ts).
+ * when Chat is with no IDE tab and so has every chat (shared/tabs.ts).
  */
 export function chatSideOf(s: Pick<AppState, 'settings' | 'workspaces'>): ChatSide | null {
   const settings = s.settings
-  if (!settings || !splitsChats(shownTabs(settings.general?.tabs))) return null
+  if (!settings) return null
   if (!isAgentKind(s.workspaces.find((w) => w.id === settings.activeWorkspaceId)?.kind)) return null
-  return settings.chatSide === 'ide' ? 'ide' : 'chat'
+  return chatSideIn(settings.chatSide, shownTabs(settings.general?.tabs))
 }
 
 /** Brings Chat or the IDE to the front at once, then saves it: a chat opened in its tab shows there in the same frame. */
@@ -1871,7 +1873,10 @@ export function settleTabs(): void {
   if (!side) return
   const chat = app.activeChat()
   if (chat) {
-    if (sideOfChat(chat) !== side) showSide(sideOfChat(chat))
+    if (sideOfChat(chat) === side) return
+    // A chat outside a project, open as Chat was hidden: the IDE alone goes back to its start page in a project.
+    if (tabs.includes(sideOfChat(chat))) showSide(sideOfChat(chat))
+    else useApp.setState({ activeChatId: null, pendingProjectId: ideProject(app), pendingTemporary: false })
   } else if (side === 'ide') {
     useApp.setState({ pendingProjectId: app.pendingProjectId ?? ideProject(app), pendingTemporary: false })
   } else if (app.pendingProjectId) {

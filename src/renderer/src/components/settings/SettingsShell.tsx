@@ -4,7 +4,6 @@ import {
   Archive,
   Chrome,
   Code2,
-  SquareTerminal,
   Gamepad2,
   ArrowLeft,
   Binary,
@@ -32,7 +31,7 @@ import { SearchField } from '../ui'
 import { SignInPrompt } from '../account/ToknAccount'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { SettingsPageError } from '../CrashScreen'
-import { WorkersGlyph } from '../ModeSwitch'
+import { AdeGlyph, WorkersGlyph } from '../ModeSwitch'
 import { GeneralPage } from './pages/General'
 import { AppearancePage } from './pages/Appearance'
 import { ConfigurationPage } from './pages/Configuration'
@@ -144,7 +143,7 @@ const NAV: NavEntry[] = [
   { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Models and tools' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Agents' },
-  { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'ade', label: 'ADE', icon: <AdeGlyph size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'environments', label: 'Environments', icon: <Cloud size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Agents' },
   ...WORKER_TABS.map((tab) => ({ id: tab.id, label: tab.label, icon: <tab.icon size={size} strokeWidth={stroke} />, group: 'Agents', parent: 'workers' })),

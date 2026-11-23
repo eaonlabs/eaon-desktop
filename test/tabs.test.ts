@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { activeTab, APP_TABS, shownTabs, sideOfChat, splitsChats, tabsPromptDue } from '../src/shared/tabs'
+import { activeTab, APP_TABS, chatSideIn, shownTabs, sideOfChat, splitsChats, tabsPromptDue } from '../src/shared/tabs'
 
 /**
  * The top bar's tabs, as Settings → General → Tabs sets them: which are
@@ -45,4 +45,17 @@ test('an install set up before the IDE tab is asked its tabs once, after the set
   assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, setup: 'pending' } }), false, 'the setup has its own Tabs step')
   assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, whatsNew: null } }), false, 'after the what’s-new tour')
   assert.equal(tabsPromptDue(null), false, 'settings not loaded')
+})
+
+test('the IDE lists only chats in a project, with Chat beside it or not; Chat without the IDE lists every chat', () => {
+  const all = [...APP_TABS]
+  assert.equal(chatSideIn('ide', all), 'ide')
+  assert.equal(chatSideIn('chat', all), 'chat')
+  assert.equal(chatSideIn(undefined, all), 'chat', 'unset is Chat')
+  // The IDE alone is still the IDE: no plain chats in it.
+  assert.equal(chatSideIn('chat', ['ide', 'ade']), 'ide')
+  assert.equal(chatSideIn(null, ['workers', 'ide']), 'ide')
+  // Chat alone has every chat, as before the IDE had a tab.
+  assert.equal(chatSideIn('ide', ['chat', 'workers']), null)
+  assert.equal(chatSideIn('chat', ['chat']), null)
 })
