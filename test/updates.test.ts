@@ -270,6 +270,6 @@ test('the name is the version in the release title; without one the label is the
   assert.equal(releaseNameVersion('Eaon'), null)
   assert.equal(releaseNameVersion(null), null)
   assert.equal(updateLabel({ version: '2026.7.3' }), '2026.7.2.1', 'releases the app already knows keep their names')
-  assert.equal(updateLabel({ version: '2026.7.9' }), '2026.7.9')
+  assert.equal(updateLabel({ version: '2026.7.10' }), '2026.7.10', 'a version the app has no name for is its own name')
   assert.equal(updateLabel({ version: '2026.7.8', name: '2026.7.7.1' }), '2026.7.7.1')
 })

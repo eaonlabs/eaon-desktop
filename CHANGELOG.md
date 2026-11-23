@@ -5,6 +5,8 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+## [2026.7.8] — 2026-11-22
+
 ### Added
 - **Cards an agent draws and keeps up to date, in Chat and the IDE as well as Workers.** An agent can answer with a card: a big figure with its change and a chart you switch by week, month or year; a flight with its route, gate, boarding time and seat; a build's status; a comparison. When it shows the same card again (by its name), the card changes where it is instead of a new one appearing, and anything that changed shows its old value struck through, so a delayed flight shows its new gate over the old one. New pieces for cards: a big figure, labelled fields, a from-to route, a ticket edge, an icon and a status in the header, and switches along the bottom. A card's buttons answer the agent in Chat too. In Chat it works with models that run on Eaon's own agent, Claude through your plan among them; Codex, Copilot and Gemini don't get Eaon's tools yet.
 - **Six wallpapers of Eaon's own for See-through:** Dusk, Tide, Dune, Moss, Ember and Slate. They're soft and quiet so they stay out of the way of your work, and each comes in a dark and a light version that follows the theme. Pick one in Settings → Appearance → Wallpaper → Eaon. On Linux, where Eaon can't tell which wallpaper the desktop shows, See-through now works without choosing a picture first.
