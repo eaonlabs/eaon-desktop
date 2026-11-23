@@ -195,6 +195,29 @@
   /* Long identifiers must not push the bubble wider than the column. */
   overflow-wrap: anywhere;
 }
+/* A link to GitHub: its mark, then the label, in GitHub's own link blue
+   (Primer's), whatever the accent: grey links read as plain text. */
+.md__gh {
+  color: #4493f8;
+}
+[data-theme='light'] .md__gh {
+  color: #0969da;
+}
+/* The mark and the label's first word break as one. */
+.md__gh-lead {
+  white-space: nowrap;
+}
+.md__gh-mark {
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 0.24em;
+  vertical-align: -0.13em;
+}
+/* A code span in the label takes the link's colour, as GitHub draws it. */
+.md__gh .md__code {
+  color: inherit;
+}
 
 /* A formula (MathView.tsx). KaTeX's own sheet sets the faces and layout; this
    only sizes it to the reply's text and keeps a wide one inside the column. */

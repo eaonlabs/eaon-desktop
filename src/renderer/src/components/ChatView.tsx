@@ -26,7 +26,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, codeProject, messageText, runIn, useApp, useCoding, useIsWork } from '../state/store'
+import { codeFolder, codeProject, messageText, runIn, useApp, useChatSide, useCoding, useIsWork, vmDeletedWith } from '../state/store'
 import { Composer } from './Composer'
 import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
@@ -82,6 +82,7 @@ import { inlineCode, userSegments } from './chat/userText'
 import { viewImage } from './chat/ImageViewer'
 import type { Chat, ChatMessage, ChatToolPart, RouteRecord } from '@shared/types'
 import { isKey } from '../lib/bindings'
+import { PlaceBadge, PlaceSetup, SignInThere } from './environments/Place'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
 export const ARCHIVE_REQUEST = 'eaon:archive-chat'
@@ -204,6 +205,8 @@ function Home(): JSX.Element {
   const temporary = useApp((s) => s.pendingTemporary) && isWork
   // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
+  // Beside Chat, the IDE's start page is always in a project; with none yet it asks for one.
+  const side = useChatSide()
 
   return (
     <>
@@ -237,7 +240,9 @@ function Home(): JSX.Element {
                 </span>
                 ?
               </>
-            ) : isWork ? (
+            ) : side === 'ide' ? (
+              'Open a project to start coding'
+            ) : isWork && side !== 'chat' ? (
               'What should we work on?'
             ) : (
               'What can I help with?'
@@ -514,6 +519,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
               {chat.title}
             </span>
             {chat.temporary && <TemporaryPill />}
+            {/* Runs in a cloud environment: which machine, and what can be done with it. */}
+            {chat.place && <PlaceBadge chat={chat} />}
             <button
               ref={moreButton}
               className="icon-btn"
@@ -585,6 +592,10 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
               {/* Compacting before this reply: said where the reply is about to appear. */}
               {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
+                {/* Its cloud environment being got ready: the steps, where the reply will come. */}
+                {message.id === streamingMessageId && chat.place?.state === 'preparing' && message.parts.length === 0 ? (
+                  <PlaceSetup place={chat.place} />
+                ) : (
                 <MessageRow
                   message={message}
                   streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
@@ -594,6 +605,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                   canEdit={!streaming}
                   fresh={!opened.current.ids.has(message.id)}
                 />
+                )}
               </RowBoundary>
               {/* Where the chat was last compacted: the model works from a summary of what's above. */}
               {message.id === chat.summary?.throughMessageId && <CompactedDivider summary={chat.summary.text} />}
@@ -724,7 +736,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         {chat.temporary
           ? 'The conversation is removed from this window. It was never saved, so it can’t be brought back.'
-          : `“${chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.`}
+          : `“${chat.title}” and its messages are removed from this computer.${vmDeletedWith(chat, useApp.getState().settings) ? ` Its VM, ${vmDeletedWith(chat, useApp.getState().settings)}, is deleted from exe.dev with everything on it.` : ''} This can’t be undone. To put a chat away and keep it, archive it instead.`}
       </ConfirmDialog>
 
       {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}
@@ -1037,6 +1049,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="msg__error">
             <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
             <span>{message.error}</span>
+            <SignInThere error={message.error} />
             <ProviderErrorActions issue={message.errorIssue} retryId={canRetry ? message.id : null} />
           </div>
         )}

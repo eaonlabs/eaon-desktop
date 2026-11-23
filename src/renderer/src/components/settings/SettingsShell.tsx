@@ -24,7 +24,7 @@ import {
   SquarePlus,
   Sun,
   Wand2, Gauge, Bot, Search, MousePointerClick } from 'lucide-react'
-import { Brain } from 'lucide-react'
+import { Brain, Cloud } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { THEMES } from '../../lib/themes'
@@ -53,6 +53,7 @@ import { CodeIndexPage } from './pages/CodeIndex'
 import { BrowserControlPage } from './pages/BrowserControl'
 import { EaonCodePage } from './pages/EaonCode'
 import { AdePage } from './pages/Ade'
+import { EnvironmentsPage } from './pages/Environments'
 import { DiscordPage } from './pages/Discord'
 import { UsagePage } from './pages/Usage'
 import { UsageLimitsPage } from './pages/UsageLimits'
@@ -90,7 +91,7 @@ const stroke = 1.9
  */
 export const KEYWORDS: Record<string, string> = {
   general:
-    'custom instructions system prompt personalize speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
+    'custom instructions system prompt personalize speech to text dictation voice hold to talk push to talk microphone update updates beta stable version tabs tab order top bar chat ide workers ade launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
   appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),
   configuration: 'web search search engine internet',
   shortcuts: 'keyboard hotkey hotkeys keys key bindings',
@@ -109,6 +110,7 @@ export const KEYWORDS: Record<string, string> = {
   plugins: 'skills mcp extensions',
   'eaon-code': 'coding agent cli terminal binary path',
   ade: 'terminal theme shell worktree worktrees coding scenes hold to talk dictation voice push to talk sessions',
+  environments: 'cloud environment environments vm vms virtual machine exe.dev exe ssh server remote hetzner digitalocean aws run sessions elsewhere sandbox container',
   workers: 'background agents',
   'chat-apps': 'telegram slack whatsapp discord imessage messages bot',
   email: 'agentmail inbox mail domain',
@@ -143,6 +145,7 @@ const NAV: NavEntry[] = [
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Models and tools' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Agents' },
+  { id: 'environments', label: 'Environments', icon: <Cloud size={size} strokeWidth={stroke} />, group: 'Agents' },
   { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Agents' },
   ...WORKER_TABS.map((tab) => ({ id: tab.id, label: tab.label, icon: <tab.icon size={size} strokeWidth={stroke} />, group: 'Agents', parent: 'workers' })),
   { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Models and tools' },
@@ -197,6 +200,7 @@ const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Ele
   'browser-control': BrowserControlPage,
   'eaon-code': EaonCodePage,
   ade: AdePage,
+  environments: EnvironmentsPage,
   discord: DiscordPage,
   workers: WorkersPage,
   plugins: PluginsSettingsPage,

@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { WorkspaceEntry, WorkspaceFile } from '@shared/workspaceFiles'
+import type { WorkspaceEntry, WorkspaceFile, WorkspaceImage } from '@shared/workspaceFiles'
 
 /** Renderer bridge for Chat's code panel. Exposed as `window.api.workspaceFiles`. */
 export const workspaceFilesApi = {
@@ -10,6 +10,8 @@ export const workspaceFilesApi = {
   /** A folder's entries, folders first. */
   list: (path: string): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace-files:list', path),
   read: (path: string): Promise<WorkspaceFile> => ipcRenderer.invoke('workspace-files:read', path),
+  /** A picture in the folder, to show (PREVIEW_IMAGES). */
+  image: (path: string): Promise<WorkspaceImage> => ipcRenderer.invoke('workspace-files:image', path),
   /** Saves over an existing file; resolves to its new modified time. */
   write: (path: string, text: string): Promise<number> => ipcRenderer.invoke('workspace-files:write', path, text)
 }

@@ -1,5 +1,6 @@
 import { SETTINGS_PAGES } from '@shared/settingsIndex'
 import { isAgentKind, useApp, type WorkspaceKind } from '../state/store'
+import { activeTab, shownTabs, TAB_LABEL, type AppTab } from '@shared/tabs'
 import { useOnboarding } from '../components/onboarding/onboardingStore'
 import { KEYWORDS } from '../components/settings/SettingsShell'
 import { registerPaletteSource, type PaletteAction } from './commands'
@@ -22,30 +23,40 @@ const activeKind = (): WorkspaceKind | undefined => {
   return s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind
 }
 
-function goToTab(kind: WorkspaceKind): void {
+function goToTab(tab: AppTab): void {
   const s = app()
-  const target = s.workspaces.find((w) => w.kind === kind)
-  if (!target) return
-  if (target.id !== s.settings?.activeWorkspaceId) s.setWorkspace(target.id)
+  s.setTab(tab)
   if (s.view !== 'chat') s.setView('chat')
+}
+
+const TAB_KEYWORDS: Record<AppTab, string> = {
+  chat: 'conversation assistant',
+  ide: 'code project editor coding',
+  workers: 'background agents automations',
+  ade: 'terminals coding agents sessions'
 }
 
 /** The places in the app, and what the menu and keys do. */
 function placesSource(): PaletteAction[] {
   const s = app()
   const kind = activeKind()
-  const has = (k: WorkspaceKind): boolean => s.workspaces.some((w) => w.kind === k)
   const out: PaletteAction[] = [
     { id: 'chat:new', title: 'New chat', group: 'Chat', keywords: 'conversation start', shortcut: 'new-chat', run: () => app().newChat() }
   ]
-  const tabs: [WorkspaceKind, string, string, string][] = [
-    ['chat', 'Go to Chat', 'tab-chat', 'conversation'],
-    ['workers', 'Go to Workers', 'tab-workers', 'background agents automations'],
-    ['code', 'Go to the ADE', 'tab-ade', 'terminals coding agents sessions']
-  ]
-  for (const [tab, title, shortcut, keywords] of tabs) {
-    if (has(tab)) out.push({ id: `go:${tab}`, title, group: 'Go to', keywords, shortcut, current: s.view === 'chat' && kind === tab, run: () => goToTab(tab) })
-  }
+  // The tabs shown, in their order, each with its key by place.
+  const tabs = shownTabs(s.settings?.general.tabs)
+  const on = activeTab(kind === 'work' ? 'chat' : kind, s.settings?.chatSide, tabs)
+  tabs.forEach((tab, place) => {
+    out.push({
+      id: `go:${tab}`,
+      title: tab === 'ide' || tab === 'ade' ? `Go to the ${TAB_LABEL[tab]}` : `Go to ${TAB_LABEL[tab]}`,
+      group: 'Go to',
+      keywords: TAB_KEYWORDS[tab],
+      shortcut: `tab-${place + 1}`,
+      current: s.view === 'chat' && on === tab,
+      run: () => goToTab(tab)
+    })
+  })
   out.push(
     { id: 'go:models', title: 'Models', group: 'Go to', keywords: 'download local models llama gguf', run: () => { app().setView('models'); app().setModelsRepo(null) } },
     { id: 'go:library', title: 'Library', group: 'Go to', keywords: 'files images generated', run: () => app().setView('library') },

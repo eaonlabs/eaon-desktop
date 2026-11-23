@@ -1,0 +1,79 @@
+/* Settings → General → Tabs, and the setup's Tabs step (TabsPicker.tsx). */
+
+.tabs-pick {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tabs-pick__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 10px 14px 10px 12px;
+}
+.tabs-pick__row + .tabs-pick__row {
+  border-top: 1px solid var(--border);
+}
+/* Each tab's own mark, as the top bar draws it, on a tile. */
+.tabs-pick__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.tabs-pick__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: opacity var(--dur) var(--ease);
+}
+.tabs-pick__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.tabs-pick__key {
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.tabs-pick__hint {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.tabs-pick__moves {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+.tabs-pick__move:disabled {
+  opacity: 0.35;
+}
+.tabs-pick__move:active:not(:disabled) {
+  scale: 0.96;
+}
+/* A hidden tab: there to switch back on, quieter than the ones shown. */
+.tabs-pick__row[data-off] .tabs-pick__icon,
+.tabs-pick__row[data-off] .tabs-pick__body {
+  opacity: 0.5;
+}

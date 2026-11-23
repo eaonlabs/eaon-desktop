@@ -1,0 +1,1175 @@
+/* Cloud environments (components/environments): the picker under the message
+   box, the dialog that sets one up, the card shown while a session's machine
+   is got ready, the badge in a conversation's header, and Settings →
+   Environments. */
+
+/* ---------------------------------------------------------------- picker */
+
+/* In the tray beside the project: a machine elsewhere reads in the accent,
+   so it is never picked without noticing. */
+.composer__tray .composer-pill--env {
+  flex-shrink: 1;
+  max-width: 200px;
+}
+.composer-pill--env .composer-pill__chevron {
+  margin-left: -2px;
+  color: var(--text-3);
+}
+.composer-pill--env[data-cloud] {
+  color: color-mix(in srgb, var(--accent) 62%, var(--text));
+}
+.composer-pill--env[data-cloud]:hover,
+.composer-pill--env[data-cloud][data-open] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: color-mix(in srgb, var(--accent) 40%, var(--text));
+}
+.env-menu .menu__label {
+  padding-top: 8px;
+}
+
+/* ------------------------------------------------------ setting up (thread) */
+
+.place-setup {
+  width: min(100%, 440px);
+  margin: 2px 0 8px;
+  padding: 12px 14px 13px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface-1) 86%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    var(--edge-light);
+  animation: place-setup-in 320ms var(--ease) both;
+}
+@keyframes place-setup-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+}
+.place-setup__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.place-setup__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: 550;
+  color: var(--text);
+}
+.place-setup__time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.place-setup__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 11px 0 0 3px;
+  padding: 0;
+  list-style: none;
+}
+.place-setup__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  animation: place-step-in 260ms var(--ease) both;
+}
+@keyframes place-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.place-setup__step[data-done] {
+  color: var(--text-3);
+}
+.place-setup__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.place-setup__step[data-done] .place-setup__mark {
+  background: color-mix(in srgb, var(--git-added) 18%, transparent);
+  color: var(--git-added);
+}
+.place-setup__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- header chip */
+
+/* Where a chat runs, in its header: a quiet control like the header's others,
+   the machine's logo with its state as a dot on the logo's corner (as the
+   ADE's sidebar marks a session's), and the machine's name. */
+.place-chip {
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: 220px;
+  height: 26px;
+  margin-left: 6px;
+  padding: 0 9px 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+  transition:
+    background-color 120ms var(--ease),
+    color 120ms var(--ease);
+}
+.place-chip:hover,
+.place-chip[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.place-chip:active {
+  scale: 0.96;
+}
+.place-chip__mark {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.place-chip__state {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--git-added);
+  box-shadow: 0 0 0 2px var(--canvas);
+  transition: background-color 200ms var(--ease);
+}
+.place-chip[data-state='preparing'] .place-chip__state {
+  background: var(--accent);
+  animation: place-pulse 1.2s ease-in-out infinite;
+}
+.place-chip[data-state='idle'] .place-chip__state {
+  background: var(--text-4);
+}
+.place-chip[data-state='failed'] .place-chip__state {
+  background: var(--danger);
+}
+.place-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes place-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.place-menu__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 6px;
+}
+.place-menu__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.place-menu__sub {
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* In the ADE's New session, while the session's machine is got ready. */
+.place-setup--dialog {
+  width: auto;
+  margin: 0;
+  padding: 10px 12px 11px;
+  animation: none;
+}
+.place-setup--dialog .place-setup__steps {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .place-setup,
+  .place-setup__step,
+  .place-chip[data-state='preparing'] .place-chip__state {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------- shared pieces */
+
+/* A provider's logo on its tile (Providers.tsx ProviderMark). */
+.provider-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 28%;
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+.provider-mark img {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.provider-mark[data-id='lima'] img {
+  width: 82%;
+}
+.provider-mark[data-full] img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.provider-mark[data-id='azure'] img {
+  width: 84%;
+  height: 84%;
+}
+[data-theme='light'] .provider-mark {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+/* Not a provider's: this computer, a machine over SSH. */
+.env-tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 28%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+/* A command for Terminal, with Copy. */
+.fix-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 2px 1px 8px;
+  border-radius: var(--r-xs);
+  background: var(--code-bg);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.fix-command code {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.fix-command__copy {
+  width: 22px;
+  height: 22px;
+}
+/* A machine to pick: in the dialog's lists. */
+.machine {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px 8px 12px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition:
+    background-color 120ms var(--ease),
+    box-shadow 120ms var(--ease);
+}
+.machine:hover {
+  background: var(--hover);
+}
+.machine[data-on] {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent);
+}
+.machine__dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.machine__dot[data-running] {
+  background: var(--git-added);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--git-added) 18%, transparent);
+}
+.machine__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.machine__name {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.machine__detail {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.machine[data-blocked] .machine__detail {
+  color: color-mix(in srgb, var(--warn, #f0883e) 70%, var(--text-3));
+}
+.machine__radio {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  color: var(--bg);
+  transition:
+    background-color 120ms var(--ease),
+    box-shadow 120ms var(--ease);
+}
+.machine[data-on] .machine__radio {
+  background: var(--text);
+  box-shadow: none;
+}
+.machine__check {
+  flex: none;
+  color: var(--text);
+}
+
+/* -------------------------------------------- Settings → Environments */
+
+.envs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.envs-head .settings__section-label {
+  margin-bottom: 0;
+}
+.envs {
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    0 1px 2px rgb(0 0 0 / 0.12);
+}
+.env-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 62px;
+  padding: 12px 10px 12px 14px;
+  transition: background-color 120ms var(--ease);
+}
+.env-item + .env-item {
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.env-item:hover,
+.env-item[data-open] {
+  background: color-mix(in srgb, var(--text) 2.5%, transparent);
+}
+.env-logo {
+  display: inline-flex;
+  flex: none;
+}
+.env-logo--plain {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 28%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.env-item__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.env-item__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: 550;
+  color: var(--text);
+}
+.env-item__title--mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.env-item__sub {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.env-badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--git-added) 15%, transparent);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--git-added) 80%, var(--text));
+}
+.env-item__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.env-item__check svg {
+  flex: none;
+  margin-top: 2px;
+}
+.env-item__check[data-state='ok'] svg {
+  color: var(--git-added);
+}
+.env-item__check[data-state='fail'] {
+  color: color-mix(in srgb, var(--danger) 75%, var(--text));
+}
+/* Make default: there on hover, so a row at rest is only its name. */
+.env-item__make {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  opacity: 0;
+  transition:
+    opacity 120ms var(--ease),
+    background-color 120ms var(--ease);
+}
+.env-item:hover .env-item__make,
+.env-item__make:focus-visible {
+  opacity: 1;
+}
+.env-item__make:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.env-item__more {
+  flex: none;
+  color: var(--text-3);
+}
+.env-item__more[data-open],
+.env-item__more:hover {
+  color: var(--text);
+}
+.envs-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 16px 18px;
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.envs-empty__text {
+  max-width: 460px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.envs-empty__starts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.envs-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px 0 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  transition: background-color 120ms var(--ease);
+}
+.envs-start:hover {
+  background: var(--hover-strong);
+}
+.envs-start:active,
+.prov-tile:active,
+.envd-choice:active {
+  scale: 0.98;
+}
+
+/* Providers found on this computer: tiles. */
+.prov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 8px;
+}
+.prov-tile {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  height: 56px;
+  padding: 0 12px 0 11px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    0 1px 2px rgb(0 0 0 / 0.1);
+  text-align: left;
+  transition:
+    background-color 120ms var(--ease),
+    box-shadow 120ms var(--ease),
+    scale 120ms var(--ease);
+}
+.prov-tile:hover,
+.prov-tile[data-open] {
+  background: var(--surface-2);
+  box-shadow:
+    inset 0 0 0 1px var(--border),
+    0 2px 8px -2px rgb(0 0 0 / 0.25);
+}
+.prov-tile[data-empty] {
+  cursor: default;
+}
+.prov-tile[data-empty]:hover {
+  background: var(--surface-1);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    0 1px 2px rgb(0 0 0 / 0.1);
+}
+.prov-tile--ghost {
+  background: var(--surface-1);
+  animation: prov-ghost 1.2s ease-in-out infinite alternate;
+}
+@keyframes prov-ghost {
+  to {
+    opacity: 0.45;
+  }
+}
+.prov-tile__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.prov-tile__name {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.prov-tile__sub {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.prov-tile__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--git-added);
+}
+.prov-tile__dot[data-state='signed-out'] {
+  background: var(--warn, #f0883e);
+}
+.prov-tile__dot[data-state='error'] {
+  background: var(--danger);
+}
+.prov-none,
+.providers__none {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.prov-fixes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.prov-fix {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--warn, #f0883e) 7%, var(--surface-1));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn, #f0883e) 18%, transparent);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.prov-fix__text {
+  flex: 1;
+  min-width: 0;
+}
+.prov-also {
+  margin-top: 10px;
+}
+.prov-also__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 4px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.prov-also__toggle:hover {
+  color: var(--text-2);
+}
+.prov-also__marks {
+  display: inline-flex;
+  gap: 5px;
+}
+.prov-also__marks .provider-mark {
+  opacity: 0.85;
+  transition: opacity 120ms var(--ease);
+}
+.prov-also__toggle:hover .provider-mark {
+  opacity: 1;
+}
+.prov-also__chevron {
+  margin-left: auto;
+  transition: rotate 160ms var(--ease);
+}
+.prov-also[data-open] .prov-also__chevron {
+  rotate: 180deg;
+}
+.prov-also__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.prov-also__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.prov-also__name {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: 550;
+  color: var(--text);
+}
+.prov-also__row .fix-command {
+  margin-left: auto;
+}
+.prov-menu .menu__item-icon .machine__dot {
+  margin: 0 3px;
+}
+
+/* ------------------------------------------------------ the add dialog */
+
+.envd {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal__body .envd .field + .field {
+  margin-top: 0;
+}
+.envd .field {
+  margin: 0;
+}
+.envd-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: calc(var(--r-md) + 3px);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.envd-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-3);
+  transition:
+    background-color 140ms var(--ease),
+    color 140ms var(--ease),
+    box-shadow 140ms var(--ease);
+}
+.envd-tab:hover {
+  color: var(--text);
+}
+.envd-tab:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    0 0 0 2px var(--focus-ring);
+}
+.envd-tab[data-on] {
+  background: var(--surface-3);
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    0 1px 3px rgb(0 0 0 / 0.25);
+  color: var(--text);
+}
+.envd-tab__icon {
+  display: inline-flex;
+}
+.envd-tab:not([data-on]) .envd-tab__icon {
+  opacity: 0.75;
+}
+.envd-lede {
+  margin: -4px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.envd-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.envd-choice {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  text-align: left;
+  transition:
+    background-color 120ms var(--ease),
+    box-shadow 120ms var(--ease),
+    scale 120ms var(--ease);
+}
+.envd-choice:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.envd-choice[data-on] {
+  background: color-mix(in srgb, var(--text) 5%, var(--surface-1));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 55%, transparent);
+}
+.envd-choice:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.envd-choice__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.envd-choice[data-on] .envd-choice__icon {
+  color: var(--text);
+}
+.envd-choice__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.envd-choice__title {
+  font-size: var(--fs-sm);
+  font-weight: 550;
+  color: var(--text);
+}
+.envd-choice__text {
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--text-3);
+}
+.envd-choice__radio {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  transition: box-shadow 120ms var(--ease);
+}
+.envd-choice[data-on] .envd-choice__radio {
+  box-shadow: inset 0 0 0 5px var(--text);
+}
+.envd-size {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+}
+.envd-size__label {
+  padding-right: 4px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.envd-size .select {
+  width: 100%;
+}
+/* In the dialog a pick-list is a field like the text fields beside it. */
+.envd .select {
+  height: 36px;
+  padding: 0 10px 0 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--sunken) 55%, var(--surface-2, var(--surface-1)));
+  border: 1px solid var(--border);
+  font-size: var(--fs-base);
+}
+.envd .select:hover,
+.envd .select[data-open='true'] {
+  background: color-mix(in srgb, var(--sunken) 35%, var(--surface-3));
+}
+.envd-size .select {
+  font-size: var(--fs-sm);
+}
+.envd-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.envd-switch__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.envd-switch__title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.envd-switch__sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.envd-more {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 8px;
+}
+.envd-script {
+  min-height: 64px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.envd-vms {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.envd-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.envd-row--host {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+}
+.envd-row--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.envd-row .select {
+  width: 100%;
+}
+.envd-host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.envd-picked {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.envd-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.envd-note svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-3);
+}
+.envd-note[data-tone='warn'],
+.envd-note[data-tone='warn'] svg {
+  color: color-mix(in srgb, var(--warn, #f0883e) 75%, var(--text));
+}
+.envd-name {
+  padding-top: 4px;
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+.envd-name .field-label {
+  margin-top: 10px;
+}
+.envd-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+}
+.envd-result svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--danger);
+}
+.envd-result[data-ok] {
+  background: color-mix(in srgb, var(--git-added) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--git-added) 24%, transparent);
+}
+.envd-result[data-ok] svg {
+  color: var(--git-added);
+}
+/* Check connection keeps to the left of the dialog's foot; Cancel and Add to the right. */
+.envd-check {
+  margin-right: auto;
+}
+.env-dialog__loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.env-dialog__link {
+  align-self: flex-start;
+  padding: 0;
+  color: var(--link);
+  font-size: var(--fs-sm);
+}
+
+/* exe.dev's account, in one line. */
+.env-account {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 7px 10px 7px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.env-account__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--git-added);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--git-added) 20%, transparent);
+}
+.env-account[data-state='problem'] {
+  align-items: flex-start;
+}
+.env-account[data-state='problem'] .env-account__dot {
+  margin-top: 6px;
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent);
+}
+.env-account__text {
+  flex: 1;
+  min-width: 0;
+}
+.env-account__more {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.env-account code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--text);
+}
+.env-account .btn {
+  flex: none;
+}
+
+/* ------------------------------------------- the dialog's provider list */
+
+.providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prov-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 272px;
+  overflow-y: auto;
+  margin: -2px;
+  padding: 2px;
+}
+.prov-group {
+  flex: none;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.prov-group--ghost {
+  height: 52px;
+  animation: prov-ghost 1.2s ease-in-out infinite alternate;
+}
+.prov-group__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 6px 8px;
+}
+.prov-group__name {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.prov-group__meta {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.prov-group[data-state='signed-out'] .prov-group__meta {
+  color: color-mix(in srgb, var(--warn, #f0883e) 75%, var(--text-3));
+}
+.prov-group__empty {
+  padding: 2px 8px 8px 39px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.prov-group__machines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prov-group__fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0 8px 8px 39px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.providers__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.providers__again {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+}
+.providers__again:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .prov-tile--ghost,
+  .prov-group--ghost {
+    animation: none;
+  }
+}

@@ -13,6 +13,8 @@
  * repository's main folder.
  */
 
+import type { SessionPlace } from './environments'
+
 /** The agent CLIs whose past conversations the ADE can list and reopen. */
 export type ConversationAgent = 'claude' | 'codex'
 
@@ -39,6 +41,8 @@ export interface AdeSession {
   missing?: boolean
   /** On another machine over SSH (`cwd` is `ssh://…`, see adeRemote.ts): the host as the picker names it. */
   host?: string
+  /** Started in a cloud environment, on a copy of `project` (shared/environments.ts). */
+  place?: SessionPlace
   /**
    * When it was archived: out of the sidebar's list, into its Archived group,
    * with its terminals ended. Its folder, branch and conversations are as they

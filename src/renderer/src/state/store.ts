@@ -1,5 +1,7 @@
 import type { AskQuestion } from '@shared/askQuestions'
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
+import { useMemo } from 'react'
 import type {
   Chat,
   ChatMessage,
@@ -35,8 +37,10 @@ import {
   type ResolvedSelection
 } from '@shared/modelSelection'
 import { CLI_ENGINES } from '@shared/engines'
+import { environmentsOf, LOCAL_ENVIRONMENT, providerOf, type SessionPlace } from '@shared/environments'
 import { classifyTask, pickModel, routeRecord, type AdaptiveRoute } from '@shared/adaptive'
 import { lastTurnFailed } from './chatStatus'
+import { activeTab, shownTabs, sideOfChat, splitsChats, TAB_KIND, type AppTab, type ChatSide } from '@shared/tabs'
 import { chatChanges, Checkpoint } from './chatSync'
 import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { cleanPlanSteps, planApprovalMessage, planChanged } from '@shared/planEdit'
@@ -155,6 +159,8 @@ interface AppState {
   setPendingTemporary: (on: boolean) => void
   openChat: (id: string) => void
   deleteChat: (id: string) => void
+  /** A chat's cloud environment changed (its VM deleted, say). */
+  setChatPlace: (id: string, place: SessionPlace) => void
   archiveChat: (id: string) => void
   /** Archives these chats at once, leaving any whose reply is still being written; returns how many moved. */
   archiveChats: (ids: string[]) => number
@@ -212,6 +218,8 @@ interface AppState {
    */
   workIn: (folder: string | null) => void
   setWorkspace: (id: string) => void
+  /** Brings a top-bar tab to the front, with the chat it had open when it was left. */
+  setTab: (tab: AppTab) => void
 
   selectModel: (modelId: string, providerId?: string) => void
   /** Stars or unstars a model; starred models head the model menu. */
@@ -314,8 +322,11 @@ let listenersBound = false
 /** Identity caches for the derived selectors below — see `availableModels`. */
 let modelsCache: { providers: Provider[]; models: ModelInfo[] } | null = null
 let selectionCache: { providers: Provider[]; settings: Settings | null; selection: ResolvedSelection } | null = null
-/** The chat each workspace tab had open when it was last left, by workspace id. */
+/** The chat each tab had open when it was last left, by workspace id, and for the chat workspace by side too. */
 const lastChatByWorkspace = new Map<string, string>()
+const tabKey = (workspaceId: string, side: ChatSide | null): string => (side ? `${workspaceId}:${side}` : workspaceId)
+/** The project the IDE was last in, for its start page when it comes back. */
+let lastIdeProject: string | null = null
 
 let chatsCache: { chats: Chat[]; workspaceId: string | undefined; visible: Chat[] } | null = null
 
@@ -330,6 +341,87 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
  * never overwrite each other's chats with stale copies.
  */
 let synced = new Map<string, Chat>()
+
+/** A step in getting a session's cloud environment ready, for the card that shows them (components/environments/PlaceSetup). */
+function notePlaceStep(chatId: string, step: string): void {
+  const state = useApp.getState()
+  if (!state.chats.some((c) => c.id === chatId && c.place?.state === 'preparing')) return
+  useApp.setState({
+    chats: state.chats.map((c) => (c.id === chatId && c.place ? { ...c, place: { ...c.place, step, steps: withStep(c.place.steps, step) } } : c))
+  })
+}
+
+/** The steps so far with `step` last; one that only restates the last (the same wait again) replaces it. */
+export function withStep(steps: string[] | undefined, step: string): string[] {
+  const list = steps ?? []
+  const last = list[list.length - 1]
+  if (last === step) return list
+  const word = (text: string): string => text.split(' ').slice(0, 2).join(' ')
+  if (last && word(last) === word(step) && /^(Waiting|Sending)/.test(step)) return [...list.slice(0, -1), step]
+  return [...list, step].slice(-12)
+}
+
+/**
+ * Makes a session's cloud environment ready: its machine (an exe.dev VM made
+ * for it, or a folder on one) and the copy of its project. The reply that
+ * waits for it says each step; a failure is that reply's error, and the next
+ * message tries again. Null when it couldn't be made, or was stopped.
+ */
+async function preparePlace(chatId: string, messageId: string, place: SessionPlace): Promise<SessionPlace | null> {
+  const patch = (next: Partial<SessionPlace> | null, message: Partial<ChatMessage> | null, clearRun = false): void =>
+    useApp.setState((s) => ({
+      chats: s.chats.map((c) =>
+        c.id === chatId && c.place
+          ? {
+              ...c,
+              place: next ? { ...c.place, ...next } : c.place,
+              messages: message ? c.messages.map((m) => (m.id === messageId ? { ...m, ...message } : m)) : c.messages
+            }
+          : c
+      ),
+      ...(clearRun ? { runs: withoutRun(s.runs, chatId) } : {})
+    }))
+  patch({ state: 'preparing', step: undefined, steps: [], error: undefined }, null)
+  const chat = useApp.getState().chats.find((c) => c.id === chatId)
+  let result: Awaited<ReturnType<typeof window.api.environments.prepare>>
+  try {
+    result = await window.api.environments.prepare({ key: chatId, envId: place.envId, project: place.source ?? '', title: chat?.title ?? place.name })
+  } catch (error) {
+    result = { ok: false, error: error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error) }
+  }
+  // Stopped meanwhile: the reply already says so.
+  if (useApp.getState().runs[chatId] !== messageId) {
+    patch({ state: 'failed', step: undefined, error: 'Stopped before it was ready' }, null)
+    persistChats()
+    return null
+  }
+  if (!result.ok) {
+    patch({ state: 'failed', step: undefined, error: result.error }, { error: `Couldn’t get ${place.name} ready. ${result.error}`, finishedAt: Date.now() }, true)
+    ownedRuns.delete(messageId)
+    persistChats()
+    return null
+  }
+  patch({ ...result.place, step: undefined, steps: undefined, error: undefined }, null)
+  persistChats()
+  return result.place
+}
+
+/** The VM that goes when this chat is deleted: one made for it alone, unless its environment keeps them. */
+export function vmDeletedWith(chat: Pick<Chat, 'place'> | undefined, settings: Settings | null): string | null {
+  const place = chat?.place
+  if (!place?.madeVm || !place.vm) return null
+  const env = environmentsOf(settings?.environments).find((e) => e.id === place.envId)
+  return env?.exe?.removeWithChat === false ? null : place.vm
+}
+
+/** A deleted chat's VM, made for it alone, goes too (unless its environment keeps them). */
+function releasePlace(chat: Chat | undefined, settings: Settings | null): void {
+  const vm = vmDeletedWith(chat, settings)
+  if (!vm) return
+  void window.api.environments.removeVm(vm).then((result) => {
+    if (!result.ok) notify(`The chat is deleted, but its VM ${vm} isn’t: ${result.error} Delete it in Settings → Environments.`, 'error')
+  })
+}
 
 /**
  * Debounced save of the chats this window changed. It saves what the store
@@ -745,8 +837,35 @@ export const codeProject = (s: ProjectState): Project | null => {
   return projectId ? (s.projects.find((p) => p.id === projectId) ?? null) : null
 }
 
-/** The folder the chat on screen codes in: its project's. Null for an ordinary chat, which has no coding tools. */
-export const codeFolder = (s: ProjectState): string | null => codeProject(s)?.folder ?? null
+/**
+ * The folder the chat on screen codes in: its project's, or for a chat in a
+ * cloud environment the copy on that machine (none until it is ready). Null
+ * for an ordinary chat, which has no coding tools.
+ */
+export const codeFolder = (s: ProjectState): string | null => {
+  const place = s.activeChatId ? s.chats.find((c) => c.id === s.activeChatId)?.place : undefined
+  if (place) return place.state === 'ready' ? (place.folder ?? null) : null
+  return codeProject(s)?.folder ?? null
+}
+
+/** Where a new session in this project would run: the environment picked under the message box, when there is one to use. */
+export function pendingPlace(settings: Settings | null, project: Project | null, now = Date.now()): SessionPlace | null {
+  if (!settings || !project?.folder || project.folder.startsWith('ssh://')) return null
+  const id = settings.environment ?? LOCAL_ENVIRONMENT
+  if (id === LOCAL_ENVIRONMENT) return null
+  const env = environmentsOf(settings.environments).find((e) => e.id === id)
+  if (!env) return null
+  return {
+    envId: env.id,
+    name: env.name,
+    kind: env.kind,
+    ...(providerOf(env) ? { provider: providerOf(env) } : {}),
+    ...(env.provider ? { machine: env.provider.machine } : {}),
+    state: 'preparing',
+    source: project.folder,
+    at: now
+  }
+}
 
 /** Whether the chat on screen is a coding session: one in a project with a folder. */
 export const useCoding = (): boolean => useApp((s) => codeFolder(s) !== null)
@@ -860,6 +979,8 @@ export const useApp = create<AppState>((set, get) => ({
       listenersBound = true
 
       window.api.chat.onEvent(applyStreamEvent)
+      // A cloud environment being got ready says each step, on the session and as its reply's notice.
+      window.api.environments.onProgress(({ key, step }) => notePlaceStep(key, step))
 
       // Other windows: each keeps its own copy of these, and main passes on
       // what the others change. The open tab stays this window's own.
@@ -867,7 +988,9 @@ export const useApp = create<AppState>((set, get) => ({
       window.api.projects.onChanged((projects) => set({ projects }))
       window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
       window.api.settings.onChanged((next) =>
-        set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
+        set((state) => ({
+          settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId, chatSide: state.settings ? state.settings.chatSide : next.chatSide }
+        }))
       )
 
       // Closing the window or reloading ends this renderer, and with it the only
@@ -933,10 +1056,12 @@ export const useApp = create<AppState>((set, get) => ({
 
   async patchSettings(patch) {
     const next = await window.api.settings.patch(patch as Partial<Settings>)
-    // Main's activeWorkspaceId is whichever window switched tabs last; this
-    // window keeps showing its own tab unless this patch is the switch.
-    const own = get().settings?.activeWorkspaceId
-    set({ settings: 'activeWorkspaceId' in patch || !own ? next : { ...next, activeWorkspaceId: own } })
+    // Main's activeWorkspaceId (and chatSide) is whichever window switched tabs
+    // last; this window keeps showing its own tab unless this patch is the switch.
+    const mine = get().settings
+    const own = mine?.activeWorkspaceId
+    const tab = 'activeWorkspaceId' in patch || !own ? next : { ...next, activeWorkspaceId: own }
+    set({ settings: 'chatSide' in patch || !mine ? tab : { ...tab, chatSide: mine.chatSide } })
   },
 
   setView: (view) => {
@@ -994,17 +1119,23 @@ export const useApp = create<AppState>((set, get) => ({
 
   newChat: (projectId = null) => {
     const current = { view: get().view, activeChatId: get().activeChatId }
+    // A chat in a project is the IDE's; a new chat in the IDE is in the project it was on.
+    const side = chatSideOf(get())
+    if (projectId && side === 'chat') showSide('ide')
+    const project = projectId ?? (side === 'ide' ? ideProject(get()) : null)
     set((s) => ({
       navPast: [...s.navPast, current],
       navFuture: [],
       activeChatId: null,
       view: 'chat',
-      pendingProjectId: projectId,
+      pendingProjectId: project,
       pendingTemporary: false
     }))
   },
 
   startTemporaryChat: () => {
+    // Temporary chats have no project: they're Chat's.
+    if (chatSideOf(get()) === 'ide') showSide('chat')
     get().newChat()
     set({ pendingTemporary: true })
   },
@@ -1014,6 +1145,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   openChat: (id) => {
     const current = { view: get().view, activeChatId: get().activeChatId }
+    // From search, a notification or a link: the chat opens in its own tab.
+    const chat = get().chats.find((c) => c.id === id)
+    const side = chatSideOf(get())
+    if (chat && side && sideOfChat(chat) !== side) showSide(sideOfChat(chat))
     set((s) => ({
       navPast: [...s.navPast, current],
       navFuture: [],
@@ -1027,9 +1162,15 @@ export const useApp = create<AppState>((set, get) => ({
   // Deleting or archiving a chat whose reply is still streaming stops it. The
   // run otherwise kept going with nowhere to write, and — for a deleted chat —
   // its end never found the message, so every composer stayed on "Stop".
+  setChatPlace: (id, place) => {
+    set({ chats: get().chats.map((c) => (c.id === id ? { ...c, place } : c)) })
+    persistChats()
+  },
+
   deleteChat: (id) => {
     if (get().runs[id]) get().stop(id)
     dropCheckpointsOf(get().chats.find((c) => c.id === id), get().projects)
+    releasePlace(get().chats.find((c) => c.id === id), get().settings)
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
@@ -1042,6 +1183,7 @@ export const useApp = create<AppState>((set, get) => ({
     for (const chat of doomed) {
       if (get().runs[chat.id]) get().stop(chat.id)
       dropCheckpointsOf(chat, projects)
+      releasePlace(chat, get().settings)
     }
     if (doomed.length === 0) return 0
     set({ chats: all.filter((c) => !gone.has(c.id)), activeChatId: activeChatId && gone.has(activeChatId) ? null : activeChatId })
@@ -1088,6 +1230,9 @@ export const useApp = create<AppState>((set, get) => ({
   moveChat: (id, projectId) => {
     set((s) => ({ chats: s.chats.map((c) => (c.id === id && !c.temporary ? { ...c, projectId } : c)) }))
     persistChats()
+    // The open chat moved into a project or out of one: it goes to its new tab, and the window with it.
+    const side = chatSideOf(get())
+    if (id === get().activeChatId && side && side !== sideOfChat({ projectId })) showSide(sideOfChat({ projectId }))
   },
 
   async send(text, options = {}) {
@@ -1165,6 +1310,9 @@ export const useApp = create<AppState>((set, get) => ({
         ...(state.pendingTemporary ? { temporary: true } : {}),
         ...(goal ? { goal } : {})
       }
+      // Started with a cloud environment picked: it runs there, on a copy made before its first turn.
+      const place = state.pendingTemporary ? null : pendingPlace(settings, state.projects.find((p) => p.id === state.pendingProjectId) ?? null, now)
+      if (place) chat = { ...chat, place }
       chats = [chat, ...state.chats]
     } else {
       const target = chat
@@ -1214,10 +1362,29 @@ export const useApp = create<AppState>((set, get) => ({
       return
     }
 
+    // A session in a cloud environment: its agent runs on that machine, so the session goes on while this
+    // computer is closed. Codex and Claude Code can; Eaon's own models run here. Said before any VM is made.
+    const placed = chats.find((c) => c.id === chat!.id)?.place
+    if (placed && engine !== 'codex' && engine !== 'claude') {
+      const reason = `${placed.name} runs Codex or Claude Code on its machine, so the session keeps working while this computer is closed. Pick Codex or Claude in the model menu, then send again.`
+      const issue: ProviderIssue = { kind: 'model-unavailable', message: reason, action: 'choose-model' }
+      set((s) => ({
+        chats: s.chats.map((c) => (c.id === chat!.id ? { ...c, messages: c.messages.map((m) => (m.id === assistantMessage.id ? { ...m, error: reason, errorIssue: issue } : m)) } : c)),
+        runs: withoutRun(s.runs, runningIn)
+      }))
+      ownedRuns.delete(assistantMessage.id)
+      persistChats()
+      return
+    }
+    if (placed && placed.state !== 'ready') {
+      const ready = await preparePlace(runningIn, assistantMessage.id, placed)
+      if (!ready) return
+    }
+
     // The main process decides what of this to resend — it trims old tool
     // output and drops stale screenshots — so the stored transcript goes over
     // as-is. Everything a compaction summary already covers is left out.
-    const current = chats.find((c) => c.id === chat!.id)!
+    const current = get().chats.find((c) => c.id === chat!.id) ?? chats.find((c) => c.id === chat!.id)!
     let history = current.messages.filter((m) => m.id !== assistantMessage.id && m.role !== 'system')
     const summary = current.summary ?? null
     if (summary) {
@@ -1245,9 +1412,11 @@ export const useApp = create<AppState>((set, get) => ({
       history,
       summary: summary?.text ?? null,
       projectInstructions: project?.instructions ?? '',
-      // A project's chats code in its folder; an ordinary chat's agent keeps to ~/Eaon.
-      cwd: mode === 'work' ? (project?.folder ?? null) : null,
-      ...(mode === 'work' && project?.extraFolders?.length ? { extraRoots: project.extraFolders } : {}),
+      // A project's chats code in its folder (a cloud environment's copy of it); an ordinary chat's agent keeps to ~/Eaon.
+      cwd: mode === 'work' ? (current.place?.folder ?? project?.folder ?? null) : null,
+      ...(current.place ? { cloud: true } : {}),
+      // The project's other folders are on this computer, out of reach of a session elsewhere.
+      ...(mode === 'work' && project?.extraFolders?.length && !current.place ? { extraRoots: project.extraFolders } : {}),
       work: {
         swarm: settings.work.swarm,
         plan: options.plan ?? settings.planMode,
@@ -1274,6 +1443,8 @@ export const useApp = create<AppState>((set, get) => ({
     const id = runIn(get(), chat)
     if (!chat || !id) return
     void window.api.chat.cancel(id)
+    // Still getting its cloud environment ready: that stops too (a VM made for it is deleted).
+    if (get().chats.some((c) => c.id === chat && c.place?.state === 'preparing')) void window.api.environments.cancel(chat)
     // Marked, so the reply says it was stopped rather than looking finished.
     set((s) => ({
       runs: withoutRun(s.runs, chat),
@@ -1482,18 +1653,34 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   setWorkspace(id) {
+    const kind = get().workspaces.find((w) => w.id === id)?.kind
+    const tabs = shownTabs(get().settings?.general.tabs)
+    const tab: AppTab = kind === 'workers' ? 'workers' : kind === 'code' ? 'ade' : activeTab('chat', get().settings?.chatSide, tabs)
+    get().setTab(tab)
+  },
+
+  setTab(tab) {
     const state = get()
-    const leaving = state.settings?.activeWorkspaceId
+    const settings = state.settings
+    const target = state.workspaces.find((w) => w.kind === TAB_KIND[tab]) ?? (TAB_KIND[tab] === 'chat' ? state.workspaces.find((w) => w.kind === 'work') : undefined)
+    if (!settings || !target) return
+    const split = splitsChats(shownTabs(settings.general.tabs))
+    const leavingSide = chatSideOf(state)
+    const side: ChatSide | null = split && TAB_KIND[tab] === 'chat' ? (tab as ChatSide) : null
+    if (settings.activeWorkspaceId === target.id && leavingSide === side) return
     // Each tab keeps the chat that was open when it was left, so coming back
     // from the ADE lands there rather than on a fresh chat.
-    if (leaving && leaving !== id) {
-      if (state.activeChatId) lastChatByWorkspace.set(leaving, state.activeChatId)
-      else lastChatByWorkspace.delete(leaving)
-    }
-    const back = lastChatByWorkspace.get(id)
-    const kept = back && state.chats.some((c) => c.id === back && c.workspaceId === id && !c.archived) ? back : null
-    void state.patchSettings({ activeWorkspaceId: id })
-    set({ activeChatId: kept })
+    const leaving = tabKey(settings.activeWorkspaceId, leavingSide)
+    if (state.activeChatId) lastChatByWorkspace.set(leaving, state.activeChatId)
+    else lastChatByWorkspace.delete(leaving)
+    const back = lastChatByWorkspace.get(tabKey(target.id, side))
+    const kept = back && state.chats.some((c) => c.id === back && c.workspaceId === target.id && !c.archived && (!side || sideOfChat(c) === side)) ? back : null
+    // Shown at once, then saved: what the tab opens on below lands in the same frame.
+    const patch = { activeWorkspaceId: target.id, ...(tab === 'chat' || tab === 'ide' ? { chatSide: tab } : {}) }
+    set({ settings: { ...settings, ...patch } })
+    void state.patchSettings(patch)
+    // The IDE's start page is in a project: the one it was last in. Chat's is in none.
+    set({ activeChatId: kept, ...(kept ? {} : side === 'ide' ? { pendingProjectId: state.pendingProjectId ?? ideProject(state), pendingTemporary: false } : side === 'chat' ? { pendingProjectId: null } : {}) })
   },
 
   selectModel(modelId, providerId) {
@@ -1627,6 +1814,88 @@ export const useApp = create<AppState>((set, get) => ({
 }))
 
 /**
+ * Which of Chat and the IDE is in front, or null when another tab is, or
+ * when only one of them is a tab and so has every chat (shared/tabs.ts).
+ */
+export function chatSideOf(s: Pick<AppState, 'settings' | 'workspaces'>): ChatSide | null {
+  const settings = s.settings
+  if (!settings || !splitsChats(shownTabs(settings.general?.tabs))) return null
+  if (!isAgentKind(s.workspaces.find((w) => w.id === settings.activeWorkspaceId)?.kind)) return null
+  return settings.chatSide === 'ide' ? 'ide' : 'chat'
+}
+
+/** Brings Chat or the IDE to the front at once, then saves it: a chat opened in its tab shows there in the same frame. */
+function showSide(side: ChatSide): void {
+  const app = useApp.getState()
+  if (!app.settings) return
+  useApp.setState({ settings: { ...app.settings, chatSide: side } })
+  void app.patchSettings({ chatSide: side })
+}
+
+/** The project the IDE's start page is in: the one it was in last, else the one most recently worked in, else the newest. */
+function ideProject(s: Pick<AppState, 'projects' | 'chats' | 'workspaces'>): string | null {
+  const workspace = agentWorkspace(s.workspaces)?.id
+  const projects = s.projects.filter((p) => p.workspaceId === workspace && p.folder)
+  if (lastIdeProject && projects.some((p) => p.id === lastIdeProject)) return lastIdeProject
+  const ids = new Set(projects.map((p) => p.id))
+  let best: string | null = null
+  let at = -Infinity
+  for (const chat of s.chats) {
+    if (chat.projectId && !chat.archived && ids.has(chat.projectId) && chat.updatedAt > at) {
+      best = chat.projectId
+      at = chat.updatedAt
+    }
+  }
+  return best ?? [...projects].sort((a, b) => b.createdAt - a.createdAt)[0]?.id ?? null
+}
+
+// The IDE comes back to the project it was in.
+useApp.subscribe((state, prev) => {
+  if (state.activeChatId === prev.activeChatId && state.pendingProjectId === prev.pendingProjectId) return
+  const id = state.activeChatId ? state.chats.find((c) => c.id === state.activeChatId)?.projectId : state.pendingProjectId
+  if (id) lastIdeProject = id
+})
+
+/**
+ * At launch and whenever the tabs change: the window moves off a tab that
+ * isn't shown any more, and Chat or the IDE in front holds what it should,
+ * the open chat moving to its own tab and the IDE's start page in a project.
+ */
+export function settleTabs(): void {
+  const app = useApp.getState()
+  if (!app.settings) return
+  const tabs = shownTabs(app.settings.general.tabs)
+  const kind = app.workspaces.find((w) => w.id === app.settings?.activeWorkspaceId)?.kind
+  if (!tabs.includes(activeTab(kind === 'work' ? 'chat' : kind, app.settings.chatSide, tabs))) return app.setTab(tabs[0])
+  const side = chatSideOf(app)
+  if (!side) return
+  const chat = app.activeChat()
+  if (chat) {
+    if (sideOfChat(chat) !== side) showSide(sideOfChat(chat))
+  } else if (side === 'ide') {
+    useApp.setState({ pendingProjectId: app.pendingProjectId ?? ideProject(app), pendingTemporary: false })
+  } else if (app.pendingProjectId) {
+    useApp.setState({ pendingProjectId: null })
+  }
+}
+
+/** The top bar's tabs as set, which one is in front, and whether Chat and the IDE split the chats between them. */
+export function useTabs(): { tabs: AppTab[]; active: AppTab; split: boolean } {
+  const { setting, kind, side } = useApp(
+    useShallow((s) => ({
+      setting: s.settings?.general.tabs,
+      kind: s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind,
+      side: s.settings?.chatSide
+    }))
+  )
+  const tabs = useMemo(() => shownTabs(setting), [setting])
+  return { tabs, active: activeTab(kind === 'work' ? 'chat' : kind, side, tabs), split: splitsChats(tabs) }
+}
+
+/** Chat or the IDE, when they split the chats and one of them is in front; null shows every chat. */
+export const useChatSide = (): ChatSide | null => useApp((s) => chatSideOf(s))
+
+/**
  * Opens a chat in whichever tab it belongs to (added for scheduled tasks). The
  * sidebar only lists the active workspace's chats, and a scheduled run's chat
  * can be a Chat or a Work chat whatever tab is showing — a notification click
@@ -1637,10 +1906,9 @@ export function revealChat(chatId: string): void {
   const chat = state.chats.find((c) => c.id === chatId)
   if (!chat) return
   const active = state.settings?.activeWorkspaceId
-  if (active && chat.workspaceId !== active && state.workspaces.some((w) => w.id === chat.workspaceId)) {
-    void state.patchSettings({ activeWorkspaceId: chat.workspaceId })
-  }
-  state.openChat(chatId)
+  // Its tab at once (openChat then puts it in Chat or the IDE, whichever holds it).
+  if (active && chat.workspaceId !== active && state.workspaces.some((w) => w.id === chat.workspaceId)) state.setWorkspace(chat.workspaceId)
+  useApp.getState().openChat(chatId)
 }
 
 /**

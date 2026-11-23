@@ -54,6 +54,16 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     await s.shot(page, 'setup-look')
     await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
 
+    // Tabs: the four, in the top bar's order, each with its key; one moved first, then back.
+    await page.find('.onboarding__title', { text: 'Pick your tabs' })
+    assert.deepEqual(await page.eval(() => [...document.querySelectorAll('.onboarding .tabs-pick__name')].map((n) => n.firstChild?.textContent)), ['Chat', 'Workers', 'IDE', 'ADE'])
+    await page.click('.onboarding [aria-label="Move IDE up"]')
+    await page.waitFor(async () => JSON.stringify((await window.api.settings.get()).general.tabs) === JSON.stringify(['chat', 'ide', 'workers', 'ade']), { message: 'the IDE moved up' })
+    await s.shot(page, 'setup-tabs')
+    await page.click('.onboarding [aria-label="Move IDE down"]')
+    await page.waitFor(async () => JSON.stringify((await window.api.settings.get()).general.tabs) === JSON.stringify(['chat', 'workers', 'ide', 'ade']), { message: 'and back' })
+    await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
+
     // Tokn: sign in, with the coding CLIs tracked too (the switch starts on).
     await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
     await sleep(900)
@@ -108,7 +118,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
       if (stop === 1 || stop >= 5) await s.shot(page, `tour-${stop}`)
       await page.click('.tour__card .btn--primary')
     }
-    assert.deepEqual(titles, ['Three places to work', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
+    assert.deepEqual(titles, ['Your tabs', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
     await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
     // A fresh install starts on this release, so its what's new never shows on top of the tour.
     assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7', fresh: true })
@@ -136,7 +146,7 @@ scenario('first run: skipping the setup, and the tour from Settings', { timeout:
 
   await openSettings(page, 'General')
   await page.click('.settings button', { text: /^Take the tour$/ })
-  await page.find('.tour__title', { text: 'Three places to work' })
+  await page.find('.tour__title', { text: 'Your tabs' })
   await page.press('ArrowRight')
   await page.find('.tour__title', { text: 'Ask, or hand over a task' })
   await page.press('Escape')
@@ -187,6 +197,8 @@ scenario('an update from 2026.6: the setup again, then the tour of what’s new'
   await page.find('.onboarding__title', { text: 'Connect a model' })
   await page.click('.onboarding .onboarding__btn--secondary', { text: 'Not now' })
   await page.find('.onboarding__title', { text: 'Light or dark?' })
+  await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
+  await page.find('.onboarding__title', { text: 'Pick your tabs' })
   await page.click('.onboarding .onboarding__btn--primary', { text: 'Continue' })
   await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
   await page.click('.onboarding .onboarding__btn--secondary', { text: 'Not now' })

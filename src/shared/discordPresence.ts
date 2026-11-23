@@ -25,7 +25,7 @@ const ART_BASE = 'https://eaon.dev/img/discord'
 
 export type DiscordStatus = 'ready' | 'thinking' | 'working' | 'away'
 /** The workspace tab; 'work' is the retired agent tab, which old data may still name. */
-export type DiscordPlace = 'chat' | 'work' | 'code' | 'workers'
+export type DiscordPlace = 'chat' | 'work' | 'ide' | 'code' | 'workers'
 
 /** Sent renderer → main whenever any of it changes; null ends the presence. */
 export interface DiscordSnapshot {
@@ -55,6 +55,7 @@ const STATUS_TEXT: Record<DiscordStatus, string> = {
 const PLACE_TEXT: Record<DiscordPlace, string> = {
   chat: 'In a chat',
   work: 'In a chat',
+  ide: 'In the IDE',
   code: 'In the ADE',
   workers: 'Managing Workers'
 }

@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Folder, GitBranch, Server } from 'lucide-react'
+import { Folder, GitBranch, Laptop, Server } from 'lucide-react'
+import { remoteLocation } from '@shared/adeRemote'
+import { LOCAL_ENVIRONMENT } from '@shared/environments'
 import { Modal, Select } from '../ui'
+import { EnvironmentIcon, useEnvironments } from '../environments/EnvironmentPicker'
+import { PlaceSteps } from '../environments/Place'
+import { withStep } from '../../state/store'
 import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
@@ -25,6 +30,11 @@ import { useApp } from '../../state/store'
 
 /** The agent a new session starts with, when it is installed: the first of these. */
 const PREFERRED: TerminalAgentId[] = ['claude', 'codex', 'eaon-code', 'opencode', 'antigravity']
+/** The agents a session in a cloud environment can start with: the ones exe.dev's own image has, run there. */
+const CLOUD_AGENTS: { id: TerminalAgentId; label: string }[] = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'codex', label: 'Codex' }
+]
 
 /** The home folder, once main has said it, so paths under it read as ~. */
 let knownHome: string | null = null
@@ -59,6 +69,11 @@ export function NewSessionDialog(): JSX.Element | null {
   const [copyPlan, setCopyPlan] = useState<CopyPlan | null>(null)
   const [copyOn, setCopyOn] = useState(false)
   const [copyDefault, setCopyDefault] = useState(false)
+  // Where it runs: this computer, or a cloud environment (Settings → Environments), and the steps of getting that ready.
+  const environments = useEnvironments()
+  const [where, setWhere] = useState<string>(LOCAL_ENVIRONMENT)
+  const [steps, setSteps] = useState<string[]>([])
+  const [preparing, setPreparing] = useState<string | null>(null)
 
   // A fresh form each time it opens, in the project it was opened from.
   useEffect(() => {
@@ -71,6 +86,8 @@ export function NewSessionDialog(): JSX.Element | null {
     setBusy(false)
     setTask('')
     setAlso([])
+    setWhere(environments.current?.id ?? LOCAL_ENVIRONMENT)
+    setSteps([])
     void refreshAgents().catch(() => undefined)
     void window.api.ade.worktreesRoot().then(
       (info) => {
@@ -109,21 +126,49 @@ export function NewSessionDialog(): JSX.Element | null {
 
   if (!open) return null
 
+  // A project here can run elsewhere; one on another machine already does.
+  const cloud = project && !project.startsWith('ssh://') ? (environments.list.find((e) => e.id === where) ?? null) : null
   const own = sessions.find((s) => s.cwd === project)
   const notGit = Boolean(own && !own.repo)
   const effective = branchEdited ? branch : title.trim() ? branchForTitle(title) : ''
   const problem = branchEdited || title.trim() ? branchNameProblem(effective) : null
-  const where = project && effective && root ? `${tidy(root)}/${worktreeFolderFor(folderName(project))}/${worktreeFolderFor(effective)}` : null
+  const worktreeAt = project && effective && root ? `${tidy(root)}/${worktreeFolderFor(folderName(project))}/${worktreeFolderFor(effective)}` : null
 
-  const others = installed.filter((a) => a.id !== agent)
+  const others = cloud ? [] : installed.filter((a) => a.id !== agent)
   // Agents picked to run alongside; one that became the main agent since is no longer "also".
   const alsoOn = also.filter((id) => id !== agent && others.some((a) => a.id === id))
   const needsTask = alsoOn.length > 0 && !task.trim()
+
+  /** In a cloud environment: its machine and a copy of the project made, on the new branch, then the session on it. */
+  const submitCloud = async (env: NonNullable<typeof cloud>): Promise<void> => {
+    if (!project) return
+    const key = `ade:${Date.now()}`
+    setPreparing(key)
+    setSteps([`Getting ${env.name} ready`])
+    const off = window.api.environments.onProgress((p) => {
+      if (p.key === key) setSteps((all) => withStep(all, p.step))
+    })
+    try {
+      const prepared = await window.api.environments.prepare({ key, envId: env.id, project, title: title.trim(), ...(effective && !notGit ? { branch: effective } : {}) })
+      if (!prepared.ok) return setError(prepared.error)
+      const at = prepared.place.folder ? remoteLocation(prepared.place.folder) : null
+      if (!at) return setError('The copy wasn’t made.')
+      setSteps((all) => withStep(all, 'Opening the session'))
+      const failed = await useAdeSessions.getState().createRemote({ hostId: at.hostId, path: at.path, title: title.trim(), place: prepared.place }, agent && agent !== 'shell' ? agent : null, task.trim() || undefined)
+      if (failed) setError(failed)
+      else close()
+    } finally {
+      off()
+      setPreparing(null)
+      setBusy(false)
+    }
+  }
 
   const submit = async (): Promise<void> => {
     if (!project || !title.trim() || problem || busy || needsTask) return
     setBusy(true)
     setError(null)
+    if (cloud) return submitCloud(cloud)
     const extras = { copyIgnored: copyOn && Boolean(copyPlan && copyPlan.copy.length > 0), ...(task.trim() ? { prompt: task.trim() } : {}) }
     const request = { project, title: title.trim(), ...(branchEdited ? { branch: branch.trim() } : {}) }
     const failed =
@@ -201,11 +246,11 @@ export function NewSessionDialog(): JSX.Element | null {
             <Server size={14} strokeWidth={1.9} />
             On another machine (SSH)…
           </button>
-          <button type="button" className="btn btn--ghost" onClick={close} disabled={busy}>
-            Cancel
+          <button type="button" className="btn btn--ghost" onClick={() => (preparing ? void window.api.environments.cancel(preparing) : close())} disabled={busy && !preparing}>
+            {preparing ? 'Stop' : 'Cancel'}
           </button>
-          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || notGit || needsTask} onClick={() => void submit()}>
-            {busy ? 'Creating…' : alsoOn.length > 0 ? `Create ${alsoOn.length + 1} sessions` : 'Create session'}
+          <button type="button" className="btn btn--primary" disabled={!title.trim() || Boolean(problem) || busy || (notGit && !cloud) || needsTask} onClick={() => void submit()}>
+            {busy ? (cloud ? 'Setting up…' : 'Creating…') : alsoOn.length > 0 ? `Create ${alsoOn.length + 1} sessions` : 'Create session'}
           </button>
         </>
       }
@@ -224,6 +269,24 @@ export function NewSessionDialog(): JSX.Element | null {
               value={project}
               options={projects.map((p) => ({ value: p, label: folderName(p), icon: <Folder size={14} strokeWidth={1.8} /> }))}
               onChange={(value) => setProject(value)}
+            />
+          </div>
+        )}
+        {environments.list.length > 0 && project && !project.startsWith('ssh://') && (
+          <div className="field">
+            <span className="field-label">Runs on</span>
+            <Select
+              value={cloud?.id ?? LOCAL_ENVIRONMENT}
+              label="Runs on"
+              options={[
+                { value: LOCAL_ENVIRONMENT, label: 'This computer', icon: <Laptop size={14} strokeWidth={1.8} /> },
+                ...environments.list.map((env) => ({ value: env.id, label: env.name, icon: <EnvironmentIcon env={env} size={14} /> }))
+              ]}
+              onChange={(value) => {
+                setWhere(value)
+                // What the agent can start with is what is there: the cloud's Claude Code and Codex.
+                if (value !== LOCAL_ENVIRONMENT) setAgent((current) => (current && CLOUD_AGENTS.some((a) => a.id === current) ? current : 'claude'))
+              }}
             />
           </div>
         )}
@@ -256,12 +319,16 @@ export function NewSessionDialog(): JSX.Element | null {
           </span>
         </label>
         <p className="ade-dialog__hint" aria-live="polite">
-          {notGit
-            ? `${folderName(project)} isn’t a git repository, so a session there can’t have a branch of its own.`
-            : (problem ??
-              `A new branch${own?.branch ? ` from ${own.branch}` : ''}, in its own folder${where ? ` (${where})` : ''}. Your project folder isn’t touched.`)}
+          {cloud
+            ? notGit
+              ? `A copy of ${folderName(project)} on ${cloud.name}, in a folder of its own. Your project folder isn’t touched.`
+              : (problem ?? `A new branch${own?.branch ? ` from ${own.branch}` : ''}, on a copy of the project made on ${cloud.name}: its commits and the changes you haven’t committed. Your project folder isn’t touched.`)
+            : notGit
+              ? `${folderName(project)} isn’t a git repository, so a session there can’t have a branch of its own.`
+              : (problem ??
+                `A new branch${own?.branch ? ` from ${own.branch}` : ''}, in its own folder${worktreeAt ? ` (${worktreeAt})` : ''}. Your project folder isn’t touched.`)}
         </p>
-        {copyPlan && (copyPlan.copy.length > 0 || copyPlan.skipped.length > 0) && !notGit && (
+        {copyPlan && (copyPlan.copy.length > 0 || copyPlan.skipped.length > 0) && !notGit && !cloud && (
           <div className="field">
             {copyPlan.copy.length > 0 && (
               <label className="ade-dialog__check">
@@ -286,7 +353,7 @@ export function NewSessionDialog(): JSX.Element | null {
         <div className="field">
           <span className="field-label">Start with</span>
           <div className="ade-dialog__agents" role="radiogroup" aria-label="Start with">
-            {[...installed.map((a) => ({ id: a.id, label: a.label })), { id: 'shell' as TerminalAgentId, label: 'Shell' }].map((a) => (
+            {[...(cloud ? CLOUD_AGENTS : installed.map((a) => ({ id: a.id, label: a.label }))), { id: 'shell' as TerminalAgentId, label: 'Shell' }].map((a) => (
               <button
                 key={a.id}
                 type="button"
@@ -338,6 +405,11 @@ export function NewSessionDialog(): JSX.Element | null {
                   ? 'Write the task above: every agent starts with it.'
                   : `${alsoOn.length + 1} sessions start from the same point: ${effective || 'the branch'} and ${alsoOn.map((id) => `${effective || 'the branch'}-${id}`).join(', ')}.`}
             </p>
+          </div>
+        )}
+        {preparing && (
+          <div className="place-setup place-setup--dialog" role="status" aria-live="polite">
+            <PlaceSteps steps={steps} />
           </div>
         )}
         {error && (

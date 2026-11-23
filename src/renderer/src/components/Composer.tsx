@@ -8,6 +8,7 @@ import {
   Folder,
   Globe,
   Camera,
+  Check,
   Hand,
   Laptop,
   Lightbulb,
@@ -28,7 +29,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { codeFolder, runIn, useApp, useCoding, useIsWork } from '../state/store'
+import { codeFolder, runIn, useApp, useChatSide, useCoding, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -57,6 +58,7 @@ import { ElsewhereAsk } from './agent/ElsewhereAsk'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
+import { EnvironmentPicker } from './environments/EnvironmentPicker'
 import { BranchPicker } from './chatCode/BranchPicker'
 import { useChatCode, watchChatCode } from './chatCode/chatCodeStore'
 import { notify } from './Notice'
@@ -164,6 +166,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const isAgent = useIsWork()
   // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
   const coding = useCoding()
+  // Chat or the IDE, when each has its own chats: Chat's box has no project to pick, and the IDE's starts in one.
+  const side = useChatSide()
+  const needsProject = variant === 'home' && side === 'ide' && !coding
   // A conversation outside a project: its tray has no project or branch to show.
   const compact = variant === 'chat' && !(coding && isAgent)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
@@ -320,7 +325,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       setConnecting(true)
       return
     }
-    if (noModel || (!text.trim() && attachments.length === 0)) return
+    if (noModel || needsProject || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing && rewindToo && cwd) {
       // The files go back first; if they can't, nothing is resent and the edit stays open.
@@ -783,10 +788,18 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={!streaming && ((noModel && !needsConnect) || dictating || (!text.trim() && attachments.length === 0))}
+      disabled={!streaming && ((noModel && !needsConnect) || needsProject || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={!streaming && needsConnect ? 'Connect a model to send this' : !streaming && noModel ? 'Pick a model that can be used — see above' : undefined}
+      title={
+        !streaming && needsProject
+          ? 'Open a project first: the IDE works in a folder'
+          : !streaming && needsConnect
+            ? 'Connect a model to send this'
+            : !streaming && noModel
+              ? 'Pick a model that can be used — see above'
+              : undefined
+      }
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />
@@ -834,21 +847,38 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       <ElsewhereAsk />
       <SideQuestion />
       {variant === 'chat' && draftId && <QueuedMessages chatId={draftId} onEdit={takeBack} />}
+      {/* Editing a message: a tab tucked behind the top of the box, saying so in one line. */}
       {editing && (
         <div className="composer-editing" role="status">
-          <PencilLine size={13} strokeWidth={2} />
-          <span className="composer-editing__text">Editing a message — sending it replaces that message and everything after it</span>
+          <span className="composer-editing__icon" aria-hidden>
+            <PencilLine size={12} strokeWidth={2.2} />
+          </span>
+          <span className="composer-editing__text" title="Sending it replaces that message and every reply after it">
+            <span className="composer-editing__title">Editing message</span>
+            <span className="composer-editing__hint">Replaces it and the replies after</span>
+          </span>
           {cwd && (
-            <label className="composer-editing__files" title="Puts the files the replies after this message changed back as they were before it">
-              <input type="checkbox" checked={rewindToo} onChange={(e) => {
-                setRewindToo(e.target.checked)
+            <button
+              type="button"
+              role="switch"
+              aria-checked={rewindToo}
+              className="composer-editing__toggle"
+              data-on={rewindToo || undefined}
+              title="Puts the files the replies after this message changed back as they were before it"
+              onClick={() => {
+                setRewindToo(!rewindToo)
                 setRewindError(null)
-              }} />
-              <span>Undo file changes too</span>
-            </label>
+              }}
+            >
+              <span className="composer-editing__box" aria-hidden>
+                {rewindToo && <Check size={10} strokeWidth={3.2} />}
+              </span>
+              Undo file changes
+            </button>
           )}
-          <button type="button" className="composer-editing__cancel" onClick={cancelEdit}>
+          <button type="button" className="composer-editing__cancel" onClick={cancelEdit} title="Stop editing (Esc)">
             Cancel
+            <kbd className="composer-editing__key">esc</kbd>
           </button>
           {rewindError && (
             <span className="composer-editing__error" role="alert">
@@ -910,8 +940,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
       {/* Tucked under the box on a project's start page: its folder, and the branch. Once the
           chat has begun the strip goes; the header names the project. */}
-      {variant === 'home' && isAgent && (
+      {variant === 'home' && isAgent && side !== 'chat' && (
         <div className="composer__tray">
+          <EnvironmentPicker />
           <ProjectPicker />
           <div className="composer__spacer" />
           <BranchPicker />

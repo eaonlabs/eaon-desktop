@@ -484,3 +484,63 @@ body[data-resizing='ide'] * {
   opacity: 0.4;
 }
 
+
+/* ---- A picture opened in the file panel ---- */
+
+.ide-image {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ide-image__stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: hidden;
+}
+.ide-image__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* A checker under see-through parts, and a hairline so a picture's edge shows on any background. */
+  background: repeating-conic-gradient(color-mix(in srgb, var(--text) 9%, transparent) 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+  border-radius: 4px;
+  image-rendering: auto;
+  opacity: 0;
+  transition: opacity 160ms var(--ease);
+}
+[data-theme='light'] .ide-image__img {
+  outline-color: oklch(0 0 0 / 0.1);
+}
+.ide-image__img[data-shown] {
+  opacity: 1;
+}
+.ide-image__meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 34px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ide-image__open {
+  color: var(--text-2);
+}
+.ide-image__open:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ide-image__img {
+    transition: none;
+  }
+}

@@ -88,6 +88,8 @@ export function chatEngineApproval(settings: Settings, plan: boolean, request: E
 
 /** One sentence for a failed engine turn, with what fixes it. */
 export function engineChatError(engine: EngineId, result: EngineTurnResult, model: string | null): string {
+  // On another machine the engine said what to do there (sign in in its terminal, install it there).
+  if (result.where && result.error) return result.error
   const name = ENGINE_LABEL[engine] ?? engine
   switch (result.errorKind) {
     case 'auth-expired':

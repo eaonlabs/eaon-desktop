@@ -139,14 +139,14 @@ test('a key another command has is reported, and a command is never its own conf
 
 test('off a Mac a terminal gives the app its chords, as set', () => {
   const ctrl = (key: string, extra: Partial<KeyLike> = {}): KeyLike => press(key, { ctrl: true, ...extra })
-  assert.ok(isTerminalAppChord(ctrl('1'), {}, false), 'Ctrl+1: Chat')
+  assert.ok(isTerminalAppChord(ctrl('1'), {}, false), 'Ctrl+1: the first tab')
   assert.ok(isTerminalAppChord(ctrl(','), {}, false), 'Ctrl+,: Settings')
   assert.ok(isTerminalAppChord(ctrl('P', { shift: true }), {}, false), 'Ctrl+Shift+P: Plugins')
   assert.ok(isTerminalAppChord(ctrl('K', { shift: true }), {}, false), 'Ctrl+Shift+K: the palette')
   assert.ok(!isTerminalAppChord(ctrl('b'), {}, false), 'Ctrl+B stays with the shell')
   assert.ok(!isTerminalAppChord(ctrl('c'), {}, false))
   // After a change it is the new key that passes, and the old one goes back to the shell.
-  const moved = { 'command-palette': '⇧⌘J', 'tab-chat': '⌘9' }
+  const moved = { 'command-palette': '⇧⌘J', 'tab-1': '⌘9' }
   assert.ok(isTerminalAppChord(ctrl('J', { shift: true }), moved, false))
   assert.ok(!isTerminalAppChord(ctrl('K', { shift: true }), moved, false))
   assert.ok(isTerminalAppChord(ctrl('9'), moved, false))

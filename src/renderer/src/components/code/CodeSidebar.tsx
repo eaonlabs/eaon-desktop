@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } 
 import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
+  ArrowDownToLine,
   ChevronRight,
   CircleCheck,
   CircleDashed,
@@ -30,7 +31,7 @@ import { openNewSession, orderedGroups, paneLife, useAdeSessions } from './sessi
 import { ADE_SORTS, useAdeList, watchFinishes, type AdeListSort, type AdeListView } from './adeList'
 import { useBranchPr, useBranchPrsForAll } from './branchPrs'
 import { DoneMark, FindTool, ProjectBadge, SidebarFind, ThreadLines, ThreadSection, useHeldOrder, useNow, WorkingFor } from '../threads'
-import { MenuItem, Popover, useDisclosure } from '../ui'
+import { ConfirmDialog, MenuItem, Popover, useDisclosure } from '../ui'
 import { useApp } from '../../state/store'
 import { matchesSearch, threadOrder } from '@shared/threadList'
 import { isAsleep } from '@shared/adeSleep'
@@ -659,7 +660,7 @@ function SessionRow({
   const setAgentsOpen = useAdeList((s) => s.setAgentsOpen)
   const agentsId = `ade-agents-${session.id}`
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | 'remove-project' | null>(null)
+  const [dialog, setDialog] = useState<'rename' | 'archive' | 'remove' | 'remove-project' | 'delete-vm' | null>(null)
   const editors = useEditorMenuItems(session.cwd, Boolean(menu))
   const title = sessionTitle(session)
   const thread = look === 'thread'
@@ -768,6 +769,19 @@ function SessionRow({
               : []),
             // A folder on another machine has nothing to show in Finder.
             ...(session.host ? [] : [{ icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) }]),
+            // In a cloud environment: its work back here as a branch, and the VM made for it.
+            ...(session.place?.base
+              ? [
+                  {
+                    icon: <ArrowDownToLine size={15} strokeWidth={1.9} />,
+                    label: 'Bring changes back',
+                    action: () => {
+                      notify(`Bringing ${title} back…`, 'done')
+                      void window.api.environments.bringBack(session.place!, title).then((result) => notify(result.ok ? result.message : result.error, result.ok ? 'done' : 'error'))
+                    }
+                  }
+                ]
+              : []),
             // Only a folder that is here, and not one that has gone.
             ...(session.missing ? [] : editors),
             ...(state === 'live' || state === 'working'
@@ -789,6 +803,7 @@ function SessionRow({
             },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive session…', action: () => setDialog('archive') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') },
+            ...(session.place?.madeVm && session.place.vm ? [{ icon: <Trash2 size={15} strokeWidth={1.9} />, label: `Delete ${session.place.vm}…`, danger: true, action: () => setDialog('delete-vm') }] : []),
             // What the project's heading's menu did, now that there's no heading: all its sessions at once.
             ...(group && group.sessions.length > 1
               ? [{ icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove project from the ADE…', danger: true, action: () => setDialog('remove-project') }]
@@ -798,6 +813,21 @@ function SessionRow({
       )}
       {dialog === 'archive' && <ArchiveSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'rename' && <RenameSessionDialog session={session} onClose={() => setDialog(null)} />}
+      {dialog === 'delete-vm' && session.place?.vm && (
+        <ConfirmDialog
+          open
+          title={`Delete ${session.place.vm}?`}
+          confirmLabel="Delete VM"
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            const vm = session.place!.vm!
+            setDialog(null)
+            void window.api.environments.removeVm(vm).then((result) => notify(result.ok ? `${vm} is deleted. Remove the session too: its folder went with it.` : result.error, result.ok ? 'done' : 'error'))
+          }}
+        >
+          The VM this session runs on, and everything on it, including work not brought back. This can’t be undone.
+        </ConfirmDialog>
+      )}
       {dialog === 'remove' && <RemoveSessionDialog session={session} onClose={() => setDialog(null)} />}
       {dialog === 'remove-project' && group && <RemoveProjectDialog group={group} onClose={() => setDialog(null)} />}
     </div>

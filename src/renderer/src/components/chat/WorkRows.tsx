@@ -3,6 +3,8 @@ import { Bot, Brain, Check, ChevronRight, Circle, Eye, FolderSearch, Globe, Hamm
 import type { ChatToolPart, TodoItem } from '@shared/types'
 import { Markdown } from '../agent/Markdown'
 import { describeToolPart, ToolCall } from '../agent/ToolCall'
+import { isGitHubCommand } from '../agent/githubLink'
+import { Octicon } from '../pullRequests/octicons'
 import { DiffStat } from '../chatCode/diff/DiffCard'
 import { liveStep, runLines, stepKind, stepSummary, thoughtLine, thoughtRest, type StepCall, type StepKind } from './workLog'
 
@@ -28,6 +30,8 @@ const ICON: Record<StepKind | 'mixed', typeof Eye> = {
   mixed: Hammer
 }
 
+const gh = (part: ChatToolPart): boolean => part.name === 'run_command' && isGitHubCommand(part.input.command)
+
 const toCall = (part: ChatToolPart): StepCall => {
   const described = describeToolPart(part)
   return { name: part.name, status: part.status, target: described.detail, label: described.label }
@@ -39,15 +43,18 @@ export const ToolRun = memo(function ToolRun({ parts }: { parts: ChatToolPart[] 
   const calls = useMemo(() => parts.map(toCall), [parts])
   const summary = useMemo(() => stepSummary(calls), [calls])
   const lines = useMemo(() => runLines(parts), [parts])
-  let running: StepCall | null = null
-  for (let i = calls.length - 1; i >= 0 && !running; i--) if (calls[i].status === 'running' || calls[i].status === 'preparing') running = calls[i]
+  let at = -1
+  for (let i = calls.length - 1; i >= 0 && at < 0; i--) if (calls[i].status === 'running' || calls[i].status === 'preparing') at = i
+  const running: StepCall | null = at < 0 ? null : calls[at]
   const Icon = ICON[running ? stepKind(running.name) : summary.kind]
+  // Commands that worked on GitHub (`gh pr create`) show its mark, as its links in the reply do.
+  const github = running ? gh(parts[at]) : summary.kind === 'command' && parts.some(gh)
   const label = running ? liveStep(running) : summary.text
   return (
     <div className="wl" data-open={open || undefined}>
       <button type="button" className="wl-row" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? 'Hide the steps' : 'Show the steps'}>
         <span className="wl-row__icon" aria-hidden>
-          <Icon size={16} strokeWidth={1.8} />
+          {github ? <Octicon name="mark-github" size={15} /> : <Icon size={16} strokeWidth={1.8} />}
         </span>
         <span className={`wl-row__label${running ? ' step-shimmer' : ''}`}>{label}</span>
         {!running && <DiffStat added={lines.added} removed={lines.removed} className="wl-row__stat" />}

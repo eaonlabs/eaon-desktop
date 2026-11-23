@@ -87,7 +87,7 @@ interface SessionsState {
   connecting: boolean
   setConnecting: (open: boolean) => void
   /** A session in a folder on an SSH host, opened, with `agent` started in it; an error to show, or null. */
-  createRemote: (req: NewRemoteSessionRequest, agent: TerminalAgentId | null) => Promise<string | null>
+  createRemote: (req: NewRemoteSessionRequest, agent: TerminalAgentId | null, prompt?: string) => Promise<string | null>
 }
 
 const COLLAPSED_KEY = 'eaon.ade.collapsed'
@@ -375,7 +375,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     set({ connecting: open })
   },
 
-  async createRemote(req, agent) {
+  async createRemote(req, agent, prompt) {
     let result: Awaited<ReturnType<typeof window.api.ade.createRemote>>
     try {
       result = await window.api.ade.createRemote(req)
@@ -389,7 +389,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     showAde()
     if (agent) {
       await useTerminals.getState().load()
-      useTerminals.getState().add(session.cwd, agent)
+      useTerminals.getState().add(session.cwd, agent, undefined, prompt)
     }
     return null
   }

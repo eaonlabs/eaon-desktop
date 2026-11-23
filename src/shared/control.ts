@@ -8,9 +8,10 @@
 
 import type { TerminalAgentId } from './terminals'
 
-/** Where the app can be sent: the three top-bar tabs, and the pages behind the sidebar. */
+/** Where the app can be sent: the top bar's tabs, and the pages behind the sidebar. */
 export const CONTROL_TARGETS = [
   'chat',
+  'ide',
   'workers',
   'ade',
   'models',

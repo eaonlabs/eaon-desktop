@@ -1,76 +1,69 @@
 import { type JSX } from 'react'
-import { MessagesSquare, SquareTerminal } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
-import { useApp } from '../state/store'
+import { Code2, MessagesSquare, SquareTerminal } from 'lucide-react'
+import { useApp, useTabs } from '../state/store'
 import { useWorkers } from './workers/workersStore'
-import type { Workspace } from '@shared/types'
 import { effectiveBinding, formatBinding } from '@shared/keybindings'
+import { TAB_HINT, TAB_LABEL, type AppTab } from '@shared/tabs'
 import { isMac } from '../lib/platform'
 
 /**
- * Chat ⇄ Workers ⇄ ADE, centred in the top bar of every screen.
+ * The tabs, centred in the top bar of every screen: the ones picked in
+ * Settings → General → Tabs, in that order.
  *
- * A segmented control rather than a dropdown: all three destinations are
- * always visible and switching is one click. Each is a workspace, so Chat and
- * the ADE keep their own lists.
+ * A segmented control rather than a dropdown: every destination is always
+ * visible and switching is one click.
  *
  * - Chat is the assistant, and an agent underneath: files, shell, browser and
  *   plugins, with the extra controls tucked behind the composer's + button.
+ * - The IDE is coding in a project: a chat working in its folder, the code
+ *   panel beside it.
  * - Workers are the always-on agents, each with its own face and thread.
- * - ADE is the agentic development environment — an Eaon Code session in a
- *   project folder.
+ * - ADE is the agentic development environment: coding agents in terminals.
  */
-// ⌘1–⌘3 on a Mac, Ctrl+1–3 elsewhere, unless changed in Settings → Keyboard shortcuts (lib/bindings.ts).
-const TABS: { kind: Workspace['kind']; label: string; icon: JSX.Element; hint: (key: string) => string; shortcut: string }[] = [
-  { kind: 'chat', label: 'Chat', icon: <MessagesSquare size={15} strokeWidth={2} />, hint: (key) => `Chat — ask anything, or hand Eaon a task${key}`, shortcut: 'tab-chat' },
-  { kind: 'workers', label: 'Workers', icon: <WorkersGlyph size={15} strokeWidth={2} />, hint: (key) => `Workers — agents that keep working in the background${key}`, shortcut: 'tab-workers' },
-  { kind: 'code', label: 'ADE', icon: <SquareTerminal size={15} strokeWidth={2} />, hint: (key) => `ADE — agentic development environment${key}`, shortcut: 'tab-ade' }
-]
+export const TAB_ICON: Record<AppTab, (size: number) => JSX.Element> = {
+  chat: (size) => <MessagesSquare size={size} strokeWidth={2} />,
+  ide: (size) => <Code2 size={size} strokeWidth={2} />,
+  workers: (size) => <WorkersGlyph size={size} strokeWidth={2} />,
+  ade: (size) => <SquareTerminal size={size} strokeWidth={2} />
+}
 
 export function ModeSwitch(): JSX.Element | null {
-  const { workspaces, activeId, setWorkspace, setView, view } = useApp(
-    useShallow((s) => ({
-      workspaces: s.workspaces,
-      activeId: s.settings?.activeWorkspaceId,
-      setWorkspace: s.setWorkspace,
-      setView: s.setView,
-      view: s.view
-    }))
-  )
+  const { tabs, active } = useTabs()
+  const setTab = useApp((s) => s.setTab)
+  const setView = useApp((s) => s.setView)
+  const view = useApp((s) => s.view)
   const shortcuts = useApp((s) => s.settings?.shortcuts)
   // A worker waiting on the user is worth a dot on its tab from anywhere in the app.
   const workersAttention = useWorkers((s) => s.workers.some((w) => w.unread > 0 || w.status === 'failed'))
 
-  const tabs = TABS.map((tab) => ({ ...tab, workspace: workspaces.find((w) => w.kind === tab.kind) })).filter(
-    (tab): tab is typeof tab & { workspace: Workspace } => Boolean(tab.workspace)
-  )
-  // Mid-migration an install can briefly hold fewer; half a switch reads as
-  // broken, so show none.
+  // One tab is nowhere to switch to.
   if (tabs.length < 2) return null
 
   return (
     <div className="mode-switch" role="tablist" aria-label="Mode">
-      {tabs.map(({ workspace, label, icon, hint, kind, shortcut }) => {
-        const active = workspace.id === activeId
-        const keys = formatBinding(effectiveBinding(shortcut, shortcuts, isMac), isMac)
+      {tabs.map((tab, place) => {
+        const on = tab === active
+        // ⌘1–⌘4 by place (lib/keys.ts), unless changed in Settings → Keyboard shortcuts.
+        const keys = formatBinding(effectiveBinding(`tab-${place + 1}`, shortcuts, isMac), isMac)
         return (
           <button
-            key={workspace.id}
+            key={tab}
             role="tab"
             className="mode-switch__option"
-            aria-selected={active}
-            data-active={active || undefined}
-            title={hint(keys ? ` (${keys})` : '')}
+            aria-selected={on}
+            data-active={on || undefined}
+            data-tab={tab}
+            title={`${TAB_LABEL[tab]}: ${TAB_HINT[tab]}${keys ? ` (${keys})` : ''}`}
             onClick={() => {
-              if (!active) setWorkspace(workspace.id)
+              if (!on) setTab(tab)
               // Switching mode from a full-page view (Plugins, Models) lands on
               // that mode's home rather than leaving the page up.
               if (view !== 'chat') setView('chat')
             }}
           >
-            {icon}
-            <span className="mode-switch__label">{label}</span>
-            {kind === 'workers' && workersAttention && !active && <span className="mode-switch__dot" role="img" aria-label="Needs attention" />}
+            {TAB_ICON[tab](15)}
+            <span className="mode-switch__label">{TAB_LABEL[tab]}</span>
+            {tab === 'workers' && workersAttention && !on && <span className="mode-switch__dot" role="img" aria-label="Needs attention" />}
           </button>
         )
       })}

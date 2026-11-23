@@ -12,6 +12,9 @@ import { isDirty, type IdeTab, type Surface } from '../ideStore'
 import { FilesView } from './FilesView'
 import { FileHistoryButton } from './FileHistory'
 import { shortcutLabel } from '../../../lib/platform'
+import { formatBytes } from '../../../lib/files'
+import { previewType } from '@shared/workspaceFiles'
+import { remoteLocation } from '@shared/adeRemote'
 
 /**
  * A file in a tab of its own, laid out as an editor: where the file sits,
@@ -125,26 +128,29 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
                     <FileIcon file={part} size={14} />
                   </span>
                 )}
-                {part}
+                <span className="file-surface__crumb-name">{part}</span>
               </span>
             ))}
             {tab && isDirty(tab) && <span className="file-surface__dirty" title={`Not saved yet (${shortcutLabel('⌘S')} saves)`} aria-label="Not saved yet" />}
           </nav>
           <div className="file-surface__tools">
-            <button
-              type="button"
-              className="file-surface__tool"
-              data-active={wrap || undefined}
-              aria-pressed={wrap}
-              title={wrap ? 'Stop wrapping long lines' : 'Wrap long lines'}
-              aria-label="Wrap long lines"
-              onClick={() => {
-                setWrap(!wrap)
-                keep(WRAP_KEY, !wrap ? '1' : '0')
-              }}
-            >
-              <WrapText size={15} strokeWidth={1.8} />
-            </button>
+            {/* Lines to wrap only in a file shown as text. */}
+            {(!tab || tab.kind === 'text') && (
+              <button
+                type="button"
+                className="file-surface__tool"
+                data-active={wrap || undefined}
+                aria-pressed={wrap}
+                title={wrap ? 'Stop wrapping long lines' : 'Wrap long lines'}
+                aria-label="Wrap long lines"
+                onClick={() => {
+                  setWrap(!wrap)
+                  keep(WRAP_KEY, !wrap ? '1' : '0')
+                }}
+              >
+                <WrapText size={15} strokeWidth={1.8} />
+              </button>
+            )}
             <FileHistoryButton path={path} rel={rel} line={caret.line} ready={tab ? !isDirty(tab) : false} />
             <OpenInButton icon file={path} folder={place.folder} />
             <button
@@ -189,6 +195,64 @@ function useCommitted(tab: IdeTab): string | null {
   return base
 }
 
+/** A picture in the project, shown as it is (on a checker where it's see-through), with its size. */
+function ImagePreview({ path }: { path: string }): JSX.Element {
+  const [image, setImage] = useState<{ url: string; size: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null)
+  useEffect(() => {
+    let live = true
+    setImage(null)
+    setError(null)
+    setDims(null)
+    window.api.workspaceFiles.image(path).then(
+      (read) => live && setImage(read),
+      (e: unknown) => live && setError((e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, ''))
+    )
+    return () => {
+      live = false
+    }
+  }, [path])
+  if (error)
+    return (
+      <div className="ide__notice">
+        <FileWarning size={22} strokeWidth={1.5} />
+        <p>{error}</p>
+      </div>
+    )
+  return (
+    <div className="ide-image">
+      <div className="ide-image__stage">
+        {image && (
+          <img
+            className="ide-image__img"
+            src={image.url}
+            alt={path.split('/').pop() ?? ''}
+            draggable={false}
+            data-shown={dims ? true : undefined}
+            onLoad={(e) => setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+            onError={() => setError('This picture couldn’t be shown.')}
+          />
+        )}
+      </div>
+      <div className="ide-image__meta">
+        {dims && (
+          <span>
+            {dims.w} × {dims.h}
+          </span>
+        )}
+        {image && <span>{formatBytes(image.size)}</span>}
+        {/* Only this computer's files open in its apps. */}
+        {!remoteLocation(path) && (
+          <button type="button" className="ide-image__open" onClick={() => void window.api.library.open(path).catch(() => undefined)}>
+            Open in default app
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel: string; onCaret: (caret: EditorCaret) => void }): JSX.Element {
   const place = useDockPlace()
   const { edit, save, reload, setCaret } = place.store(useShallow((s) => ({ edit: s.edit, save: s.save, reload: s.reload, setCaret: s.setCaret })))
@@ -205,6 +269,7 @@ function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel:
     if (isDirty(tab)) void save(tab.path)
     place.askAgent(editRequest(rel, sel.fromLine, sel.toLine, sel.text, lang, instruction))
   }
+  if (tab.kind !== 'text' && tab.kind !== 'error' && previewType(tab.path)) return <ImagePreview path={tab.path} />
   if (tab.kind !== 'text') {
     const message =
       tab.kind === 'binary' ? 'This file isn’t text, so it can’t be edited here.' : tab.kind === 'too-large' ? 'This file is too large to edit here.' : (tab.error ?? 'This file couldn’t be opened.')
@@ -212,7 +277,7 @@ function TabBody({ tab, wrap, rel, onCaret }: { tab: IdeTab; wrap: boolean; rel:
       <div className="ide__notice">
         <FileWarning size={22} strokeWidth={1.5} />
         <p>{message}</p>
-        {tab.kind !== 'error' && (
+        {tab.kind !== 'error' && !remoteLocation(tab.path) && (
           <button className="btn btn--ghost" onClick={() => void window.api.library.open(tab.path)}>
             Open in default app
           </button>

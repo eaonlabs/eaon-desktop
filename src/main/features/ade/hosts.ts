@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { ManualHostInput, SshHost } from '@shared/adeRemote'
+import { exeHost } from '@shared/environments'
 import { hostFromManualInput, readSshConfig } from './ssh'
 
 /**
  * The SSH hosts a remote session can be on: every `Host` in ~/.ssh/config
  * (read fresh each time, so an edit there shows up), then the ones added in
  * Eaon, kept in `ade-ssh-hosts.json`. Connection descriptors only, never a
- * password or a key.
+ * password or a key. An exe.dev VM (`exe:<vm>`) is found by its id alone
+ * (shared/environments.ts) without being listed.
  */
 
 export interface HostStoreDeps {
@@ -21,7 +23,8 @@ export class HostBook {
   private manual(): SshHost[] {
     const raw = this.deps.load()
     return (Array.isArray(raw) ? raw : []).filter(
-      (h): h is SshHost => Boolean(h) && typeof h.id === 'string' && typeof h.hostname === 'string' && h.source === 'manual'
+      (h): h is SshHost =>
+        Boolean(h) && typeof h.id === 'string' && typeof h.hostname === 'string' && (h.source === 'manual' || (h.source === 'config' && h.id.startsWith('prov:') && typeof h.configFile === 'string'))
     )
   }
 
@@ -31,7 +34,7 @@ export class HostBook {
   }
 
   async find(id: string): Promise<SshHost | null> {
-    return (await this.list()).find((h) => h.id === id) ?? null
+    return exeHost(id) ?? (await this.list()).find((h) => h.id === id) ?? null
   }
 
   add(input: ManualHostInput): SshHost {
@@ -42,5 +45,12 @@ export class HostBook {
 
   remove(id: string): void {
     this.deps.save(this.manual().filter((h) => h.id !== id))
+  }
+
+  /** A machine a provider's CLI found (environments/providers.ts), kept by its id: grabbed again, it is replaced, not repeated. */
+  put(host: SshHost): SshHost {
+    const kept: SshHost = { ...host, source: host.alias && host.configFile ? 'config' : 'manual' }
+    this.deps.save([...this.manual().filter((h) => h.id !== host.id), kept])
+    return kept
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type JSX, type MutableRefObject } from 'react'
 import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
 import { wallpaperSource, wallpaperVideoUrl } from '@shared/wallpaper'
@@ -224,6 +224,8 @@ export function SeeThrough(): JSX.Element | null {
   const readable = options?.readable !== false
   const blur = useSettled(blurOf(options?.blur), SETTLE_MS)
   const layer = useRef<HTMLDivElement>(null)
+  /** Fade out's steps when baked (BakedFade): copies of the picture that slide with it. */
+  const fadeShifts = useRef<(HTMLDivElement | null)[]>([])
   const latest = useRef<WallpaperFrame | null>(null)
 
   /** Slides the layer so the picture's corner sits on the display's, wherever the window is. */
@@ -235,7 +237,9 @@ export function SeeThrough(): JSX.Element | null {
     // rather than running off into black.
     const dx = Math.min(0, Math.max(window.innerWidth - f.display.width, f.display.x - f.content.x))
     const dy = Math.min(0, Math.max(window.innerHeight - f.display.height, f.display.y - f.content.y))
-    el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`
+    const shift = `translate3d(${dx}px, ${dy}px, 0)`
+    el.style.transform = shift
+    for (const step of fadeShifts.current) if (step) step.style.transform = shift
   }
 
   // The window's place on the screen, as it moves: straight onto the layer.
@@ -414,6 +418,19 @@ export function SeeThrough(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plate, display])
 
+  // Fade out over a picture that holds still: its steps blurred once, here,
+  // rather than by frosted layers the compositor blurs again on every frame
+  // anything moves over them (bakeFade). A video changes under them: live.
+  const fading = Boolean(options?.fade)
+  const [fadeCopies, setFadeCopies] = useState<HTMLCanvasElement[] | null>(null)
+  useEffect(() => {
+    setFadeCopies(fading && !clip && plate instanceof HTMLCanvasElement && display ? bakeFade(plate, display.width) : null)
+  }, [fading, clip, plate, display])
+  useEffect(() => {
+    if (fadeCopies) place()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fadeCopies])
+
   // The page drops its own background while the picture is behind it.
   const ready = on && plate !== null
   useEffect(() => {
@@ -580,8 +597,9 @@ export function SeeThrough(): JSX.Element | null {
   return (
     <div className="see-through" data-ready={ready || undefined} style={{ '--see-tint': wash } as CSSProperties} aria-hidden="true">
       <div ref={layer} className="see-through__layer" />
+      {fadeCopies && display && <BakedFade copies={fadeCopies} display={display} shifts={fadeShifts} />}
       <div className="see-through__tint" />
-      {options?.fade && <FadeOut />}
+      {fading && <FadeOut baked={fadeCopies !== null} />}
     </div>
   )
 }
@@ -599,17 +617,107 @@ const FADE_BLURS = [1, 2, 4, 8, 16, 32]
  * blurring more, eased in over its step, so the blur grows smoothly rather
  * than in bands; and a veil of the page's colour over the lower part. It
  * belongs to the window, not the picture, so it stays put as the picture
- * slides, and the compositor does it all.
+ * slides. Over a still picture the steps are baked (BakedFade) and only the
+ * veil is here.
  */
-function FadeOut(): JSX.Element {
+function FadeOut({ baked }: { baked: boolean }): JSX.Element {
   return (
     <div className="see-through__fade" style={{ '--fade-from': FADE_FROM, '--fade-step': FADE_STEP } as CSSProperties}>
-      {FADE_BLURS.map((blur, i) => (
-        <span key={blur} style={{ '--fade-i': i, '--fade-blur': `${blur}px` } as CSSProperties} />
-      ))}
+      {!baked &&
+        FADE_BLURS.map((blur, i) => <span key={blur} style={{ '--fade-i': i, '--fade-blur': `${blur}px` } as CSSProperties} />)}
       <i />
     </div>
   )
+}
+
+/**
+ * Fade out's steps over a still picture: each a copy of the picture already
+ * as soft as the frosted layer would leave it (bakeFade), sliding with the
+ * picture under the layer's mask, which keeps to the window. Frosted layers
+ * behind the page were blurred again on every frame of a scroll, as anything
+ * frosted over the thread (its top and foot veils) asked for what lay under
+ * it, and scrolling a long chat dropped frames; copies cost no more than the
+ * picture. Under the tint, where the frosted layers sit over it: the tint is
+ * one colour all over, so blurring it changes nothing.
+ */
+function BakedFade({
+  copies,
+  display,
+  shifts
+}: {
+  copies: HTMLCanvasElement[]
+  display: WallpaperFrame['display']
+  shifts: MutableRefObject<(HTMLDivElement | null)[]>
+}): JSX.Element {
+  const holders = useRef<(HTMLDivElement | null)[]>([])
+  useEffect(() => {
+    copies.forEach((copy, i) => holders.current[i]?.replaceChildren(copy))
+  }, [copies])
+  return (
+    <div className="see-through__baked" style={{ '--fade-from': FADE_FROM, '--fade-step': FADE_STEP } as CSSProperties}>
+      {copies.map((_, i) => (
+        <div key={i} className="see-through__baked-step" style={{ '--fade-i': i } as CSSProperties}>
+          <div
+            ref={(el) => {
+              holders.current[i] = el
+              shifts.current[i] = el
+            }}
+            className="see-through__baked-shift"
+            style={{ width: display.width, height: display.height }}
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Fade out's steps for a still picture, blurred once. Each frosted layer
+ * blurs what the ones above it already blurred, so a step is the picture
+ * blurred by all of them together: blurs add as their squares. The soft
+ * steps are drawn at half a pixel a point, which nobody can tell, and the
+ * picture's edge is carried on past it first, so a blur there finds picture
+ * rather than nothing (which would darken the border).
+ */
+function bakeFade(plate: HTMLCanvasElement, displayWidth: number): HTMLCanvasElement[] {
+  const platePerPoint = plate.width / displayWidth
+  let squares = 0
+  return FADE_BLURS.map((step) => {
+    squares += step * step
+    const blur = Math.sqrt(squares)
+    const perPoint = Math.min(platePerPoint, blur >= 4 ? 0.5 : 1)
+    const out = document.createElement('canvas')
+    out.width = Math.max(1, Math.round((plate.width * perPoint) / platePerPoint))
+    out.height = Math.max(1, Math.round((plate.height * perPoint) / platePerPoint))
+    const ctx = out.getContext('2d')
+    if (!ctx) return out
+    const pad = Math.ceil(blur * perPoint * 3)
+    ctx.filter = `blur(${blur * perPoint}px)`
+    ctx.drawImage(edged(plate, out.width, out.height, pad), -pad, -pad)
+    ctx.filter = 'none'
+    return out
+  })
+}
+
+/** The picture at w × h, its outermost pixels carried `pad` further out on every side. */
+function edged(plate: HTMLCanvasElement, w: number, h: number, pad: number): HTMLCanvasElement {
+  const out = document.createElement('canvas')
+  out.width = w + pad * 2
+  out.height = h + pad * 2
+  const ctx = out.getContext('2d')
+  if (!ctx) return out
+  const [sw, sh] = [plate.width, plate.height]
+  ctx.drawImage(plate, pad, pad, w, h)
+  // Its outer rows and columns, stretched outward; a corner pixel fills each corner.
+  ctx.drawImage(plate, 0, 0, sw, 1, pad, 0, w, pad)
+  ctx.drawImage(plate, 0, sh - 1, sw, 1, pad, pad + h, w, pad)
+  ctx.drawImage(plate, 0, 0, 1, sh, 0, pad, pad, h)
+  ctx.drawImage(plate, sw - 1, 0, 1, sh, pad + w, pad, pad, h)
+  ctx.drawImage(plate, 0, 0, 1, 1, 0, 0, pad, pad)
+  ctx.drawImage(plate, sw - 1, 0, 1, 1, pad + w, 0, pad, pad)
+  ctx.drawImage(plate, 0, sh - 1, 1, 1, 0, pad + h, pad, pad)
+  ctx.drawImage(plate, sw - 1, sh - 1, 1, 1, pad + w, pad + h, pad, pad)
+  return out
 }
 
 /** What getKeyframes() reports beside the animated properties. */

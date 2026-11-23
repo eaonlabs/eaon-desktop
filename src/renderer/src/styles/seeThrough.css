@@ -55,6 +55,38 @@
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
   mask-image: linear-gradient(to bottom, transparent, #000 calc(var(--fade-step) * 1vh));
 }
+/* The same steps over a still picture, baked (SeeThrough.tsx BakedFade): each a
+   copy of the picture already blurred, under the step's mask, which keeps to
+   the window while the copy slides with the picture. */
+.see-through__baked {
+  position: absolute;
+  inset: 0;
+}
+.see-through__baked-step {
+  position: absolute;
+  inset: 0;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc((var(--fade-from) + var(--fade-i) * var(--fade-step)) * 1vh),
+    #000 calc((var(--fade-from) + (var(--fade-i) + 1) * var(--fade-step)) * 1vh)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc((var(--fade-from) + var(--fade-i) * var(--fade-step)) * 1vh),
+    #000 calc((var(--fade-from) + (var(--fade-i) + 1) * var(--fade-step)) * 1vh)
+  );
+}
+.see-through__baked-shift {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.see-through__baked-shift > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .see-through__fade > i {
   position: absolute;
   inset: calc(var(--fade-from) * 1vh) 0 0;

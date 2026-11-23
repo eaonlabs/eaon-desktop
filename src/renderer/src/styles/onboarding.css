@@ -625,6 +625,13 @@ button.onboarding__row:hover .onboarding__row-chevron {
 }
 
 /* Appearance: three small windows. */
+/* The Tabs step: Settings' list of tabs, on the setup's card. */
+.onboarding__tabs {
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
 .onboarding__themes {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

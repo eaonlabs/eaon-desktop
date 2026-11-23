@@ -6,6 +6,8 @@ import type { WorkerMail } from './workers'
 import type { ProviderHealth, ProviderIssue } from './providers'
 import type { EngineId, ModelSource } from './engines'
 import type { AgentPermission, AgentPermissionChoice } from './agentPermissions'
+import type { CloudEnvironment, SessionPlace } from './environments'
+import type { AppTab, ChatSide } from './tabs'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -309,6 +311,12 @@ export interface Chat {
    * or the Library, and is dropped when the window leaves it.
    */
   temporary?: boolean
+  /**
+   * Runs in a cloud environment, not on this computer: on a copy of its
+   * project on that machine (shared/environments.ts). Its folder is the
+   * copy's, so every tool, the terminal and the diff work there.
+   */
+  place?: SessionPlace
 }
 
 /**
@@ -357,7 +365,7 @@ export type AppIcon = 'default' | 'agent' | AppIconBackground
 /** The Disc E on another background than the default dark tile. */
 export type AppIconBackground = 'light' | 'ocean' | 'sunset' | 'forest' | 'grape' | 'aurora' | 'peaks'
 export const APP_ICON_BACKGROUNDS: readonly AppIconBackground[] = ['light', 'ocean', 'sunset', 'forest', 'grape', 'aurora', 'peaks']
-export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
+export type LaunchMode = 'chat' | 'ide' | 'workers' | 'ade' | 'last'
 /**
  * How the chat agent asks before acting. `ask`: before every change. `auto`:
  * only before risky ones. `full`: never, except for what can't be undone —
@@ -472,6 +480,8 @@ export interface Settings {
     launchAtLogin: boolean
     /** Which mode the app opens in: a fixed one, or wherever it was left. */
     launchMode: LaunchMode
+    /** The top bar's tabs, in order (shared/tabs.ts). Unset is every tab. */
+    tabs?: AppTab[]
   }
   appearance: {
     mode: ThemeMode
@@ -739,6 +749,8 @@ export interface Settings {
   disabledPlugins: string[]
   disabledSkills: string[]
   activeWorkspaceId: string
+  /** Which of the chat workspace's tabs is in front, Chat or the IDE (shared/tabs.ts). Unset is Chat. */
+  chatSide?: ChatSide
   selectedModelId: string | null
   /**
    * Which provider serves the selected model. The id alone is ambiguous once a
@@ -759,6 +771,10 @@ export interface Settings {
   adaptiveModel?: boolean
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
+  /** Cloud environments a session can run in (Settings → Environments, shared/environments.ts). */
+  environments?: CloudEnvironment[]
+  /** Where a new session runs: `local` (this computer), or an environment's id. The picker under the message box sets it. */
+  environment?: string
   /** Models picked lately, newest first, as `providerId:modelId`. */
   recentModels?: string[]
   effort: EffortLevel
@@ -917,6 +933,12 @@ export interface WorkOptions {
 
 export interface StreamRequest {
   chatId: string
+  /**
+   * The chat runs in a cloud environment (Chat.place): its agent must run on
+   * that machine too, so the session keeps going while this computer is away.
+   * Only Codex and Claude Code can; Eaon's own loop runs here.
+   */
+  cloud?: boolean
   /** The project's other folders (Project.extraFolders), for a Work turn. */
   extraRoots?: string[]
   /** For the "Task finished" notification, so main need not read every chat to find it. */

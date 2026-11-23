@@ -57,6 +57,7 @@ import { savedPromptsFeature } from './savedPrompts'
 import { chatContextFeature } from './chatContext'
 import { sideQuestionFeature } from './sideQuestion'
 import { mcpToolsFeature } from './mcpTools'
+import { environmentsFeature } from './environments'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -87,6 +88,8 @@ export const FEATURES: Feature[] = [
   terminalsFeature,
   adeFeature,
   adeToolsFeature,
+  // Cloud environments: sessions on exe.dev VMs and other machines, reached as the ADE's SSH hosts.
+  environmentsFeature,
   // Make ADE sessions, so after it.
   prReviewFeature,
   linearFeature,

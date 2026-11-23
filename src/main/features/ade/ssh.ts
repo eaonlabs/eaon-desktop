@@ -35,6 +35,10 @@ export function sshArgv(host: SshHost, opts: { interactive: boolean }): string[]
   if (opts.interactive) args.push('-tt')
   // A command run in the background has nobody to type a password: fail rather than hang.
   else args.push('-o', 'BatchMode=yes')
+  if (host.trustNew) args.push('-o', 'StrictHostKeyChecking=accept-new')
+  // A provider's own config (Lima, OrbStack, a codespace): read in place of ~/.ssh/config.
+  if (host.configFile) args.unshift('-F', host.configFile)
+  if (host.proxyCommand) args.push('-o', `ProxyCommand=${host.proxyCommand}`)
   if (host.source === 'config' && host.alias) {
     args.push(host.alias)
     return args
@@ -66,6 +70,47 @@ export function remoteCommandLine(cwd: string | null, cmd: string, args: string[
  */
 export function remoteShellCommand(cwd: string): string {
   return `cd ${shQuote(cwd)} 2>/dev/null; exec "$SHELL" -l`
+}
+
+/** The tmux session a pane on another machine lives in there: one per pane. */
+export const tmuxName = (paneId: string): string => `eaon-${paneId.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 60)}`
+
+/**
+ * Eaon's panes there have a tmux of their own (`-L eaon`), so what it sets
+ * never touches the user's tmux (which still reads their config). Set each
+ * time a pane joins it: no status line (the pane is the window), and no
+ * alternate screen. tmux draws on the alternate screen by default, which has
+ * no scrollback, and there a terminal turns the mouse wheel into ↑ and ↓,
+ * which a shell takes as its history. Nor does it scroll by "scroll up N"
+ * (indn), which drops the lines it scrolls: by newlines, each line scrolled
+ * off the top goes into the pane's own scrollback, and the wheel scrolls it.
+ * The override is one indexed entry, so setting it again changes nothing.
+ */
+const TMUX = 'tmux -L eaon'
+const TMUX_SETUP = `start-server ';' set -g status off ';' set -s 'terminal-overrides[90]' '*:smcup@:rmcup@:indn@'`
+
+/**
+ * What a pane on another machine runs there: its shell, and the agent it was
+ * started with, inside a tmux session of its own, so they go on when the
+ * connection doesn't (the laptop shut, the network gone, Eaon quit). Opened
+ * again, the pane joins the session it left, the agent still in it, and
+ * nothing is started twice (`-A`). A machine without tmux gets the plain
+ * shell (and agent), which end with the connection as before.
+ */
+export function remotePaneCommand(cwd: string, paneId: string, command: string | null): string {
+  const dir = shQuote(cwd)
+  const run = command?.trim() ? `${command.trim()}; exec "$SHELL" -l` : null
+  // The end-to-end tests' stand-in ssh runs this here, where a tmux of the developer's own may be.
+  if (process.env.EAON_REMOTE_TMUX === 'off') return `cd ${dir} 2>/dev/null; ${run ? `exec "$SHELL" -lc ${shQuote(run)}` : 'exec "$SHELL" -l'}`
+  const tmux = `${TMUX} ${TMUX_SETUP} ';' new-session -A -s ${shQuote(tmuxName(paneId))} -c ${dir}${run ? ` ${shQuote(run)}` : ''}`
+  const plain = run ? `exec "$SHELL" -lc ${shQuote(run)}` : 'exec "$SHELL" -l'
+  return `cd ${dir} 2>/dev/null; if command -v tmux >/dev/null 2>&1; then exec ${tmux}; fi; ${plain}`
+}
+
+/** Ends a pane's tmux session there: in Eaon's own tmux, and in the user's, where panes ran before it had one. */
+export function remotePaneKill(paneId: string): string {
+  const name = shQuote(tmuxName(paneId))
+  return `${TMUX} kill-session -t ${name} 2>/dev/null; tmux kill-session -t ${name} 2>/dev/null; true`
 }
 
 export interface RemoteExecResult {

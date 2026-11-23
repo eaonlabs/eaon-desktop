@@ -71,3 +71,32 @@ test('a table of ticks and dashes is drawn as a comparison', () => {
   // The feature column keeps its Markdown.
   assert.match(out, /<strong>Team-wide use<\/strong>/)
 })
+
+test("links to GitHub carry GitHub's mark, and a bare address says what it points at", () => {
+  const out = html(
+    [
+      'Validate link targets. ([files.ts](https://github.com/acme/sdk/blob/main/src/files.ts))',
+      'Staging uses 0755 ([line 75](https://github.com/acme/sdk/blob/62a60a5/src/upload.ts#L75)).',
+      'Opened https://github.com/acme/sdk/pull/12 and [lines 428–431](https://github.com/acme/sdk/blob/main/src/tar.ts#L428-L431).',
+      'Fixed in https://github.com/acme/sdk/commit/62a60a5f00d1. Not GitHub: https://example.com/a.'
+    ].join('\n')
+  )
+  const links = [...out.matchAll(/<a [^>]*class="md__gh"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => m[1].replace(/<svg[\s\S]*?<\/svg>/, '').replace(/<[^>]+>/g, ''))
+  assert.deepEqual(links, ['files.ts', 'line 75', 'acme/sdk#12', 'lines 428–431', '62a60a5'])
+  // Each with the mark, and the whole address in its tooltip.
+  assert.equal(out.match(/class="md__gh-mark"/g)?.length, 5)
+  assert.match(out, /title="https:\/\/github.com\/acme\/sdk\/pull\/12"/)
+  assert.match(out, /<a href="https:\/\/example.com\/a">https:\/\/example.com\/a<\/a>/)
+  // The mark keeps to the label's first word, so a line never ends on the mark alone.
+  assert.match(out, /<span class="md__gh-lead"><svg[^>]*>[\s\S]*?<\/svg>lines<\/span> 428–431<\/a>/)
+  assert.match(html('<https://github.com/acme/sdk/blob/main/src/tar.ts#L428-L431>'), /tar.ts:428–431/)
+  // A branch keeps its slashes.
+  assert.match(html('CI: https://github.com/acme/sdk/tree/fix/extract-links'), /fix\/extract-links<\/span><\/a>/)
+})
+
+test("a link's label holds no link of its own", () => {
+  // A path in backticks would be a file link anywhere else; inside a link it is the label's code.
+  const out = html('See [`src/files.ts:75`](https://github.com/acme/sdk/blob/main/src/files.ts#L75).')
+  assert.equal(out.match(/<a /g)?.length, 1)
+  assert.match(out, /<code class="md__code">src\/files.ts:75<\/code><\/span><\/a>/)
+})

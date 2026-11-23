@@ -15,6 +15,7 @@
  */
 
 import type { AdeSession } from './adeSessions'
+import type { SessionPlace } from './environments'
 
 export interface SshHost {
   id: string
@@ -32,6 +33,24 @@ export interface SshHost {
    */
   source: 'config' | 'manual'
   alias: string | null
+  /**
+   * Take the host's key the first time it is seen, as `ssh` would once asked
+   * in a terminal. Only for a machine Eaon made a moment ago (an exe.dev VM,
+   * shared/environments.ts), whose key nobody could have checked before.
+   */
+  trustNew?: boolean
+  /**
+   * An ssh config file of the machine's provider (Lima's, OrbStack's, one
+   * GitHub's CLI wrote for a codespace), read instead of ~/.ssh/config:
+   * `ssh -F <file> <alias>`. The user's own config is never changed.
+   */
+  configFile?: string | null
+  /** How ssh reaches the machine through its provider's CLI (Coder's `coder ssh --stdio`), when it isn't by address. */
+  proxyCommand?: string | null
+  /** Which provider's CLI found it (shared/environments.ts ProviderId), for its name and mark. */
+  provider?: string | null
+  /** What the provider made for Eaon to reach it (a Freestyle identity's id), so it can be taken back when the machine is let go. */
+  providerRef?: string | null
 }
 
 export interface ManualHostInput {
@@ -47,6 +66,8 @@ export interface NewRemoteSessionRequest {
   /** A folder on the host; `~` and `~/…` are the remote user's home. */
   path: string
   title?: string
+  /** Made in a cloud environment: the copy's place, filed under the project here it came from. */
+  place?: SessionPlace
 }
 
 /** A folder on a host picked for a Chat project (no session is made). */
@@ -86,6 +107,6 @@ export const isRemote = (cwd: string): boolean => remoteLocation(cwd) !== null
 export function remoteDisplay(cwd: string, labelOf: (hostId: string) => string | null): string {
   const place = remoteLocation(cwd)
   if (!place) return cwd
-  const label = labelOf(place.hostId) ?? (place.hostId.startsWith('cfg:') ? place.hostId.slice(4) : 'ssh')
+  const label = labelOf(place.hostId) ?? (place.hostId.startsWith('cfg:') ? place.hostId.slice(4) : place.hostId.startsWith('exe:') ? `${place.hostId.slice(4)}.exe.xyz` : 'ssh')
   return `${label}:${place.path}`
 }

@@ -14,6 +14,7 @@ import {
 } from '@shared/adeSessions'
 import * as git from './git'
 import { isRemote } from '@shared/adeRemote'
+import type { SessionPlace } from '@shared/environments'
 
 /**
  * The ADE's sessions, kept in `ade-sessions.json`. See `shared/adeSessions.ts`
@@ -70,6 +71,7 @@ function normalize(raw: unknown): AdeSession | null {
     ...(v.imported === true ? { imported: true } : {}),
     ...(str(v.importedFrom) ? { importedFrom: (str(v.importedFrom) as string).slice(0, 40) } : {}),
     ...(str(v.host) ? { host: str(v.host) as string } : {}),
+    ...(v.place && typeof v.place === 'object' && str((v.place as { folder?: unknown }).folder) ? { place: v.place } : {}),
     ...(typeof v.archivedAt === 'number' && Number.isFinite(v.archivedAt) ? { archivedAt: v.archivedAt } : {})
   }
 }
@@ -364,20 +366,22 @@ export class SessionBook {
   }
 
   /** A session in a folder on an SSH host (checked and resolved by the caller); the one there already if it has one. */
-  addRemote(fields: { cwd: string; host: string; title: string | null; branch: string | null; repo: boolean }): AdeSession {
+  addRemote(fields: { cwd: string; host: string; title: string | null; branch: string | null; repo: boolean; project?: string; place?: SessionPlace }): AdeSession {
     const have = this.byCwd(fields.cwd)
     if (have) return have
     this.closed.delete(path.resolve(fields.cwd))
     const session: AdeSession = {
       id: `ses-${randomUUID()}`,
       title: fields.title,
-      project: fields.cwd,
+      // A cloud environment's copy is filed under the project here it was made from.
+      project: fields.project ?? fields.cwd,
       cwd: fields.cwd,
       branch: fields.branch,
       repo: fields.repo,
       worktree: false,
       createdAt: this.deps.now(),
-      host: fields.host
+      host: fields.host,
+      ...(fields.place ? { place: fields.place } : {})
     }
     this.sessions.push(session)
     this.commit()

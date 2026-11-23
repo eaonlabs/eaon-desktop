@@ -261,6 +261,10 @@ a:hover {
   padding: var(--sidebar-gap);
   user-select: none;
   overflow: hidden;
+  /* Over the chat's veils (chat.css .scroll-veil, at 3), which run on under
+     it so their blur takes in its gutter too. */
+  position: relative;
+  z-index: 4;
   transition: flex-basis 240ms var(--ease), width 240ms var(--ease), padding 240ms var(--ease);
 }
 
@@ -952,6 +956,41 @@ a:hover {
   align-items: center;
   font-size: var(--fs-xs);
   color: var(--text-4);
+}
+/* The IDE with no project: a line on what it's for, and the way in. */
+.sidebar__empty--ide {
+  height: auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px 8px;
+}
+.sidebar__empty--ide p {
+  margin: 0;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.sidebar__empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  transition:
+    background-color var(--dur) var(--ease),
+    scale var(--dur) var(--ease);
+}
+.sidebar__empty-action:hover,
+.sidebar__empty-action[data-open] {
+  background: var(--active, var(--hover));
+}
+.sidebar__empty-action:active {
+  scale: 0.96;
 }
 
 

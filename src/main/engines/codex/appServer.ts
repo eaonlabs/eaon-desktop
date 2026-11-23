@@ -78,6 +78,11 @@ export interface AppServerOptions {
   jsonrpc?: boolean
   /** The program's name in messages about it ("Codex stopped unexpectedly"). */
   label?: string
+  /**
+   * The process, made by the caller rather than spawned here: one on another
+   * machine that outlives this computer's connection to it (engines/kept.ts).
+   */
+  process?: () => ChildProcess
 }
 
 interface Pending {
@@ -116,14 +121,17 @@ export class AppServer {
   private constructor(readonly options: AppServerOptions) {
     const args = options.args ?? ['app-server']
     const spec = spawnSpec(options.command, args)
-    this.child = spawn(spec.command, spec.args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      shell: spec.shell,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true
-    })
-    live.add(this)
+    this.child = options.process
+      ? options.process()
+      : spawn(spec.command, spec.args, {
+          cwd: options.cwd,
+          env: options.env ?? process.env,
+          shell: spec.shell,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true
+        })
+    // One on another machine is meant to outlive this app (engines/kept.ts): never ended on the way out.
+    if (!options.process) live.add(this)
     installExitHook()
     this.detach = attachJsonlReader(this.child.stdout!, (line) => this.handleLine(line))
     this.child.stderr?.on('data', (chunk: Buffer) => this.appendStderr(chunk.toString('utf8')))

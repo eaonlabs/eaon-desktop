@@ -9,6 +9,8 @@ import { countChanges } from '../chatCode/diff/model'
 import { SnippetDiff } from '../chatCode/diff/SnippetDiff'
 import { splitPath } from './FileIcon'
 import { PeekLine } from './ToolPeek'
+import { Octicon } from '../pullRequests/octicons'
+import { isGitHubCommand } from './githubLink'
 
 /**
  * The two calls that keep a card of their own in the transcript, where the
@@ -169,6 +171,8 @@ export const CommandCard = memo(function CommandCard({ part }: { part: ChatToolP
 
   const verb = waiting ? 'Run' : running ? 'Running' : skipped ? 'Skipped' : failed ? "Couldn't run" : background ? 'Started' : 'Ran'
   const badExit = (exit !== null && exit !== 0) || signal !== null
+  // GitHub's own command line (a pull request opened, a review read) shows GitHub's mark.
+  const github = isGitHubCommand(command)
   // The line shows the command's first line; the whole of it is in the card a hover raises.
   const line = command.split('\n')[0] || commandSummary(command) || 'command'
   // Running, the output's tail shows under the line as it prints; done, it is a click away.
@@ -179,7 +183,15 @@ export const CommandCard = memo(function CommandCard({ part }: { part: ChatToolP
       <PeekLine className="step-card__bar" summary={`${verb} ${commandSummary(command) || 'a command'}${background ? ' in the background' : ''}`} raw={command}>
         <button className="step-card__head" onClick={() => setOpen(!open)} aria-expanded={output ? open : undefined} disabled={!output}>
           <span className="step-card__icon">
-            {skipped ? <Ban size={14} strokeWidth={1.9} /> : failed ? <TriangleAlert size={14} strokeWidth={1.9} /> : <SquareTerminal size={14} strokeWidth={1.8} />}
+            {skipped ? (
+              <Ban size={14} strokeWidth={1.9} />
+            ) : failed ? (
+              <TriangleAlert size={14} strokeWidth={1.9} />
+            ) : github ? (
+              <Octicon name="mark-github" size={13} />
+            ) : (
+              <SquareTerminal size={14} strokeWidth={1.8} />
+            )}
           </span>
           <span className={`step-card__title${running && !waiting ? ' step-shimmer' : ''}`}>{verb}</span>
           <code className="step-card__cmd">{line}</code>

@@ -56,7 +56,7 @@ const values = <T extends string>(all: Record<T, true>): readonly string[] => Ob
 
 /** Fields with a fixed set of values; anything else goes back to the default. */
 const SETTINGS_ENUMS: Record<string, readonly string[]> = {
-  'general.launchMode': values<LaunchMode>({ chat: true, workers: true, ade: true, last: true }),
+  'general.launchMode': values<LaunchMode>({ chat: true, ide: true, workers: true, ade: true, last: true }),
   'appearance.mode': values<ThemeMode>({ system: true, light: true, dark: true }),
   'appearance.reduceMotion': values<Settings['appearance']['reduceMotion']>({ system: true, on: true, off: true }),
   'appearance.appIcon': values<AppIcon>({ default: true, agent: true, light: true, ocean: true, sunset: true, forest: true, grape: true, aurora: true, peaks: true }),

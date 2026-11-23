@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ChevronDown, CircleAlert, Folder, FolderOpen, FolderPlus, Hand, Lock, LockOpen, ShieldCheck, X } from 'lucide-react'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
-import { codeProject, useApp } from '../../state/store'
+import { codeProject, useApp, useChatSide } from '../../state/store'
 import { fileName } from '../../lib/files'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from '../ui'
 
@@ -114,6 +114,8 @@ function rememberProject(path: string): void {
  */
 export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Element {
   const { project, inChat, workIn } = useApp(useShallow((s) => ({ project: codeProject(s), inChat: s.activeChatId !== null, workIn: s.workIn })))
+  // In the IDE (beside Chat) a chat leaves its project for the Chat tab, and a new one always starts in one.
+  const side = useChatSide()
   const cwd = project?.folder ?? null
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
@@ -146,7 +148,7 @@ export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Elem
         placement={row ? 'bottom-end' : 'top-start'}
         current={cwd}
         onChoose={workIn}
-        none={cwd ? (inChat ? 'Move this chat to Chats' : 'Start an ordinary chat') : undefined}
+        none={cwd ? (inChat ? (side === 'ide' ? 'Move this chat to Chat' : 'Move this chat to Chats') : side === 'ide' ? undefined : 'Start an ordinary chat') : undefined}
       />
     </>
   )

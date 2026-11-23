@@ -108,6 +108,11 @@ export interface EngineTurnResult {
   sessionReplaced?: boolean
   /** Something the user should know about this turn that isn't an error. */
   notice?: string | null
+  /**
+   * The machine the turn ran on, when not this one (a cloud environment's):
+   * `error` then says what to do there, and is shown as it is.
+   */
+  where?: string
   /** Who pays for the tokens in `usage`; see EngineBilling. */
   billing?: EngineBilling
 }
@@ -123,6 +128,12 @@ export type EngineBilling = 'plan' | 'api-key' | 'provider' | 'unknown'
 
 export interface EngineAdapter {
   readonly id: EngineId
+  /**
+   * Can run a turn in a folder on another machine (`ssh://…`), by starting
+   * the engine there over SSH (engines/remote.ts). Engines without it only
+   * work in folders on this computer.
+   */
+  readonly remote?: boolean
   /** Finds the engine, its version and sign-in state. Never throws; problems go in `error`. */
   detect(options?: { force?: boolean }): Promise<EngineStatus>
   /** The models this engine and account offer, freshest source first. Never throws. */

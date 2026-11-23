@@ -20,6 +20,8 @@ import { CommandRules } from './CommandRules'
 import { ProjectChecks } from './ProjectChecks'
 import { CommandSandbox } from './CommandSandbox'
 import { updateLabel, versionLabel } from '@shared/version'
+import { shownTabs, TAB_LABEL } from '@shared/tabs'
+import { TabsPicker } from '../TabsPicker'
 
 export function GeneralPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -54,16 +56,24 @@ export function GeneralPage(): JSX.Element {
       <h1 className="settings__h1">General</h1>
       <p className="settings__lede">How Eaon starts, how chats behave{isWork ? ', and what the agent may do on its own' : ''}.</p>
 
+      <Section label="Tabs">
+        <p className="settings__section-note">Which tabs the top bar has, in order from left to right. Chat holds ordinary chats, and the IDE holds chats that code in a project folder.</p>
+        <Card>
+          <TabsPicker />
+        </Card>
+      </Section>
+
       <Section label="Startup">
         <Card>
-          <Row title="Open on launch" description="The mode Eaon opens in">
+          <Row title="Open on launch" description="The tab Eaon opens in">
             <Select
               value={g.launchMode ?? 'chat'}
               onChange={(value) => void patchSettings({ general: { launchMode: value as LaunchMode } })}
               options={[
-                { value: 'chat', label: 'Chat' },
-                { value: 'workers', label: 'Workers' },
-                { value: 'ade', label: 'ADE' },
+                // The tabs shown, in their order; one opened on before it was hidden stays listed so the choice still reads.
+                ...shownTabs(g.tabs)
+                  .concat(g.launchMode && g.launchMode !== 'last' && !shownTabs(g.tabs).includes(g.launchMode) ? [g.launchMode] : [])
+                  .map((tab) => ({ value: tab, label: TAB_LABEL[tab] })),
                 { value: 'last', label: 'Where I left off' }
               ]}
             />

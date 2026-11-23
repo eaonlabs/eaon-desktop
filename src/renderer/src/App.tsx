@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
+import { isAgentKind, settleTabs, useApp, useIsWork, useTabs, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ApprovalPrompt, ARCHIVE_REQUEST, ChatView } from './components/ChatView'
 import { ImageViewer } from './components/chat/ImageViewer'
@@ -44,6 +44,7 @@ import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
 import { isMac } from './lib/platform'
 import { matchesChord } from '@shared/keybindings'
+import { shownTabs } from '@shared/tabs'
 import { bindingOf, keyOf } from './lib/bindings'
 import { CommandPalette } from './components/palette/CommandPalette'
 import { togglePalette } from './components/palette/paletteStore'
@@ -84,6 +85,14 @@ export default function App(): JSX.Element {
 
   // What Eaon CLI asks of the window (tabs, ADE folders and terminals, settings).
   useEffect(() => installControl(), [])
+
+  // At launch, and when the tabs are changed in Settings: off a hidden tab, and
+  // Chat and the IDE each holding their own chats. Not on every switch, so a
+  // chat opened from a notification in a hidden tab still opens.
+  const tabOrder = useTabs().tabs.join()
+  useEffect(() => {
+    if (ready) settleTabs()
+  }, [ready, tabOrder])
 
   // Trading's page isn't there while Trading is off (the CLI or a stale link can still send the window to it).
   useEffect(() => {
@@ -332,18 +341,17 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
         event.preventDefault()
         togglePalette()
       }
-      // ⌘1 / ⌘2 / ⌘3 (Ctrl elsewhere): Chat, Workers, ADE — the top bar's switch, from the keyboard.
-      const kind = is('tab-chat') ? 'chat' : is('tab-workers') ? 'workers' : is('tab-ade') ? 'code' : null
+      // ⌘1–⌘4 (Ctrl elsewhere): the top bar's tabs by place, from the keyboard.
+      const place = ['tab-1', 'tab-2', 'tab-3', 'tab-4'].findIndex((id) => is(id))
+      const tab = place < 0 ? undefined : shownTabs(useApp.getState().settings?.general.tabs)[place]
       // Not when what has the keyboard took it already (the model pickers'
       // ⌘1–⌘9), nor from inside a dialog or an open list, where switching
       // views would throw away what's being filled in.
       const inside = document.activeElement instanceof Element && document.activeElement.closest('[role="dialog"], [aria-modal="true"], [role="listbox"], [role="menu"]')
-      if (kind && !event.defaultPrevented && !inside) {
+      if (tab && !event.defaultPrevented && !inside) {
         const app = useApp.getState()
-        const target = app.workspaces.find((w) => w.kind === kind)
-        if (!target) return
         event.preventDefault()
-        if (target.id !== app.settings?.activeWorkspaceId) app.setWorkspace(target.id)
+        app.setTab(tab)
         if (app.view !== 'chat') app.setView('chat')
       }
     }

@@ -20,7 +20,8 @@ import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccoun
 import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
-import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
+import { remoteExec, remotePaneCommand, remotePaneKill, sshArgv, sshBinary } from './ade/ssh'
+import type { SshHost } from '@shared/adeRemote'
 import { onWorktreeRemoval } from './ade/git'
 import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
@@ -340,6 +341,8 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
    * as the account it moved off. Remote panes run their host's Codex.
    */
   const codexHomes = new Map<string, string | null>()
+  /** Panes on other machines, by id, for ending their tmux session there when they are closed. */
+  const remotePanes = new Map<string, SshHost>()
 
   const paneRecords = (): PaneRecords => {
     if (!records) {
@@ -502,8 +505,12 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         restored.add(req.paneId)
         const host = await sshHosts.find(remote.hostId)
         if (!host) return { ok: false, error: 'This session’s SSH host isn’t in ~/.ssh/config or Eaon’s hosts any more.' }
-        const argv = [...sshArgv(host, { interactive: true }), remoteShellCommand(remote.path)]
-        return manager.spawn(resumeLine(req), {}, null, { bin: sshBinary(), argv })
+        // Its agent starts inside the pane's tmux session there, rather than being typed in: a pane opened
+        // again joins the session with the agent still at work, and must not type it in a second time.
+        const line = resumeLine(req)
+        const argv = [...sshArgv(host, { interactive: true }), remotePaneCommand(remote.path, req.paneId, line.command ?? null)]
+        remotePanes.set(req.paneId, host)
+        return manager.spawn({ ...line, command: null }, {}, null, { bin: sshBinary(), argv })
       }
       // A folder macOS keeps Eaon out of: say so, instead of a shell whose every command fails.
       if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
@@ -682,6 +689,12 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       ipcMain.on('terminal:kill', (_e, paneId: string) => {
         manager.kill(paneId)
         codexHomes.delete(paneId)
+        // Closed (or restarted) on purpose: its tmux session there goes too, and what ran in it.
+        const host = remotePanes.get(paneId)
+        if (host) {
+          remotePanes.delete(paneId)
+          void remoteExec(host, remotePaneKill(paneId), { timeoutMs: 20_000 })
+        }
       })
     },
     shutdown: async () => {
