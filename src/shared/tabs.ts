@@ -1,4 +1,4 @@
-import type { Workspace } from './types'
+import type { Settings, Workspace } from './types'
 
 /**
  * The top bar's tabs, which the user picks and orders in Settings → General
@@ -6,9 +6,9 @@ import type { Workspace } from './types'
  *
  * Chat and the IDE share the chat workspace, its chats and its projects. An
  * ordinary chat is Chat's; a chat that works in a project folder, with the
- * code panel beside it, is the IDE's. With both tabs shown each lists only
- * its own; with one of them shown, that one has all of them, as Chat did
- * before the IDE had a tab.
+ * code panel beside it, is the IDE's. The IDE only ever lists its own, Chat
+ * there or not: plain chats in the IDE would make it a second Chat. Chat
+ * without the IDE beside it has every chat, as it did before the IDE had a tab.
  */
 export type AppTab = 'chat' | 'ide' | 'workers' | 'ade'
 
@@ -38,8 +38,31 @@ export function shownTabs(tabs: readonly unknown[] | null | undefined): AppTab[]
 /** Chat and the IDE each list only their own chats: when both are tabs. */
 export const splitsChats = (tabs: readonly AppTab[]): boolean => tabs.includes('chat') && tabs.includes('ide')
 
+/**
+ * An install set up before the IDE had its own tab updated into four tabs it
+ * never chose, so it's asked once which it wants (components/onboarding/
+ * TabsPrompt.tsx). Not while the setup, which has its own Tabs step, or the
+ * what's-new tour is still to come, and not once it has picked them in
+ * Settings.
+ */
+export function tabsPromptDue(settings: (Pick<Settings, 'onboarding'> & { general?: { tabs?: unknown } }) | null | undefined): boolean {
+  if (!settings) return false
+  const { onboarding } = settings
+  return onboarding.setup !== 'pending' && onboarding.whatsNew !== null && !onboarding.tabsAsked && settings.general?.tabs === undefined
+}
+
 /** The chat workspace's two sides. */
 export type ChatSide = 'chat' | 'ide'
+
+/**
+ * The side of the chat workspace in front, given the side last shown: the
+ * IDE's whenever the IDE is the tab in front, even without Chat; null for
+ * Chat with no IDE tab, which lists every chat.
+ */
+export function chatSideIn(side: ChatSide | null | undefined, tabs: readonly AppTab[]): ChatSide | null {
+  if (!tabs.includes('ide')) return null
+  return activeTab('chat', side, tabs) === 'ide' ? 'ide' : 'chat'
+}
 
 /** The tab a chat belongs to: the IDE once it works in a project. */
 export const sideOfChat = (chat: { projectId?: string | null }): ChatSide => (chat.projectId ? 'ide' : 'chat')

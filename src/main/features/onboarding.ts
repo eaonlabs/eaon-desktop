@@ -17,7 +17,10 @@ import { docPath } from '../storeFiles'
  *   look, and then the tour of what's new.
  * - One that went through the setup in a 2026.7 beta gets only the tour of
  *   what's new.
+ * - One set up before the IDE had its own tab is asked once which tabs it
+ *   wants (shared/tabs.ts tabsPromptDue); the setup has its own Tabs step.
  *
+
  * `EAON_ONBOARDING=off` skips all of it: the end-to-end suite sets it, since
  * every scenario starts from a fresh profile, and a scenario about the setup
  * sets it back to `on`.
@@ -25,8 +28,8 @@ import { docPath } from '../storeFiles'
 export function noteFirstRun(): void {
   const current = store.getSettings().onboarding
   if (process.env.EAON_ONBOARDING === 'off') {
-    if (current.setup === 'pending') store.patchSettings({ onboarding: { setup: 'done', tour: 'done', finishedAt: null, whatsNew: WHATS_NEW_RELEASE } })
-    else if (current.whatsNew !== WHATS_NEW_RELEASE) store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE } })
+    if (current.setup === 'pending') store.patchSettings({ onboarding: { setup: 'done', tour: 'done', finishedAt: null, whatsNew: WHATS_NEW_RELEASE, tabsAsked: true } })
+    else if (current.whatsNew !== WHATS_NEW_RELEASE || !current.tabsAsked) store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE, tabsAsked: true } })
     return
   }
   if (!existsSync(docPath('settings.json')) && !existsSync(docPath('chats.json'))) {

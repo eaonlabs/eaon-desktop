@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderInput, FolderOpen, FolderPlus, GitPullRequest, LibraryBig, ListFilter, ListTodo, Monitor, PanelLeft, PencilLine, Pin, PinOff, Plus, ScrollText, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
-import { useApp, useChatSide, useWorkspaceKind, vmDeletedWith, type ChatListItem } from '../state/store'
+import { useApp, useChatSide, useTabs, useWorkspaceKind, vmDeletedWith, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { WindowTitle } from './WindowTitle'
 import { FadingBody } from './FadingBody'
@@ -22,7 +22,7 @@ import { ageLabel } from '@shared/adeSessions'
 import { ConfirmDialog, MenuItem, Modal, Popover, useDisclosure } from './ui'
 import { RemoteFolderDialog } from './RemoteFolderDialog'
 import type { Project } from '@shared/types'
-import type { ChatSide } from '@shared/tabs'
+import { shownTabs, splitsChats, type ChatSide } from '@shared/tabs'
 import { isRemote, remoteDisplay, type SshHost } from '@shared/adeRemote'
 
 export function Sidebar(): JSX.Element {
@@ -154,8 +154,10 @@ function ChatMenu(): JSX.Element {
   )
   const { on: tradingOn } = useTradingOn()
   const side = useChatSide()
+  const { split } = useTabs()
   // The IDE's places are its projects: a new chat (in the project it's on) and the search row.
-  if (side === 'ide') {
+  // Models, the Library and Plugins stay with Chat, or here when Chat isn't a tab.
+  if (side === 'ide' && split) {
     return (
       <>
         <NavItem icon={<SquarePen {...ICON} />} label="New chat" onClick={() => newChat()} />
@@ -1046,6 +1048,7 @@ const ChatRow = memo(function ChatRow({
   // Moving to a project picks its folder, from where the row is.
   const [moving, setMoving] = useState(false)
   const side = useChatSide()
+  const split = useApp((s) => splitsChats(shownTabs(s.settings?.general.tabs)))
   const moveTo = (folder: string | null): void => {
     const app = useApp.getState()
     app.moveChat(chat.id, folder ? app.projectForFolder(folder).id : null)
@@ -1233,8 +1236,8 @@ const ChatRow = memo(function ChatRow({
           onChoose={moveTo}
           // Its own project isn't somewhere to move it to.
           current={inProject ? projectFolderOf(chat.id) : null}
-          // With the IDE a tab of its own, out of a project is to the Chat tab.
-          none={inProject ? (side ? 'Move to Chat' : 'Move to Chats') : undefined}
+          // With the IDE a tab of its own, out of a project is to the Chat tab; with no Chat tab, nowhere.
+          none={inProject && (!side || split) ? (side ? 'Move to Chat' : 'Move to Chats') : undefined}
         />
       )}
       <ConfirmDialog

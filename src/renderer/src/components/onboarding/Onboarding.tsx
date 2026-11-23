@@ -138,9 +138,10 @@ function Setup(): JSX.Element {
     await new Promise((done) => window.setTimeout(done, reduceMotion() ? 0 : how === 'done' ? 380 : 240))
     try {
       await patchSettings({
+        // The setup has a Tabs step, skipped or not: "Pick your tabs" isn't asked again after it.
         onboarding: updated
-          ? { setup: how, finishedAt: Date.now(), whatsNew: tour ? null : WHATS_NEW_RELEASE }
-          : { setup: how, finishedAt: Date.now(), tour: tour ? 'pending' : 'skipped' }
+          ? { setup: how, finishedAt: Date.now(), whatsNew: tour ? null : WHATS_NEW_RELEASE, tabsAsked: true }
+          : { setup: how, finishedAt: Date.now(), tour: tour ? 'pending' : 'skipped', tabsAsked: true }
       })
     } catch {
       // Not saved: the setup comes back as it was rather than frozen mid-exit

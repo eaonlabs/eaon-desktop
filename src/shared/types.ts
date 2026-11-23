@@ -684,6 +684,12 @@ export interface Settings {
      * earlier version never has it.
      */
     fresh?: boolean
+    /**
+     * Asked which tabs to have: in the setup's Tabs step, or, for an install
+     * set up before the IDE had its own tab, in the popup after updating
+     * (components/onboarding/TabsPrompt.tsx). Unset: not yet.
+     */
+    tabsAsked?: boolean
   }
   /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
   toknCli: {

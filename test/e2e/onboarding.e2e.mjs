@@ -121,7 +121,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     assert.deepEqual(titles, ['Your tabs', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
     await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
     // A fresh install starts on this release, so its what's new never shows on top of the tour.
-    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7', fresh: true })
+    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7', fresh: true, tabsAsked: true })
     assert.equal(await page.eval(() => document.querySelector('.mode-switch__option[aria-selected="true"]')?.textContent?.trim()), 'Chat')
 
     // Not again on the next launch.
@@ -235,7 +235,52 @@ scenario('an update from a 2026.7 beta that went through the setup: only what’
   await page.waitFor(() => !document.querySelector('.tour'), { message: 'Escape to end the tour' })
   assert.equal((await onboarding(page)).tour, 'skipped', 'the tour of the app is left as it was')
 
+  // Set up before the IDE had a tab: asked which tabs to have, after what's new. Escape keeps all four.
+  await page.find('.modal__title', { text: 'Pick your tabs' })
+  await page.press('Escape')
+  await page.waitFor(() => !document.querySelector('.modal'), { message: 'Escape to close Pick your tabs' })
+  const settings = await page.eval(() => window.api.settings.get())
+  assert.equal(settings.onboarding.tabsAsked, true)
+  assert.equal(settings.general.tabs, undefined, 'closed without a change: every tab, as before')
+
   await openSettings(page, 'General')
   await page.click('.settings button', { text: /^Show me$/ })
   assert.deepEqual(await walkWhatsNew(s, page, false), WHATS_NEW_TITLES)
+})
+
+scenario('an update from 2026.7.8: asked once which tabs to have', { timeout: 90_000 }, async (s) => {
+  // Set up, and shown what's new, before the IDE had a tab of its own.
+  const app = await s.launch({
+    env: { EAON_ONBOARDING: 'on' },
+    seed: { 'settings.json': { onboarding: { setup: 'done', tour: 'done', finishedAt: Date.now() - 86_400_000, whatsNew: '2026.7' } } }
+  })
+  const page = app.page
+  await page.find('.modal__title', { text: 'Pick your tabs' })
+  assert.equal(await page.eval(() => Boolean(document.querySelector('.onboarding, .tour'))), false, 'no setup or tour with it')
+  const tabs = () => page.eval(() => [...document.querySelectorAll('.mode-switch__option')].map((tab) => tab.textContent?.trim()))
+  assert.deepEqual(await tabs(), ['Chat', 'Workers', 'IDE', 'ADE'])
+  await s.shot(page, 'tabs-prompt')
+
+  // Each change shows in the top bar at once, and the popup stays for the next.
+  await page.click('.modal .tabs-bar__tab[data-tab="workers"]')
+  await page.waitFor(async () => (await window.api.settings.get()).general.tabs?.join() === 'chat,ide,ade', { message: 'Workers off to save' })
+  assert.equal(await page.eval(() => document.querySelector('.modal .tabs-bar__tab[data-tab="workers"]')?.getAttribute('aria-pressed')), 'false', 'Workers kept in the row, hidden')
+  // From the keyboard, ⌥← moves a tab: past the hidden Workers, then past Chat.
+  await page.eval(() => document.querySelector('.modal .tabs-bar__tab[data-tab="ide"]')?.focus())
+  await page.press('Alt+ArrowLeft')
+  await page.press('Alt+ArrowLeft')
+  await page.waitFor(async () => (await window.api.settings.get()).general.tabs?.join() === 'ide,chat,ade', { message: 'the IDE moved first' })
+  assert.deepEqual(await tabs(), ['IDE', 'Chat', 'ADE'])
+  assert.equal(await page.eval(() => document.querySelector('.modal__title')?.textContent), 'Pick your tabs', 'still open after a change')
+  await page.click('.modal .btn--primary', { text: 'Done' })
+  await page.waitFor(() => !document.querySelector('.modal'), { message: 'Done to close it' })
+  assert.equal((await onboarding(page)).tabsAsked, true)
+
+  // Not again on the next launch.
+  await app.quit()
+  const again = await s.relaunch(app)
+  await again.page.find('.composer')
+  await sleep(1_200)
+  assert.equal(await again.page.eval(() => Boolean(document.querySelector('.modal, .onboarding, .tour'))), false)
+  assert.deepEqual(await again.page.eval(() => [...document.querySelectorAll('.mode-switch__option')].map((tab) => tab.textContent?.trim())), ['IDE', 'Chat', 'ADE'])
 })

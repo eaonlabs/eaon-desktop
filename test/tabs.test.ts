@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { activeTab, APP_TABS, shownTabs, sideOfChat, splitsChats } from '../src/shared/tabs'
+import { activeTab, APP_TABS, chatSideIn, shownTabs, sideOfChat, splitsChats, tabsPromptDue } from '../src/shared/tabs'
 
 /**
  * The top bar's tabs, as Settings → General → Tabs sets them: which are
@@ -33,4 +33,29 @@ test('the tab in front follows the workspace, and the side for the chat workspac
   // One of the two alone has every chat, whichever side was last in front.
   assert.equal(activeTab('chat', 'chat', ['ide', 'ade']), 'ide')
   assert.equal(activeTab('chat', 'ide', ['chat', 'workers']), 'chat')
+})
+
+test('an install set up before the IDE tab is asked its tabs once, after the setup and what’s new', () => {
+  const updated = { onboarding: { setup: 'done', tour: 'done', finishedAt: 1, whatsNew: '2026.7' } } as const
+  assert.equal(tabsPromptDue(updated), true, 'updated into four tabs it never chose')
+  assert.equal(tabsPromptDue({ ...updated, general: {} }), true)
+  assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, setup: 'skipped' } }), true)
+  assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, tabsAsked: true } }), false, 'asked already, here or in the setup')
+  assert.equal(tabsPromptDue({ ...updated, general: { tabs: ['chat', 'ide'] } }), false, 'picked in Settings')
+  assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, setup: 'pending' } }), false, 'the setup has its own Tabs step')
+  assert.equal(tabsPromptDue({ onboarding: { ...updated.onboarding, whatsNew: null } }), false, 'after the what’s-new tour')
+  assert.equal(tabsPromptDue(null), false, 'settings not loaded')
+})
+
+test('the IDE lists only chats in a project, with Chat beside it or not; Chat without the IDE lists every chat', () => {
+  const all = [...APP_TABS]
+  assert.equal(chatSideIn('ide', all), 'ide')
+  assert.equal(chatSideIn('chat', all), 'chat')
+  assert.equal(chatSideIn(undefined, all), 'chat', 'unset is Chat')
+  // The IDE alone is still the IDE: no plain chats in it.
+  assert.equal(chatSideIn('chat', ['ide', 'ade']), 'ide')
+  assert.equal(chatSideIn(null, ['workers', 'ide']), 'ide')
+  // Chat alone has every chat, as before the IDE had a tab.
+  assert.equal(chatSideIn('ide', ['chat', 'workers']), null)
+  assert.equal(chatSideIn('chat', ['chat']), null)
 })

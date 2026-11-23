@@ -205,7 +205,7 @@ function Home(): JSX.Element {
   const temporary = useApp((s) => s.pendingTemporary) && isWork
   // A project's start page is only its question and the box: the project by name, no mark.
   const project = useApp((s) => (coding ? codeProject(s) : null))
-  // Beside Chat, the IDE's start page is always in a project; with none yet it asks for one.
+  // The IDE's start page is always in a project; with none yet it asks for one.
   const side = useChatSide()
 
   return (
@@ -214,8 +214,8 @@ function Home(): JSX.Element {
         left={isWork ? <TemporaryLabel /> : null}
         right={
           <div className="chat-header__actions">
-            {/* A temporary chat can't be in a project: its switch is on the ordinary start page only. */}
-            {isWork && !coding && <TemporaryToggle />}
+            {/* A temporary chat can't be in a project: its switch is on Chat's start page only, never the IDE's. */}
+            {isWork && !coding && side !== 'ide' && <TemporaryToggle />}
             {isWork ? <PanelToggles over /> : !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
         }
