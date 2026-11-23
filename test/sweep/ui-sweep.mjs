@@ -263,7 +263,9 @@ async function setLook({ mode, size, seeThrough }) {
 
 /** Every screen in one look. */
 async function sweep(combo, { settingsPages = true, overlays = true, placesToo = true, skipContrast = false } = {}) {
-  for (const tab of ['Chat', 'Workers', 'ADE']) {
+  // The top bar's tabs as the app shows them: which there are, and their order, are a setting.
+  const tabs = await page.eval(() => [...document.querySelectorAll('.mode-switch__option')].map((el) => (el.querySelector('.mode-switch__label')?.textContent || el.innerText || '').trim()).filter(Boolean))
+  for (const tab of tabs.length ? tabs : ['Chat', 'Workers', 'ADE']) {
     const at = await home(tab)
     await look({ combo, area: tab, label: 'Home', kind: 'place', ms: at.ms, settled: at.settled, skipContrast })
     if (!placesToo) continue
