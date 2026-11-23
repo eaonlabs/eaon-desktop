@@ -77,3 +77,21 @@
 .tabs-pick__row[data-off] .tabs-pick__body {
   opacity: 0.5;
 }
+
+/* "Pick your tabs" after updating (TabsPrompt.tsx): the list sits in a well
+   on the dialog, where the dialog's own surface would swallow the tiles. */
+.tabs-prompt__lead {
+  margin: 0 0 14px;
+  text-wrap: pretty;
+}
+.tabs-prompt__list {
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+}
+.tabs-prompt__note {
+  margin: 12px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}

@@ -54,6 +54,7 @@ import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
+import { TabsPrompt } from './components/onboarding/TabsPrompt'
 import { onboardingShowing, useOnboarding } from './components/onboarding/onboardingStore'
 import { startProviderLogos } from './state/providerLogos'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
@@ -308,6 +309,7 @@ export default function App(): JSX.Element {
       <DiscordPresence />
       <Onboarding />
       <Tour />
+      <TabsPrompt />
     </>
   )
 }

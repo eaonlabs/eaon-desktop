@@ -5,6 +5,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Pick your tabs after updating.** Someone who used Eaon before the IDE had its own tab is asked once which tabs to have: a small window with the same list as Settings → General → Tabs, where each tab can be turned off or moved, and the top bar changes behind it as you go. It comes after any what's-new tour, never on top of the setup (which has its own Tabs step), and not at all if the tabs were already picked in Settings. Done or closing it keeps what's there.
+
 ## [2026.7.8.1] — 2026-11-23
 
 ### Added

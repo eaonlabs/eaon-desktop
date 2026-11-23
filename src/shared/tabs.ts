@@ -1,4 +1,4 @@
-import type { Workspace } from './types'
+import type { Settings, Workspace } from './types'
 
 /**
  * The top bar's tabs, which the user picks and orders in Settings → General
@@ -37,6 +37,19 @@ export function shownTabs(tabs: readonly unknown[] | null | undefined): AppTab[]
 
 /** Chat and the IDE each list only their own chats: when both are tabs. */
 export const splitsChats = (tabs: readonly AppTab[]): boolean => tabs.includes('chat') && tabs.includes('ide')
+
+/**
+ * An install set up before the IDE had its own tab updated into four tabs it
+ * never chose, so it's asked once which it wants (components/onboarding/
+ * TabsPrompt.tsx). Not while the setup, which has its own Tabs step, or the
+ * what's-new tour is still to come, and not once it has picked them in
+ * Settings.
+ */
+export function tabsPromptDue(settings: (Pick<Settings, 'onboarding'> & { general?: { tabs?: unknown } }) | null | undefined): boolean {
+  if (!settings) return false
+  const { onboarding } = settings
+  return onboarding.setup !== 'pending' && onboarding.whatsNew !== null && !onboarding.tabsAsked && settings.general?.tabs === undefined
+}
 
 /** The chat workspace's two sides. */
 export type ChatSide = 'chat' | 'ide'

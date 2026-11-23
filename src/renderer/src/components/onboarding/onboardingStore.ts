@@ -16,24 +16,29 @@ interface OnboardingState {
   startTour: (tour?: TourKind) => void
   /** `done`: reached the end. `skipped`: closed before it. Either way it isn't offered again on its own. */
   endTour: (how: 'done' | 'skipped') => void
+  /** "Pick your tabs" after updating (TabsPrompt) is up. */
+  tabsOpen: boolean
+  setTabsOpen: (open: boolean) => void
 }
 
 /**
- * The setup or the tour is on screen. The star popup in the corner doesn't
- * count that time, so a fresh install meets it after the setup, not on top
- * of it.
+ * The setup, a tour or "Pick your tabs" is on screen. The star popup in the
+ * corner doesn't count that time, so a fresh install meets it after the
+ * setup, not on top of it.
  */
 export function onboardingShowing(): boolean {
   // Before settings load, whether the setup is coming isn't known yet: counted as showing.
   const setup = useApp.getState().settings?.onboarding.setup
-  return setup === undefined || setup === 'pending' || useOnboarding.getState().tourOpen
+  const { tourOpen, tabsOpen } = useOnboarding.getState()
+  return setup === undefined || setup === 'pending' || tourOpen || tabsOpen
 }
 
-/** onboardingShowing as a hook: a corner card steps aside while the setup or a tour is up, and comes back after. */
+/** onboardingShowing as a hook: a corner card steps aside while the setup, a tour or "Pick your tabs" is up, and comes back after. */
 export function useOnboardingShowing(): boolean {
   const setup = useApp((s) => s.settings?.onboarding.setup)
   const tour = useOnboarding((s) => s.tourOpen)
-  return setup === undefined || setup === 'pending' || tour
+  const tabs = useOnboarding((s) => s.tabsOpen)
+  return setup === undefined || setup === 'pending' || tour || tabs
 }
 
 export const useOnboarding = create<OnboardingState>((set, get) => ({
@@ -52,5 +57,7 @@ export const useOnboarding = create<OnboardingState>((set, get) => ({
     const { tour } = get()
     set({ tourOpen: false })
     if (tour === 'app') void useApp.getState().patchSettings({ onboarding: { tour: how } })
-  }
+  },
+  tabsOpen: false,
+  setTabsOpen: (tabsOpen) => set({ tabsOpen })
 }))
