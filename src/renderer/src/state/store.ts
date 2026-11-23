@@ -1819,7 +1819,7 @@ export const useApp = create<AppState>((set, get) => ({
  */
 export function chatSideOf(s: Pick<AppState, 'settings' | 'workspaces'>): ChatSide | null {
   const settings = s.settings
-  if (!settings || !splitsChats(shownTabs(settings.general.tabs))) return null
+  if (!settings || !splitsChats(shownTabs(settings.general?.tabs))) return null
   if (!isAgentKind(s.workspaces.find((w) => w.id === settings.activeWorkspaceId)?.kind)) return null
   return settings.chatSide === 'ide' ? 'ide' : 'chat'
 }
