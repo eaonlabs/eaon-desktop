@@ -33,6 +33,8 @@ test('2026.7.3 is called 2026.7.2.1, as on GitHub, and its release notes open on
   // 2026.7.7.1 took 2026.7.8 underneath, so the release named 2026.7.8 is 2026.7.9.
   assert.equal(versionLabel('2026.7.8'), '2026.7.7.1')
   assert.equal(versionLabel('2026.7.9'), '2026.7.8')
+  assert.equal(versionLabel('2026.7.10'), '2026.7.8.1')
+  assert.equal(releaseTagUrl('2026.7.8.1'), `${RELEASES_URL}/tag/v2026.7.8.1`)
   assert.equal(releaseTagUrl('2026.7.8'), `${RELEASES_URL}/tag/v2026.7.8`)
   assert.equal(versionLabel('2026.7.4'), '2026.7.4', 'any other version is its own name')
   assert.equal(versionLabel('2026.7.3-beta.1'), '2026.7.3-beta.1', 'a prerelease keeps its own name')
