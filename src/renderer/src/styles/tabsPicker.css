@@ -78,20 +78,111 @@
   opacity: 0.5;
 }
 
-/* "Pick your tabs" after updating (TabsPrompt.tsx): the list sits in a well
-   on the dialog, where the dialog's own surface would swallow the tiles. */
+/* "Pick your tabs" after updating (TabsPrompt.tsx): the tabs drawn as the top
+   bar draws them (the raised option in a sunken track), a little larger, on a
+   stage. A hidden tab keeps its place as a dashed outline. */
 .tabs-prompt__lead {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
   text-wrap: pretty;
 }
-.tabs-prompt__list {
+.tabs-prompt__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 26px 16px 18px;
   border-radius: var(--r-lg);
   background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--border);
-  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--border-soft);
 }
-.tabs-prompt__note {
-  margin: 12px 0 0;
-  font-size: var(--fs-xs);
+.tabs-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--sunken);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  touch-action: none;
+}
+.tabs-bar__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: calc(var(--r-lg) - 4px);
+  background: var(--surface-3);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: grab;
+  user-select: none;
+  transition:
+    translate 220ms var(--ease),
+    scale var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.tabs-bar__tab svg {
+  flex: none;
+  color: var(--text-2);
+  transition: color var(--dur) var(--ease);
+}
+.tabs-bar__tab[aria-pressed='false'] {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
   color: var(--text-3);
+}
+.tabs-bar__tab[aria-pressed='false'] svg {
+  color: var(--text-3);
+}
+.tabs-bar__tab[aria-pressed='false']:hover {
+  border-color: color-mix(in srgb, var(--fg) 26%, transparent);
+  color: var(--text-2);
+}
+.tabs-bar__tab:active {
+  scale: 0.96;
+}
+.tabs-bar__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Picked up: over the others, lifted, following the pointer with no lag. */
+.tabs-bar__tab[data-drag] {
+  z-index: 1;
+  scale: 1.04;
+  cursor: grabbing;
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.45);
+}
+.tabs-bar__tab[data-drag='drag'] {
+  transition-property: scale, box-shadow;
+}
+.tabs-bar[data-settling] .tabs-bar__tab {
+  transition: none;
+}
+.tabs-prompt__about {
+  /* Every tab's line fits on one at the usual text size; a larger one wraps. */
+  min-height: 1.45em;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+  color: var(--text-3);
+}
+.tabs-prompt__about b {
+  font-weight: 600;
+  color: var(--text-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabs-bar__tab {
+    transition-property: background-color, border-color, color, box-shadow;
+  }
 }

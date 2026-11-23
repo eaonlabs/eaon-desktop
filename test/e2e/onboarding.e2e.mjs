@@ -262,9 +262,13 @@ scenario('an update from 2026.7.8: asked once which tabs to have', { timeout: 90
   await s.shot(page, 'tabs-prompt')
 
   // Each change shows in the top bar at once, and the popup stays for the next.
-  await page.click('.modal [role="switch"][aria-label="Show Workers"]')
+  await page.click('.modal .tabs-bar__tab[data-tab="workers"]')
   await page.waitFor(async () => (await window.api.settings.get()).general.tabs?.join() === 'chat,ide,ade', { message: 'Workers off to save' })
-  await page.click('.modal button[aria-label="Move IDE up"]')
+  assert.equal(await page.eval(() => document.querySelector('.modal .tabs-bar__tab[data-tab="workers"]')?.getAttribute('aria-pressed')), 'false', 'Workers kept in the row, hidden')
+  // From the keyboard, ⌥← moves a tab: past the hidden Workers, then past Chat.
+  await page.eval(() => document.querySelector('.modal .tabs-bar__tab[data-tab="ide"]')?.focus())
+  await page.press('Alt+ArrowLeft')
+  await page.press('Alt+ArrowLeft')
   await page.waitFor(async () => (await window.api.settings.get()).general.tabs?.join() === 'ide,chat,ade', { message: 'the IDE moved first' })
   assert.deepEqual(await tabs(), ['IDE', 'Chat', 'ADE'])
   assert.equal(await page.eval(() => document.querySelector('.modal__title')?.textContent), 'Pick your tabs', 'still open after a change')
