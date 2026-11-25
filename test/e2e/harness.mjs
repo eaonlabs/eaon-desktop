@@ -40,6 +40,9 @@ export const mainEntry = join(repo, 'out', 'main', 'index.js')
 
 const isLinux = process.platform === 'linux'
 
+/** EAON_E2E_HIDDEN=1: the app never comes on screen (see hidden.cjs). */
+export const hidden = process.env.EAON_E2E_HIDDEN === '1'
+
 /**
  * Every built-in local runtime. They are enabled by default and probed on
  * loopback at launch, so a developer's own Ollama, vLLM or even a running
@@ -216,6 +219,11 @@ export async function launchApp(options) {
   const child = spawn(
     electronBinary,
     [
+      // Nothing on screen: windows paint but are never shown, and dialogs,
+      // notifications and prompts are recorded (hidden.cjs). Electron's own
+      // --require runs it once `electron` is ready and before the app's main
+      // script; it has to come before the script on the command line.
+      ...(hidden ? ['--require', join(import.meta.dirname, 'hidden.cjs')] : []),
       mainEntry,
       `--user-data-dir=${profileDir}`,
       '--remote-debugging-port=0',
