@@ -285,4 +285,5 @@ so give it its own `--user-data-dir`. It does nothing without the env var.
 ## License
 
 [Apache 2.0](LICENSE.md). Third-party notices are in [NOTICE](NOTICE).
-Made with ❤️ in the United States
+
+``Made with ❤️ in the United States
